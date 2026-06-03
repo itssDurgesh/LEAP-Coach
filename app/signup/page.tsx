@@ -37,7 +37,7 @@ function IconInput({
 }
 
 export default function SignupPage() {
-  const { signUp } = useApp();
+  const { signUp, oauthSignIn, supabaseMode } = useApp();
   const router = useRouter();
 
   const [form, setForm] = React.useState({
@@ -71,12 +71,13 @@ export default function SignupPage() {
     }
   }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const r = signUp({
+    const r = await signUp({
       name: form.name,
       email: form.email,
+      password: form.password,
       age: form.age ? Number(form.age) : undefined,
       gender: form.gender || undefined,
       phone: form.phone || undefined,
@@ -92,9 +93,13 @@ export default function SignupPage() {
     router.push("/select-role");
   }
 
-  function oauth(provider: "google" | "linkedin") {
+  async function oauth(provider: "google" | "linkedin") {
+    if (supabaseMode) {
+      await oauthSignIn(provider);
+      return;
+    }
     const label = provider === "google" ? "Google" : "LinkedIn";
-    const r = signUp({
+    const r = await signUp({
       name: `${label} User`,
       email: `${provider}.${Date.now().toString(36)}@example.com`,
       phoneVerified: true,

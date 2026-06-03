@@ -33,6 +33,9 @@ import {
   seedTips,
   seedUsers,
 } from "@/lib/mock/seed";
+import { getSupabase } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import * as db from "@/lib/supabase/db";
 
 const STORAGE_KEY = "leap-coach-state-v1";
 const CREDITS_PER_VIDEO = 15;
@@ -72,9 +75,17 @@ function seedState(): AppState {
   };
 }
 
+function emptyState(): AppState {
+  return {
+    users: [], courses: [], tracks: DEFAULT_TRACKS, tips: [], sessions: [], resources: [],
+    community: [], enrollments: [], progress: [], submissions: [], notes: [], currentUserId: null,
+  };
+}
+
 export interface SignUpData {
   name: string;
   email: string;
+  password?: string;
   age?: number;
   gender?: Gender;
   phone?: string;
@@ -85,13 +96,17 @@ export interface SignUpData {
   role?: Role | null;
 }
 
+type AuthResult = { ok: boolean; error?: string; user?: User };
+
 interface AppContextValue extends AppState {
   hydrated: boolean;
   currentUser: User | null;
+  supabaseMode: boolean;
   // auth
-  signIn(email: string): { ok: boolean; error?: string };
-  signUp(data: SignUpData): { ok: boolean; error?: string };
-  adminSignIn(email: string, password: string): { ok: boolean; error?: string };
+  signIn(email: string, password?: string): Promise<AuthResult>;
+  signUp(data: SignUpData): Promise<AuthResult>;
+  adminSignIn(email: string, password: string): Promise<AuthResult>;
+  oauthSignIn(provider: "google" | "linkedin"): Promise<void>;
   signOut(): void;
   setRole(role: Role): void;
   verifyPhone(): void;
@@ -139,6 +154,7 @@ interface AppContextValue extends AppState {
   deleteSession(id: string): void;
   setBanned(userId: string, banned: boolean): void;
   deleteUser(userId: string): void;
+  seedDemoContent(): Promise<void>;
   // lookups
   getCourse(id: string): Course | undefined;
   getCourseBySlug(slug: string): Course | undefined;
@@ -153,23 +169,46 @@ function uid(prefix: string) {
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = React.useState<AppState>(seedState);
+  const [state, setState] = React.useState<AppState>(isSupabaseConfigured ? emptyState : seedState);
   const [hydrated, setHydrated] = React.useState(false);
 
-  // Hydrate from localStorage after mount (avoids SSR mismatch).
+  // ── Hydration: Supabase (real) or localStorage (mock) ──
   React.useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setState({ ...seedState(), ...(JSON.parse(raw) as Partial<AppState>) });
-    } catch {
-      /* ignore corrupt storage */
+    const sb = getSupabase();
+    if (!sb) {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) setState({ ...seedState(), ...(JSON.parse(raw) as Partial<AppState>) });
+      } catch {
+        /* ignore corrupt storage */
+      }
+      setHydrated(true);
+      return;
     }
-    setHydrated(true);
+
+    let active = true;
+    const reload = async (userId: string | null) => {
+      const data = await db.loadAll(sb);
+      if (!active) return;
+      setState((s) => ({ ...s, ...data, currentUserId: userId }));
+      setHydrated(true);
+    };
+    const { data: sub } = sb.auth.onAuthStateChange((event, session) => {
+      if (event === "TOKEN_REFRESHED") {
+        setState((s) => ({ ...s, currentUserId: session?.user?.id ?? s.currentUserId }));
+        return;
+      }
+      reload(session?.user?.id ?? null);
+    });
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
-  // Persist on change (after hydration).
+  // ── Persist to localStorage (mock mode only) ──
   React.useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || isSupabaseConfigured) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
@@ -178,6 +217,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [state, hydrated]);
 
   const value = React.useMemo<AppContextValue>(() => {
+    const sb = getSupabase();
     const currentUser = state.users.find((u) => u.id === state.currentUserId) ?? null;
     const who = (userId?: string) => userId ?? state.currentUserId ?? "";
 
@@ -255,24 +295,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const patchUser = (userId: string, fn: (u: User) => User) =>
       setState((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? fn(u) : u)) }));
 
-    const touch = (userId: string) =>
-      patchUser(userId, (u) => ({ ...u, lastActiveAt: new Date().toISOString() }));
+    const fire = (p: PromiseLike<unknown> | undefined) => {
+      if (p) Promise.resolve(p).then(undefined, (e) => console.error("[supabase]", e));
+    };
 
     return {
       ...state,
       hydrated,
       currentUser,
+      supabaseMode: isSupabaseConfigured,
 
       // ── auth ──
-      signIn(email) {
+      async signIn(email, password) {
+        if (sb) {
+          const { data, error } = await sb.auth.signInWithPassword({
+            email: email.trim(),
+            password: password ?? "",
+          });
+          if (error) return { ok: false, error: error.message };
+          const u = data.user ? await db.fetchUser(sb, data.user.id) : null;
+          if (u?.banned) {
+            await sb.auth.signOut();
+            return { ok: false, error: "This account has been suspended." };
+          }
+          return { ok: true, user: u ?? undefined };
+        }
         const u = state.users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
         if (!u) return { ok: false, error: "No account found for that email." };
         if (u.banned) return { ok: false, error: "This account has been suspended." };
         setState((s) => ({ ...s, currentUserId: u.id }));
-        touch(u.id);
-        return { ok: true };
+        return { ok: true, user: u };
       },
-      signUp(data) {
+      async signUp(data) {
+        if (sb) {
+          const { data: d, error } = await sb.auth.signUp({
+            email: data.email.trim(),
+            password: data.password ?? "",
+            options: { data: { name: data.name } },
+          });
+          if (error) return { ok: false, error: error.message };
+          if (d.user) {
+            fire(
+              db.updateProfile(sb, d.user.id, {
+                name: data.name,
+                age: data.age ?? null,
+                gender: data.gender ?? null,
+                phone: data.phone ?? null,
+                phone_verified: data.phoneVerified ?? false,
+                company: data.company ?? null,
+                nationality: data.nationality ?? null,
+                region: data.region ?? null,
+              }),
+            );
+          }
+          return { ok: true };
+        }
         const exists = state.users.some(
           (x) => x.email.toLowerCase() === data.email.trim().toLowerCase(),
         );
@@ -296,27 +373,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           lastActiveAt: new Date().toISOString(),
         };
         setState((s) => ({ ...s, users: [...s.users, newUser], currentUserId: newUser.id }));
-        return { ok: true };
+        return { ok: true, user: newUser };
       },
-      adminSignIn(email, password) {
+      async adminSignIn(email, password) {
+        if (sb) {
+          const { data, error } = await sb.auth.signInWithPassword({ email: email.trim(), password });
+          if (error) return { ok: false, error: error.message };
+          const u = data.user ? await db.fetchUser(sb, data.user.id) : null;
+          if (!u?.isAdmin) {
+            await sb.auth.signOut();
+            return { ok: false, error: "Not an admin account." };
+          }
+          return { ok: true, user: u };
+        }
         const u = state.users.find(
           (x) => x.email.toLowerCase() === email.trim().toLowerCase() && x.isAdmin,
         );
         if (!u) return { ok: false, error: "Not an admin account." };
         if (password !== ADMIN_PASSWORD) return { ok: false, error: "Incorrect password." };
         setState((s) => ({ ...s, currentUserId: u.id }));
-        return { ok: true };
+        return { ok: true, user: u };
+      },
+      async oauthSignIn(provider) {
+        if (!sb) return;
+        await sb.auth.signInWithOAuth({
+          provider: provider === "linkedin" ? "linkedin_oidc" : "google",
+          options: {
+            redirectTo: typeof window !== "undefined" ? `${window.location.origin}/select-role` : undefined,
+          },
+        });
       },
       signOut() {
+        if (sb) {
+          fire(sb.auth.signOut());
+          setState((s) => ({ ...s, currentUserId: null }));
+          return;
+        }
         setState((s) => ({ ...s, currentUserId: null }));
       },
       setRole(role) {
         if (!currentUser) return;
         patchUser(currentUser.id, (u) => ({ ...u, role }));
+        if (sb) fire(db.updateProfile(sb, currentUser.id, { role }));
       },
       verifyPhone() {
         if (!currentUser) return;
         patchUser(currentUser.id, (u) => ({ ...u, phoneVerified: true }));
+        if (sb) fire(db.updateProfile(sb, currentUser.id, { phone_verified: true }));
       },
 
       // ── access / enroll ──
@@ -334,9 +437,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             c.id === courseId ? { ...c, enrolledCount: c.enrolledCount + 1 } : c,
           ),
         }));
+        if (sb) fire(db.enroll(sb, currentUser.id, courseId));
       },
       purchaseCourse(courseId) {
         if (!currentUser) return;
+        const wasEnrolled = isEnrolled(courseId);
         patchUser(currentUser.id, (u) => ({
           ...u,
           ownedCourseIds: u.ownedCourseIds.includes(courseId)
@@ -347,13 +452,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...s,
           courses: s.courses.map((c) =>
             c.id === courseId
-              ? { ...c, purchaseCount: c.purchaseCount + 1, enrolledCount: c.enrolledCount + (isEnrolled(courseId) ? 0 : 1) }
+              ? { ...c, purchaseCount: c.purchaseCount + 1, enrolledCount: c.enrolledCount + (wasEnrolled ? 0 : 1) }
               : c,
           ),
-          enrollments: isEnrolled(courseId)
+          enrollments: wasEnrolled
             ? s.enrollments
             : [...s.enrollments, { userId: currentUser.id, courseId, enrolledAt: new Date().toISOString() }],
         }));
+        if (sb) {
+          fire(db.purchase(sb, currentUser.id, courseId));
+          if (!wasEnrolled) fire(db.enroll(sb, currentUser.id, courseId));
+        }
       },
       subscribeAllAccess() {
         if (!currentUser) return;
@@ -364,6 +473,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           subscriptionPlan: "all_access",
           subscriptionValidUntil: validUntil.toISOString(),
         }));
+        if (sb)
+          fire(db.updateProfile(sb, currentUser.id, {
+            subscription_plan: "all_access",
+            subscription_valid_until: validUntil.toISOString(),
+          }));
       },
 
       // ── progress ──
@@ -374,11 +488,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!currentUser) return;
         const already = isVideoCompleted(videoId);
         const found = getVideoById(videoId);
+        const dur = found?.video.durationSeconds ?? 0;
         setState((s) => {
           const existing = s.progress.find(
             (p) => p.userId === currentUser.id && p.videoId === videoId,
           );
-          const dur = found?.video.durationSeconds ?? 0;
           const progress = existing
             ? s.progress.map((p) =>
                 p === existing
@@ -408,6 +522,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 ),
           };
         });
+        if (sb) {
+          fire(db.completeVideo(sb, { userId: currentUser.id, videoId, courseId: found?.course.id ?? "", watchSeconds: dur }));
+          if (!already)
+            fire(db.updateProfile(sb, currentUser.id, { learning_credits: currentUser.learningCredits + CREDITS_PER_VIDEO }));
+        }
       },
 
       // ── assignments ──
@@ -464,6 +583,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               )
             : s.users,
         }));
+        if (sb) {
+          fire(db.insertSubmission(sb, submission));
+          if (awardCredits && currentUser)
+            fire(db.updateProfile(sb, userId, { learning_credits: currentUser.learningCredits + CREDITS_PER_ASSIGNMENT }));
+        }
         return submission;
       },
 
@@ -475,16 +599,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
       addNote(videoId, text) {
         if (!currentUser || !text.trim()) return;
-        setState((s) => ({
-          ...s,
-          notes: [
-            { id: uid("note"), userId: currentUser.id, videoId, text: text.trim(), createdAt: new Date().toISOString() },
-            ...s.notes,
-          ],
-        }));
+        const note: Note = {
+          id: uid("note"),
+          userId: currentUser.id,
+          videoId,
+          text: text.trim(),
+          createdAt: new Date().toISOString(),
+        };
+        setState((s) => ({ ...s, notes: [note, ...s.notes] }));
+        if (sb) fire(db.insertNote(sb, note));
       },
       deleteNote(noteId) {
         setState((s) => ({ ...s, notes: s.notes.filter((n) => n.id !== noteId) }));
+        if (sb) fire(db.deleteNote(sb, noteId));
       },
 
       // ── community ──
@@ -500,6 +627,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           likedBy: [],
         };
         setState((s) => ({ ...s, community: [post, ...s.community] }));
+        if (sb) fire(db.insertPost(sb, post));
       },
       editMessage(id, text) {
         setState((s) => ({
@@ -508,43 +636,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             p.id === id ? { ...p, text: text.trim(), editedAt: new Date().toISOString() } : p,
           ),
         }));
+        if (sb) fire(db.updatePost(sb, id, text.trim()));
       },
       deleteMessage(id) {
         setState((s) => ({ ...s, community: s.community.filter((p) => p.id !== id) }));
+        if (sb) fire(db.deletePost(sb, id));
       },
       toggleLike(id) {
         if (!currentUser) return;
+        const post = state.community.find((p) => p.id === id);
+        const liked = post ? post.likedBy.includes(currentUser.id) : false;
         setState((s) => ({
           ...s,
           community: s.community.map((p) =>
             p.id === id
               ? {
                   ...p,
-                  likedBy: p.likedBy.includes(currentUser.id)
+                  likedBy: liked
                     ? p.likedBy.filter((x) => x !== currentUser.id)
                     : [...p.likedBy, currentUser.id],
                 }
               : p,
           ),
         }));
+        if (sb) fire(db.setLike(sb, id, currentUser.id, !liked));
       },
 
       // ── sessions ──
       toggleAttendance(sessionId) {
         if (!currentUser) return;
+        const sess = state.sessions.find((x) => x.id === sessionId);
+        const attending = sess ? sess.attendeeIds.includes(currentUser.id) : false;
         setState((s) => ({
           ...s,
-          sessions: s.sessions.map((sess) =>
-            sess.id === sessionId
+          sessions: s.sessions.map((x) =>
+            x.id === sessionId
               ? {
-                  ...sess,
-                  attendeeIds: sess.attendeeIds.includes(currentUser.id)
-                    ? sess.attendeeIds.filter((x) => x !== currentUser.id)
-                    : [...sess.attendeeIds, currentUser.id],
+                  ...x,
+                  attendeeIds: attending
+                    ? x.attendeeIds.filter((u) => u !== currentUser.id)
+                    : [...x.attendeeIds, currentUser.id],
                 }
-              : sess,
+              : x,
           ),
         }));
+        if (sb) fire(db.setAttendance(sb, sessionId, currentUser.id, !attending));
       },
 
       // ── admin: courses ──
@@ -555,21 +691,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? s.courses.map((c) => (c.id === course.id ? course : c))
             : [course, ...s.courses],
         }));
+        if (sb) fire(db.saveCourse(sb, course));
       },
       deleteCourse(courseId) {
         setState((s) => ({ ...s, courses: s.courses.filter((c) => c.id !== courseId) }));
+        if (sb) fire(db.deleteCourse(sb, courseId));
       },
       togglePublish(courseId) {
+        const c = getCourse(courseId);
         setState((s) => ({
           ...s,
-          courses: s.courses.map((c) => (c.id === courseId ? { ...c, published: !c.published } : c)),
+          courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: !x.published } : x)),
         }));
+        if (sb && c) fire(db.updateCourse(sb, courseId, { published: !c.published }));
       },
       toggleTrending(courseId) {
+        const c = getCourse(courseId);
         setState((s) => ({
           ...s,
-          courses: s.courses.map((c) => (c.id === courseId ? { ...c, trending: !c.trending } : c)),
+          courses: s.courses.map((x) => (x.id === courseId ? { ...x, trending: !x.trending } : x)),
         }));
+        if (sb && c) fire(db.updateCourse(sb, courseId, { trending: !c.trending }));
       },
       saveQuestion(courseId, assignmentId, question) {
         setState((s) => ({
@@ -592,6 +734,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 },
           ),
         }));
+        if (sb) fire(db.saveQuestion(sb, assignmentId, question));
       },
       deleteQuestion(courseId, assignmentId, questionId) {
         setState((s) => ({
@@ -609,6 +752,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 },
           ),
         }));
+        if (sb) fire(db.deleteQuestion(sb, questionId));
       },
 
       // ── admin: tips / tracks / sessions / users ──
@@ -619,17 +763,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? s.tips.map((t) => (t.id === tip.id ? tip : t))
             : [...s.tips, tip],
         }));
+        if (sb) fire(db.saveTip(sb, tip));
       },
       deleteTip(tipId) {
         setState((s) => ({ ...s, tips: s.tips.filter((t) => t.id !== tipId) }));
+        if (sb) fire(db.deleteTip(sb, tipId));
       },
       addTrack(label) {
         const id = label.trim().toLowerCase().replace(/\s+/g, "_");
-        setState((s) =>
-          s.tracks.some((t) => t.id === id)
-            ? s
-            : { ...s, tracks: [...s.tracks, { id, label: label.trim() }] },
-        );
+        const track = { id, label: label.trim() };
+        setState((s) => (s.tracks.some((t) => t.id === id) ? s : { ...s, tracks: [...s.tracks, track] }));
+        if (sb) fire(db.addTrack(sb, track));
         return id;
       },
       saveSession(sess) {
@@ -639,15 +783,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? s.sessions.map((x) => (x.id === sess.id ? sess : x))
             : [sess, ...s.sessions],
         }));
+        if (sb) fire(db.saveSession(sb, sess));
       },
       deleteSession(id) {
         setState((s) => ({ ...s, sessions: s.sessions.filter((x) => x.id !== id) }));
+        if (sb) fire(db.deleteSession(sb, id));
       },
       setBanned(userId, banned) {
         patchUser(userId, (u) => ({ ...u, banned }));
+        if (sb) fire(db.setBanned(sb, userId, banned));
       },
       deleteUser(userId) {
         setState((s) => ({ ...s, users: s.users.filter((u) => u.id !== userId) }));
+        if (sb) fire(db.deleteUserProfile(sb, userId));
+      },
+      async seedDemoContent() {
+        if (!sb || !currentUser?.isAdmin) return;
+        for (const t of DEFAULT_TRACKS) await db.addTrack(sb, t);
+        for (const c of seedCourses) await db.saveCourse(sb, c);
+        for (const t of seedTips) await db.saveTip(sb, t);
+        for (const r of seedResources) await db.upsertResource(sb, r);
+        for (const sess of seedSessions) await db.saveSession(sb, sess);
+        const data = await db.loadAll(sb);
+        setState((s) => ({ ...s, ...data }));
       },
 
       // ── lookups ──
@@ -655,6 +813,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       getCourseBySlug,
       getVideoById,
       resetDemo() {
+        if (isSupabaseConfigured) return;
         try {
           localStorage.removeItem(STORAGE_KEY);
         } catch {

@@ -16,10 +16,10 @@ export default function AdminLoginPage() {
   const [password, setPassword] = React.useState("");
   const [error, setError] = React.useState("");
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const r = adminSignIn(email, password);
+    const r = await adminSignIn(email, password);
     if (!r.ok) {
       setError(r.error ?? "Sign in failed.");
       return;

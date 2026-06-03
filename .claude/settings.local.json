@@ -6,7 +6,10 @@
       "WebFetch(domain:www.profvishalgupta.com)",
       "WebSearch",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT: $?\")"
     ]
   }
 }
