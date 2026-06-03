@@ -38,10 +38,10 @@ export function SiteNav({ overlay = false }: { overlay?: boolean }) {
   return (
     <header
       className={cn(
-        "sticky top-0 z-50 transition-all duration-300",
+        "z-50 transition-all duration-300 w-full",
         solid
-          ? "border-b border-cream-200 bg-white/95 shadow-sm backdrop-blur-md"
-          : "border-b border-white/10 bg-transparent",
+          ? "sticky top-0 border-b border-cream-200 bg-white/95 shadow-sm backdrop-blur-md"
+          : "absolute top-0 border-b border-white/10 bg-transparent",
       )}
     >
       <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-5 sm:px-8">

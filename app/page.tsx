@@ -98,7 +98,7 @@ export default function Home() {
             <p className="font-heading text-sm font-semibold uppercase tracking-[0.16em] sm:text-base">
               <span className="text-cream-100/90">L·E·A·P</span>
               <span className="mx-2 text-gold-400">—</span>
-              <Typewriter text="Leadership Excellence and Authentic Performance" className="text-gold-400" />
+              <Typewriter text="Leadership Excellence and Authentic Performance" className="text-gold-500" />
             </p>
             <h1 className="mt-4 font-heading text-4xl font-extrabold leading-[1.08] text-balance sm:text-5xl lg:text-[3.4rem]">
               <span className="text-white">Scaling </span>
@@ -141,17 +141,6 @@ export default function Home() {
 
           {/* Professor / avatar-video card */}
           <div className="relative">
-            <div className="absolute -left-3 top-10 z-10 hidden animate-float rounded-2xl bg-white p-3 shadow-card sm:flex">
-              <div className="flex items-center gap-2.5">
-                <span className="grid h-9 w-9 place-items-center rounded-xl bg-gold-100 text-gold-600">
-                  <Star className="h-4 w-4 fill-gold-500 text-gold-500" />
-                </span>
-                <div>
-                  <p className="font-heading text-sm font-bold text-navy-800">4.9 / 5</p>
-                  <p className="text-xs text-ink-faint">Avg. topic rating</p>
-                </div>
-              </div>
-            </div>
             <div
               className="absolute -right-2 bottom-14 z-10 hidden animate-float rounded-2xl bg-white p-3 shadow-card sm:flex"
               style={{ animationDelay: "1.6s" }}

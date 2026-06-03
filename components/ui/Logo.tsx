@@ -35,7 +35,7 @@ export function Logo({ className, href = "/", variant = "default", size = "md" }
       {imgOk ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src="/logo.png"
+          src="/logo.png?v=3"
           alt="Leap Coach"
           className="h-full w-full object-contain"
           onError={() => setImgOk(false)}
