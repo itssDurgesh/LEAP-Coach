@@ -44,7 +44,7 @@ export default function AssignmentPage() {
 
   if (!ready || !course || !assignment || !assignmentUnlocked(assignment.id)) {
     return (
-      <div className="grid min-h-screen place-items-center bg-cream-50">
+      <div className="grid min-h-screen place-items-center bg-surface">
         <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
       </div>
     );
@@ -83,16 +83,16 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
   const exhausted = (result?.attemptNumber ?? prior.attempts) >= MAX_ATTEMPTS;
 
   return (
-    <div className="min-h-screen bg-cream-50">
-      <header className="sticky top-0 z-30 border-b border-cream-200 bg-cream-50/90 backdrop-blur-md">
+    <div className="min-h-screen bg-surface">
+      <header className="sticky top-0 z-30 border-b border-hair bg-surface/90 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4 sm:px-6">
           <Link
             href={`/courses/${course.slug}`}
-            className="inline-flex items-center gap-2 text-sm font-medium text-ink-soft hover:text-navy-800"
+            className="inline-flex items-center gap-2 text-sm font-medium text-muted hover:text-heading"
           >
             <X className="h-5 w-5" /> Exit
           </Link>
-          <p className="truncate text-sm font-semibold text-navy-800">{course.title}</p>
+          <p className="truncate text-sm font-semibold text-heading">{course.title}</p>
           <Logo href="/dashboard" size="sm" className="hidden sm:inline-flex" />
         </div>
       </header>
@@ -113,8 +113,8 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
               <Badge variant="navy">
                 <ClipboardCheck className="h-3.5 w-3.5" /> Checkpoint · after video {assignment.afterVideoOrder}
               </Badge>
-              <h1 className="mt-3 font-heading text-3xl font-bold text-navy-800">AI-Graded Assignment</h1>
-              <p className="mt-2 text-ink-soft">
+              <h1 className="mt-3 font-heading text-3xl font-bold text-heading">AI-Graded Assignment</h1>
+              <p className="mt-2 text-muted">
                 Answer all {assignment.questions.length} questions. You need 60% to pass and unlock the
                 next videos. {prior.attempts > 0 && `Attempt ${prior.attempts + 1} of ${MAX_ATTEMPTS}.`}
               </p>
@@ -132,7 +132,7 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
                         {q.type === "mcq" ? "Multiple choice" : "Fill in the blank"}
                       </Badge>
                       {q.type === "fill_blank" ? (
-                        <p className="font-heading text-lg font-semibold leading-relaxed text-navy-800">
+                        <p className="font-heading text-lg font-semibold leading-relaxed text-heading">
                           {q.prompt.split("____").map((part, idx, arr) => (
                             <React.Fragment key={idx}>
                               {part}
@@ -145,7 +145,7 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
                           ))}
                         </p>
                       ) : (
-                        <p className="font-heading text-lg font-semibold leading-relaxed text-navy-800">
+                        <p className="font-heading text-lg font-semibold leading-relaxed text-heading">
                           {q.prompt}
                         </p>
                       )}
@@ -161,14 +161,14 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
                                 className={cn(
                                   "flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-sm transition-colors",
                                   selected
-                                    ? "border-gold-400 bg-gold-50 text-navy-800"
-                                    : "border-cream-200 text-navy-700 hover:border-cream-300",
+                                    ? "border-gold-400 bg-gold-50 dark:bg-gold-500/10 text-heading"
+                                    : "border-hair text-heading hover:border-faint",
                                 )}
                               >
                                 <span
                                   className={cn(
                                     "grid h-5 w-5 shrink-0 place-items-center rounded-full border-2",
-                                    selected ? "border-gold-500 bg-gold-500 text-white" : "border-cream-300",
+                                    selected ? "border-gold-500 bg-gold-500 text-white" : "border-hair",
                                   )}
                                 >
                                   {selected && <Check className="h-3 w-3" strokeWidth={3} />}
@@ -185,7 +185,7 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
                                 "rounded-full border-2 px-4 py-2 text-sm font-medium transition-colors",
                                 selected
                                   ? "border-gold-400 bg-gold-500 text-navy-900"
-                                  : "border-cream-300 bg-white text-navy-700 hover:border-gold-300",
+                                  : "border-hair bg-card text-heading hover:border-gold-300",
                               )}
                             >
                               {opt}
@@ -200,7 +200,7 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
             </div>
 
             <div className="mt-6 flex items-center justify-between gap-4">
-              <p className="text-sm text-ink-soft">
+              <p className="text-sm text-muted">
                 {Object.keys(answers).length}/{assignment.questions.length} answered
               </p>
               <Button size="lg" onClick={submit} disabled={!allAnswered}>
@@ -235,7 +235,9 @@ function ResultView({
       <Card
         className={cn(
           "relative overflow-hidden p-8 text-center",
-          passed ? "bg-gradient-to-br from-green-50 to-cream-50" : "bg-gradient-to-br from-orange-50 to-cream-50",
+          passed
+            ? "bg-gradient-to-br from-green-50 to-cream-50 dark:from-green-500/10 dark:to-transparent"
+            : "bg-gradient-to-br from-orange-50 to-cream-50 dark:from-orange-500/10 dark:to-transparent",
         )}
       >
         <div
@@ -246,11 +248,11 @@ function ResultView({
         >
           {passed ? <CheckCircle2 className="h-9 w-9" /> : <RotateCcw className="h-9 w-9" />}
         </div>
-        <p className="mt-4 font-heading text-5xl font-bold text-navy-800">{result.score}%</p>
-        <p className="mt-2 font-heading text-xl font-semibold text-navy-800">
+        <p className="mt-4 font-heading text-5xl font-bold text-heading">{result.score}%</p>
+        <p className="mt-2 font-heading text-xl font-semibold text-heading">
           {passed ? "Checkpoint passed! 🎉" : exhausted ? "Videos unlocked" : "Almost there"}
         </p>
-        <p className="mt-1 text-ink-soft">
+        <p className="mt-1 text-muted">
           {passed
             ? "Great work — the next videos are now unlocked."
             : exhausted
@@ -270,7 +272,7 @@ function ResultView({
         </div>
       </Card>
 
-      <h2 className="mb-3 mt-8 font-heading text-xl font-bold text-navy-800">Question breakdown</h2>
+      <h2 className="mb-3 mt-8 font-heading text-xl font-bold text-heading">Question breakdown</h2>
       <div className="space-y-4">
         {assignment.questions.map((q, i) => {
           const fb = result.feedback.find((f) => f.questionId === q.id);
@@ -288,16 +290,16 @@ function ResultView({
                   {correct ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                 </span>
                 <div className="flex-1">
-                  <p className="font-medium text-navy-800">
+                  <p className="font-medium text-heading">
                     {i + 1}. {q.prompt.replace("____", "______")}
                   </p>
                   <p className="mt-1.5 text-sm">
-                    <span className="text-ink-faint">Your answer: </span>
+                    <span className="text-faint">Your answer: </span>
                     <span className={cn("font-medium", correct ? "text-green-700" : "text-red-600")}>
                       {given || "—"}
                     </span>
                   </p>
-                  <div className="mt-2 flex items-start gap-2 rounded-xl bg-cream-50 p-3 text-sm text-ink-soft">
+                  <div className="mt-2 flex items-start gap-2 rounded-xl bg-surface p-3 text-sm text-muted">
                     <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-gold-600" />
                     <span>{fb?.explanation}</span>
                   </div>

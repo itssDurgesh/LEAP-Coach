@@ -22,12 +22,14 @@ interface AuthShellProps {
 export function AuthShell({ eyebrow, title, subtitle, theme = "default", children }: AuthShellProps) {
   const admin = theme === "admin";
   return (
-    <div className="min-h-screen bg-cream-50 lg:grid lg:grid-cols-2">
-      {/* Brand panel */}
+    <div className="min-h-screen bg-surface lg:grid lg:grid-cols-2">
+      {/* Brand panel — navy in light, warm charcoal in dark */}
       <div
         className={cn(
           "relative hidden overflow-hidden p-12 lg:flex lg:flex-col lg:justify-between",
-          admin ? "bg-navy-950" : "bg-gradient-to-br from-navy-800 to-navy-950",
+          admin
+            ? "bg-navy-950 dark:bg-surface"
+            : "bg-gradient-to-br from-navy-800 to-navy-950 dark:from-card dark:to-surface",
         )}
       >
         <div className="pointer-events-none absolute -right-16 -top-16 h-72 w-72 rounded-full bg-gold-500/20 blur-3xl" />
@@ -37,7 +39,7 @@ export function AuthShell({ eyebrow, title, subtitle, theme = "default", childre
 
         <div className="relative">
           <h2 className="max-w-md font-heading text-3xl font-bold leading-tight text-white">
-            {admin ? "Leap Coach Control Center" : "Scale Human Wisdom. Become a high performance star."}
+            {admin ? "LEAP Coach Control Center" : "Scale Human Wisdom. Become a high performance star."}
           </h2>
           <ul className="mt-7 space-y-3.5">
             {(admin
@@ -71,7 +73,7 @@ export function AuthShell({ eyebrow, title, subtitle, theme = "default", childre
         <div className="flex items-center justify-between p-5 sm:p-8">
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-soft transition-colors hover:text-navy-800"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-muted transition-colors hover:text-heading"
           >
             <ArrowLeft className="h-4 w-4" /> Back to home
           </Link>
@@ -87,8 +89,8 @@ export function AuthShell({ eyebrow, title, subtitle, theme = "default", childre
                 {eyebrow}
               </Badge>
             )}
-            <h1 className="font-heading text-3xl font-bold text-navy-800">{title}</h1>
-            {subtitle && <p className="mt-2 text-ink-soft">{subtitle}</p>}
+            <h1 className="font-heading text-3xl font-bold text-heading">{title}</h1>
+            {subtitle && <p className="mt-2 text-muted">{subtitle}</p>}
             <div className="mt-7">{children}</div>
           </div>
         </div>

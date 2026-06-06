@@ -25,7 +25,7 @@ const columns = [
 
 export function SiteFooter() {
   return (
-    <footer className="bg-navy-900 text-cream-100">
+    <footer className="bg-navy-900 dark:bg-card text-cream-100">
       <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8">
         <div className="grid gap-10 lg:grid-cols-[1.6fr_1fr_1fr_1.4fr]">
           {/* Brand + contact */}

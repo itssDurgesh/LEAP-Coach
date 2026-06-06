@@ -18,7 +18,7 @@ export default function EditCoursePage() {
         <CourseWizard initial={course} />
       ) : (
         <div className="py-16 text-center">
-          <p className="font-heading text-lg font-semibold text-navy-800">Topic not found</p>
+          <p className="font-heading text-lg font-semibold text-heading">Topic not found</p>
           <Link href="/admin/courses" className={buttonClasses({ variant: "primary", size: "md", className: "mt-4" })}>
             Back to Content Studio
           </Link>

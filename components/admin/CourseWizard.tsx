@@ -162,7 +162,7 @@ function toCourse(d: Draft, existing?: Course): Course {
     title: d.title || "Untitled topic",
     description: d.description,
     category: d.category,
-    instructorName: d.instructorName || "Leap Coach Faculty",
+    instructorName: d.instructorName || "LEAP Coach Faculty",
     instructorTitle: d.instructorTitle || "Instructor",
     instructorBio: d.instructorBio,
     instructorInitials:
@@ -226,13 +226,13 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                 onClick={() => setStep(i)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors",
-                  i === step ? "bg-navy-800 text-white" : i < step ? "text-navy-700 hover:bg-cream-100" : "text-ink-faint hover:bg-cream-100",
+                  i === step ? "bg-navy-800 text-white" : i < step ? "text-heading hover:bg-surface-2" : "text-faint hover:bg-surface-2",
                 )}
               >
                 <span
                   className={cn(
                     "grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs",
-                    i < step ? "bg-green-500 text-white" : i === step ? "bg-gold-500 text-navy-900" : "bg-cream-200 text-ink-faint",
+                    i < step ? "bg-green-500 text-white" : i === step ? "bg-gold-500 text-navy-900" : "bg-surface-2 text-faint",
                   )}
                 >
                   {i < step ? <Check className="h-3.5 w-3.5" /> : i + 1}
@@ -247,7 +247,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
       {/* Step content */}
       <div>
         <Card padded>
-          <h2 className="font-heading text-xl font-bold text-navy-800">{STEPS[step].label}</h2>
+          <h2 className="font-heading text-xl font-bold text-heading">{STEPS[step].label}</h2>
 
           {step === 0 && (
             <div className="mt-5 space-y-4">
@@ -319,7 +319,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                         onClick={() => set({ tracks: on ? draft.tracks.filter((x) => x !== t.id) : [...draft.tracks, t.id] })}
                         className={cn(
                           "rounded-full border px-3 py-1.5 text-sm font-medium",
-                          on ? "border-gold-300 bg-gold-50 text-gold-700" : "border-cream-300 text-ink-soft hover:border-navy-200",
+                          on ? "border-gold-300 bg-gold-50 text-gold-700" : "border-hair text-muted hover:border-navy-200",
                         )}
                       >
                         {t.label}
@@ -333,15 +333,15 @@ export function CourseWizard({ initial }: { initial?: Course }) {
 
           {step === 1 && (
             <div className="mt-5 space-y-4">
-              <p className="text-sm text-ink-soft">Add a video per session (Mux playback ID + duration). Order defines the roadmap.</p>
+              <p className="text-sm text-muted">Add a video per session (Mux playback ID + duration). Order defines the roadmap.</p>
               {draft.videos.map((v, i) => (
-                <div key={v.tmpId} className="rounded-xl border border-cream-200 p-4">
+                <div key={v.tmpId} className="rounded-xl border border-hair p-4">
                   <div className="mb-3 flex items-center justify-between">
-                    <span className="font-heading text-sm font-semibold text-navy-800">Session {i + 1}</span>
+                    <span className="font-heading text-sm font-semibold text-heading">Session {i + 1}</span>
                     {draft.videos.length > 1 && (
                       <button
                         onClick={() => set({ videos: draft.videos.filter((_, idx) => idx !== i) })}
-                        className="text-ink-faint hover:text-red-600"
+                        className="text-faint hover:text-red-600"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -368,13 +368,13 @@ export function CourseWizard({ initial }: { initial?: Course }) {
 
           {step === 2 && (
             <div className="mt-5 space-y-3">
-              <p className="text-sm text-ink-soft">Attach a notes PDF per session (enter the file name — uploads are mocked).</p>
+              <p className="text-sm text-muted">Attach a notes PDF per session (enter the file name — uploads are mocked).</p>
               {draft.videos.map((v, i) => (
-                <div key={v.tmpId} className="flex items-center gap-3 rounded-xl border border-cream-200 p-3">
-                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-cream-100 text-navy-600">
+                <div key={v.tmpId} className="flex items-center gap-3 rounded-xl border border-hair p-3">
+                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 text-muted">
                     <FileText className="h-4 w-4" />
                   </span>
-                  <span className="w-24 shrink-0 text-sm font-medium text-navy-700">Session {i + 1}</span>
+                  <span className="w-24 shrink-0 text-sm font-medium text-heading">Session {i + 1}</span>
                   <Input value={v.notesPdfName} onChange={(e) => setVideo(i, { notesPdfName: e.target.value })} placeholder="session-notes.pdf" className="flex-1" />
                 </div>
               ))}
@@ -383,7 +383,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
 
           {step === 3 && (
             <div className="mt-5 space-y-4">
-              <p className="text-sm text-ink-soft">Paste each session&rsquo;s transcript. The LEAP AI tutor is grounded strictly in this text.</p>
+              <p className="text-sm text-muted">Paste each session&rsquo;s transcript. The LEAP AI tutor is grounded strictly in this text.</p>
               {draft.videos.map((v, i) => (
                 <Field key={v.tmpId} label={`Session ${i + 1}${v.title ? ` · ${v.title}` : ""}`}>
                   <Textarea value={v.transcript} onChange={(e) => setVideo(i, { transcript: e.target.value })} placeholder="Full transcript…" />
@@ -394,8 +394,8 @@ export function CourseWizard({ initial }: { initial?: Course }) {
 
           {step === 4 && (
             <div className="mt-5 space-y-5">
-              <p className="text-sm text-ink-soft">Add an AI-graded checkpoint after every 2nd session. Mark the correct option for each question.</p>
-              {evenOrders.length === 0 && <p className="text-sm text-ink-faint">Add at least 2 sessions to create a checkpoint.</p>}
+              <p className="text-sm text-muted">Add an AI-graded checkpoint after every 2nd session. Mark the correct option for each question.</p>
+              {evenOrders.length === 0 && <p className="text-sm text-faint">Add at least 2 sessions to create a checkpoint.</p>}
               {evenOrders.map((order) => (
                 <AssignmentEditor
                   key={order}
@@ -409,15 +409,15 @@ export function CourseWizard({ initial }: { initial?: Course }) {
 
           {step === 5 && (
             <div className="mt-5 space-y-4">
-              <div className="rounded-xl border border-cream-200 bg-cream-50 p-4">
-                <p className="font-heading text-lg font-bold text-navy-800">{draft.title || "Untitled topic"}</p>
-                <p className="mt-1 text-sm text-ink-soft">{draft.description || "No description."}</p>
+              <div className="rounded-xl border border-hair bg-surface-2 p-4">
+                <p className="font-heading text-lg font-bold text-heading">{draft.title || "Untitled topic"}</p>
+                <p className="mt-1 text-sm text-muted">{draft.description || "No description."}</p>
                 <div className="mt-3 flex flex-wrap gap-2 text-sm">
                   <Badge variant="navy" className="capitalize">{draft.category}</Badge>
                   <Badge variant="neutral">{draft.level}</Badge>
                   <Badge variant="gold">{draft.price === 0 ? "Free" : formatINR(draft.price)}</Badge>
                 </div>
-                <ul className="mt-3 space-y-1 text-sm text-ink-soft">
+                <ul className="mt-3 space-y-1 text-sm text-muted">
                   <li>• {draft.videos.length} sessions ({draft.videos.reduce((s, v) => s + (v.durationMins || 0), 0)} mins)</li>
                   <li>• {Object.values(draft.questionsByOrder).filter((q) => q.length).length} checkpoints</li>
                   <li>• Instructor: {draft.instructorName || "—"}</li>
@@ -436,7 +436,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
           )}
 
           {/* Nav */}
-          <div className="mt-7 flex items-center justify-between border-t border-cream-200 pt-5">
+          <div className="mt-7 flex items-center justify-between border-t border-hair pt-5">
             <Button variant="ghost" onClick={() => setStep((s) => Math.max(0, s - 1))} disabled={step === 0}>
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
@@ -472,9 +472,9 @@ function AssignmentEditor({
   }
 
   return (
-    <div className="rounded-xl border border-cream-200 p-4">
+    <div className="rounded-xl border border-hair p-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-heading text-sm font-semibold text-navy-800">Checkpoint after session {order}</h3>
+        <h3 className="font-heading text-sm font-semibold text-heading">Checkpoint after session {order}</h3>
         <div className="flex gap-2">
           <Button size="sm" variant="subtle" onClick={() => add("mcq")}>
             <Plus className="h-3.5 w-3.5" /> MCQ
@@ -486,12 +486,12 @@ function AssignmentEditor({
       </div>
 
       <div className="mt-3 space-y-4">
-        {questions.length === 0 && <p className="text-xs text-ink-faint">No questions yet.</p>}
+        {questions.length === 0 && <p className="text-xs text-faint">No questions yet.</p>}
         {questions.map((q, i) => (
-          <div key={q.tmpId} className="rounded-lg bg-cream-50 p-3">
+          <div key={q.tmpId} className="rounded-lg bg-surface-2 p-3">
             <div className="mb-2 flex items-center justify-between">
               <Badge variant="neutral">{q.type === "mcq" ? "Multiple choice" : "Fill in the blank"}</Badge>
-              <button onClick={() => onChange(questions.filter((_, idx) => idx !== i))} className="text-ink-faint hover:text-red-600">
+              <button onClick={() => onChange(questions.filter((_, idx) => idx !== i))} className="text-faint hover:text-red-600">
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>
@@ -510,7 +510,7 @@ function AssignmentEditor({
                     title="Mark correct"
                     className={cn(
                       "grid h-5 w-5 shrink-0 place-items-center rounded-full border",
-                      opt && q.correctAnswer === opt ? "border-green-500 bg-green-500 text-white" : "border-cream-300",
+                      opt && q.correctAnswer === opt ? "border-green-500 bg-green-500 text-white" : "border-hair",
                     )}
                   >
                     {opt && q.correctAnswer === opt && <Check className="h-3 w-3" strokeWidth={3} />}

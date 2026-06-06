@@ -5,8 +5,42 @@
 :root {
   --font-outfit: "Outfit", system-ui, -apple-system, sans-serif;
   --font-inter: "Inter", system-ui, -apple-system, sans-serif;
-  --background: #fdfbf7;
-  --foreground: #14213d;
+
+  /* Semantic theme tokens — LIGHT (default). Channels = "r g b" for alpha support. */
+  --surface: 253 251 247; /* cream-50  #FDFBF7 — page bg */
+  --surface-2: 250 245 234; /* cream-100 #FAF5EA — subtle / hover */
+  --card: 255 255 255; /* white — raised cards */
+  --heading: 12 27 54; /* navy-800  #0C1B36 — headings / primary text */
+  --muted: 91 107 133; /* ink-soft  #5B6B85 — secondary text */
+  --faint: 138 151 172; /* ink-faint #8A97AC — tertiary text */
+  --hair: #f3e9d5; /* cream-200 — hairline borders */
+
+  --grid-dot: rgba(20, 33, 61, 0.06);
+  --scroll-thumb: #d9cba8;
+  --scroll-thumb-hover: #c8b589;
+
+  --background: 253 251 247;
+  --foreground: 20 33 61;
+}
+
+.dark {
+  /* Semantic theme tokens — DARK (warm charcoal / espresso + gold accent). */
+  --surface: 26 22 17; /* #1A1611 — page bg (warm near-black) */
+  --surface-2: 45 38 28; /* #2D261C — subtle / hover (lightest step) */
+  --card: 36 30 22; /* #241E16 — raised cards */
+  --heading: 244 238 226; /* #F4EEE2 — headings / primary text (warm cream) */
+  --muted: 182 172 153; /* #B6AC99 — secondary text */
+  --faint: 138 128 110; /* #8A806E — tertiary text */
+  --hair: rgba(244, 238, 226, 0.1); /* warm hairline borders */
+
+  --grid-dot: rgba(244, 238, 226, 0.05);
+  --scroll-thumb: #3a3225;
+  --scroll-thumb-hover: #4a4131;
+
+  --background: 26 22 17;
+  --foreground: 244 238 226;
+
+  color-scheme: dark; /* native controls (scrollbar, inputs, date pickers) */
 }
 
 * {
@@ -18,10 +52,11 @@ html {
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
+  background-color: rgb(var(--background));
+  color: rgb(var(--foreground));
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Refined scrollbar */
@@ -33,13 +68,13 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d9cba8;
+  background: var(--scroll-thumb);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #c8b589;
+  background: var(--scroll-thumb-hover);
   background-clip: content-box;
 }
 
@@ -55,7 +90,7 @@ body {
     -webkit-text-fill-color: transparent;
   }
   .bg-grid {
-    background-image: radial-gradient(circle at 1px 1px, rgba(20, 33, 61, 0.06) 1px, transparent 0);
+    background-image: radial-gradient(circle at 1px 1px, var(--grid-dot) 1px, transparent 0);
     background-size: 28px 28px;
   }
   /* Thin scrollbar variant for chat / panels */

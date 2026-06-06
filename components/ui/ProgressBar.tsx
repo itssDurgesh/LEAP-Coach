@@ -17,7 +17,7 @@ const fills = {
 export function ProgressBar({ value, color = "gold", size = "md", className }: ProgressBarProps) {
   const pct = Math.min(100, Math.max(0, value));
   return (
-    <div className={cn("w-full overflow-hidden rounded-full bg-cream-200", heights[size], className)}>
+    <div className={cn("w-full overflow-hidden rounded-full bg-surface-2", heights[size], className)}>
       <div
         className={cn("h-full rounded-full transition-all duration-700 ease-out", fills[color])}
         style={{ width: `${pct}%` }}

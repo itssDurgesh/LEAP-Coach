@@ -56,7 +56,7 @@ function Studio() {
     saveTip({
       id: `tip_${Date.now()}`,
       text: tipForm.text.trim(),
-      author: tipForm.author.trim() || "Leap Coach",
+      author: tipForm.author.trim() || "LEAP Coach",
       targetRole: tipForm.targetRole as DailyTip["targetRole"],
       active: true,
     });
@@ -66,8 +66,8 @@ function Studio() {
   return (
     <div className="space-y-6">
       {supabaseMode && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gold-200 bg-gold-50 p-4">
-          <p className="text-sm text-navy-700">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gold-200 bg-gold-50 dark:bg-gold-500/10 p-4">
+          <p className="text-sm text-heading">
             <span className="font-semibold">Connected to Supabase.</span> Populate your database with
             the demo topics, tips, sessions &amp; resources.
           </p>
@@ -88,7 +88,7 @@ function Studio() {
 
       {/* Video pipeline status (mock) */}
       <Card padded>
-        <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-navy-800">
+        <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
           <Server className="h-5 w-5 text-gold-600" /> Video pipeline status
         </h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -97,12 +97,12 @@ function Studio() {
             { label: "Processing", value: 0, tone: "text-orange-500" },
             { label: "Failed uploads", value: 0, tone: "text-red-500" },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-cream-200 bg-cream-50 p-4">
+            <div key={s.label} className="rounded-xl border border-hair bg-surface-2 p-4">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className={`h-4 w-4 ${s.tone}`} />
                 <span className={`font-heading text-2xl font-bold ${s.tone}`}>{s.value}</span>
               </div>
-              <p className="mt-0.5 text-sm text-ink-soft">{s.label}</p>
+              <p className="mt-0.5 text-sm text-muted">{s.label}</p>
             </div>
           ))}
         </div>
@@ -110,16 +110,16 @@ function Studio() {
 
       {/* Asset library / course table */}
       <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-cream-200 px-5 py-4">
-          <h2 className="font-heading text-base font-semibold text-navy-800">
+        <div className="flex items-center justify-between border-b border-hair px-5 py-4">
+          <h2 className="font-heading text-base font-semibold text-heading">
             Asset library · {courses.length} topics
           </h2>
-          <span className="text-sm text-ink-soft">{ready} published</span>
+          <span className="text-sm text-muted">{ready} published</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-cream-200 text-left text-xs uppercase tracking-wide text-ink-faint">
+              <tr className="border-b border-hair text-left text-xs uppercase tracking-wide text-faint">
                 <th className="px-5 py-3 font-medium">Topic</th>
                 <th className="px-5 py-3 font-medium">Category</th>
                 <th className="px-5 py-3 font-medium">Price</th>
@@ -128,24 +128,24 @@ function Studio() {
                 <th className="px-5 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-cream-200">
+            <tbody className="divide-y divide-hair">
               {courses.map((c) => (
-                <tr key={c.id} className="hover:bg-cream-50">
+                <tr key={c.id} className="hover:bg-surface-2">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
                       <CourseThumb accent={c.accent} category={c.category} rounded="rounded-lg" className="h-10 w-16" />
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-navy-800">{c.title}</span>
+                          <span className="font-medium text-heading">{c.title}</span>
                           {c.trending && <Flame className="h-3.5 w-3.5 text-orange-500" />}
                         </div>
-                        <span className="text-xs text-ink-faint">{c.instructorName}</span>
+                        <span className="text-xs text-faint">{c.instructorName}</span>
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-3 capitalize text-ink-soft">{c.category}</td>
-                  <td className="px-5 py-3 text-ink-soft">{c.price === 0 ? "Free" : formatINR(c.price)}</td>
-                  <td className="px-5 py-3 text-ink-soft">{c.enrolledCount.toLocaleString("en-IN")}</td>
+                  <td className="px-5 py-3 capitalize text-muted">{c.category}</td>
+                  <td className="px-5 py-3 text-muted">{c.price === 0 ? "Free" : formatINR(c.price)}</td>
+                  <td className="px-5 py-3 text-muted">{c.enrolledCount.toLocaleString("en-IN")}</td>
                   <td className="px-5 py-3">
                     {c.published ? <Badge variant="success">Published</Badge> : <Badge variant="warning">Draft</Badge>}
                   </td>
@@ -154,21 +154,21 @@ function Studio() {
                       <button
                         onClick={() => toggleTrending(c.id)}
                         title="Toggle trending"
-                        className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-cream-100 ${c.trending ? "text-orange-500" : "text-ink-faint"}`}
+                        className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-surface-2 ${c.trending ? "text-orange-500" : "text-faint"}`}
                       >
                         <Flame className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => togglePublish(c.id)}
                         title={c.published ? "Unpublish" : "Publish"}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-cream-100 hover:text-navy-700"
+                        className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading"
                       >
                         {c.published ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                       </button>
                       <Link
                         href={`/admin/courses/${c.id}/edit`}
                         title="Edit"
-                        className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-cream-100 hover:text-navy-700"
+                        className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading"
                       >
                         <Pencil className="h-4 w-4" />
                       </Link>
@@ -177,7 +177,7 @@ function Studio() {
                           if (confirm(`Delete "${c.title}"? This cannot be undone.`)) deleteCourse(c.id);
                         }}
                         title="Delete"
-                        className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-red-50 hover:text-red-600"
+                        className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -193,7 +193,7 @@ function Studio() {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Wisdom enrichment */}
         <Card padded>
-          <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-navy-800">
+          <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
             <Lightbulb className="h-5 w-5 text-gold-600" /> Wisdom Enrichment · Daily Tips
           </h2>
           <form onSubmit={addTip} className="mt-4 space-y-2.5">
@@ -224,16 +224,16 @@ function Studio() {
           </form>
           <ul className="mt-4 space-y-2">
             {tips.map((t) => (
-              <li key={t.id} className="group flex items-start gap-2 rounded-xl border border-cream-200 p-3">
+              <li key={t.id} className="group flex items-start gap-2 rounded-xl border border-hair p-3">
                 <div className="flex-1">
-                  <p className="text-sm text-navy-800">&ldquo;{t.text}&rdquo;</p>
-                  <p className="mt-0.5 text-xs text-ink-faint">
+                  <p className="text-sm text-heading">&ldquo;{t.text}&rdquo;</p>
+                  <p className="mt-0.5 text-xs text-faint">
                     {t.author} · <span className="capitalize">{t.targetRole}</span>
                   </p>
                 </div>
                 <button
                   onClick={() => deleteTip(t.id)}
-                  className="text-ink-faint opacity-0 hover:text-red-600 group-hover:opacity-100"
+                  className="text-faint opacity-0 hover:text-red-600 group-hover:opacity-100"
                   aria-label="Delete tip"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -245,10 +245,10 @@ function Studio() {
 
         {/* Leadership tracks / filters */}
         <Card padded>
-          <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-navy-800">
+          <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
             <Tags className="h-5 w-5 text-gold-600" /> Catalog Filters · Leadership Tracks
           </h2>
-          <p className="mt-1.5 text-sm text-ink-soft">
+          <p className="mt-1.5 text-sm text-muted">
             These appear as filters in the course catalog. Add your own categories.
           </p>
           <form
@@ -271,7 +271,7 @@ function Studio() {
           </form>
           <div className="mt-4 flex flex-wrap gap-2">
             {tracks.map((t) => (
-              <span key={t.id} className="rounded-full border border-cream-300 bg-cream-50 px-3 py-1.5 text-sm font-medium text-navy-700">
+              <span key={t.id} className="rounded-full border border-hair bg-surface-2 px-3 py-1.5 text-sm font-medium text-heading">
                 {t.label}
               </span>
             ))}

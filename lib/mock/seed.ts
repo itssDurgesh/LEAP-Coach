@@ -1,5 +1,6 @@
 import {
   Assignment,
+  Coupon,
   Course,
   CommunityPost,
   DailyTip,
@@ -658,4 +659,9 @@ export const seedCommunity: CommunityPost[] = [
   { id: "p3", userId: "u_student", userName: "Aarav Sharma", userRole: "student", text: "The STAR method genuinely helped me in a campus interview today. Thank you Leap Coach 🙌", createdAt: "2026-06-01T05:40:00.000Z", likedBy: ["u5", "u9"] },
   { id: "p4", userId: "u_admin", userName: "Prof. Vishal Gupta", userRole: "admin", text: "Welcome to the Leap community! Share your wins and questions here — I'll drop in weekly. Remember: lead from your values.", createdAt: "2026-05-30T09:00:00.000Z", likedBy: ["u_pro", "u_ent", "u_student", "u5", "u6"] },
   { id: "p5", userId: "u6", userName: "Rahul Verma", userRole: "professional", text: "Question for the group: how do you re-anchor in a negotiation when the other side opens way too aggressively?", createdAt: "2026-06-01T07:15:00.000Z", likedBy: ["u10"] },
+];
+
+export const seedCoupons: Coupon[] = [
+  { code: "WELCOME10", discountPercent: 10, category: "all", active: true, maxRedemptions: 100, redemptions: 0, expiresAt: null, createdAt: "2026-06-01T00:00:00.000Z" },
+  { code: "STUDENT20", discountPercent: 20, category: "student", active: true, maxRedemptions: null, redemptions: 0, expiresAt: null, createdAt: "2026-06-01T00:00:00.000Z" },
 ];

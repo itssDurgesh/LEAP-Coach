@@ -23,7 +23,7 @@ export function CourseCard({ course, enrolled, progressPct, href }: CourseCardPr
   return (
     <Link
       href={link}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-cream-200 bg-white shadow-card transition-all duration-300 hover:-translate-y-1 hover:shadow-card-hover"
+      className="group flex flex-col overflow-hidden rounded-2xl border border-hair shadow-card transition-all duration-300 hover:-translate-y-1 hover:shadow-card-hover bg-card"
     >
       <div className="relative">
         <CourseThumb accent={course.accent} category={course.category} className="aspect-[16/9]" />
@@ -34,24 +34,24 @@ export function CourseCard({ course, enrolled, progressPct, href }: CourseCardPr
       </div>
 
       <div className="flex flex-1 flex-col p-5">
-        <div className="flex items-center gap-2 text-xs text-ink-faint">
+        <div className="flex items-center gap-2 text-xs text-faint">
           <Avatar name={course.instructorName} size={22} />
           {course.instructorName}
         </div>
 
-        <h3 className="mt-2.5 line-clamp-2 font-heading text-lg font-bold leading-snug text-navy-800 transition-colors group-hover:text-gold-600">
+        <h3 className="mt-2.5 line-clamp-2 font-heading text-lg font-bold leading-snug text-heading transition-colors group-hover:text-gold-600">
           {course.title}
         </h3>
 
         <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1">
           {course.hashtags.slice(0, 4).map((h) => (
-            <span key={h} className="text-xs font-medium text-navy-400">
+            <span key={h} className="text-xs font-medium text-muted">
               {h}
             </span>
           ))}
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-ink-soft">
+        <div className="mt-3 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-muted">
           <span className="inline-flex items-center gap-1">
             <Star className="h-3.5 w-3.5 fill-gold-500 text-gold-500" />
             {course.rating.toFixed(1)}
@@ -68,14 +68,14 @@ export function CourseCard({ course, enrolled, progressPct, href }: CourseCardPr
           {showProgress ? (
             <div>
               <div className="mb-1.5 flex items-center justify-between text-xs">
-                <span className="text-ink-soft">Progress</span>
-                <span className="font-semibold text-navy-700">{progressPct}%</span>
+                <span className="text-muted">Progress</span>
+                <span className="font-semibold text-heading">{progressPct}%</span>
               </div>
               <ProgressBar value={progressPct} />
             </div>
           ) : (
-            <div className="flex items-center justify-between border-t border-cream-200 pt-3">
-              <span className="font-heading font-bold text-navy-800">
+            <div className="flex items-center justify-between border-t border-hair pt-3">
+              <span className="font-heading font-bold text-heading">
                 {course.price === 0 ? "Free" : formatINR(course.price)}
               </span>
               <span className="inline-flex items-center gap-1 text-sm font-semibold text-gold-600">

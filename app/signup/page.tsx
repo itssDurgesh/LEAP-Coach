@@ -30,7 +30,7 @@ function IconInput({
 }: { icon: typeof Mail } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <div className="relative">
-      <Icon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+      <Icon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
       <Input {...props} className="pl-10" />
     </div>
   );
@@ -95,7 +95,8 @@ export default function SignupPage() {
 
   async function oauth(provider: "google" | "linkedin") {
     if (supabaseMode) {
-      await oauthSignIn(provider);
+      const r = await oauthSignIn(provider);
+      if (!r.ok) setError(r.error ?? "Couldn't start sign-in. Please try again.");
       return;
     }
     const label = provider === "google" ? "Google" : "LinkedIn";
@@ -115,7 +116,7 @@ export default function SignupPage() {
     >
       <OAuthButtons onSelect={oauth} />
 
-      <div className="my-5 flex items-center gap-3 text-xs text-ink-faint">
+      <div className="my-5 flex items-center gap-3 text-xs text-faint">
         <span className="h-px flex-1 bg-cream-300" /> or with your details
         <span className="h-px flex-1 bg-cream-300" />
       </div>
@@ -160,7 +161,7 @@ export default function SignupPage() {
         <Field label="Phone number" htmlFor="phone" hint={!otpSent && !phoneVerified ? "We'll verify this with a one-time code." : undefined}>
           <div className="flex gap-2">
             <div className="relative flex-1">
-              <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+              <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
               <Input
                 id="phone"
                 type="tel"
@@ -196,7 +197,7 @@ export default function SignupPage() {
 
         {otpSent && !phoneVerified && (
           <div className="rounded-xl border border-gold-200 bg-gold-50 p-3.5">
-            <p className="text-xs text-ink-soft">
+            <p className="text-xs text-muted">
               Enter the 6-digit code sent to your phone.{" "}
               <span className="font-semibold text-gold-700">Demo code: {DEMO_OTP}</span>
             </p>
@@ -234,7 +235,7 @@ export default function SignupPage() {
         </Button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-ink-soft">
+      <p className="mt-6 text-center text-sm text-muted">
         Already have an account?{" "}
         <Link href="/login" className="font-semibold text-gold-600 hover:text-gold-700">
           Sign in

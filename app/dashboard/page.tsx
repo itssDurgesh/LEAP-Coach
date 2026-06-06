@@ -27,7 +27,7 @@ import { cn, timeAgo } from "@/lib/utils";
 function SectionHeader({ title, href, cta }: { title: string; href?: string; cta?: string }) {
   return (
     <div className="mb-4 flex items-center justify-between">
-      <h2 className="font-heading text-xl font-bold text-navy-800">{title}</h2>
+      <h2 className="font-heading text-xl font-bold text-heading">{title}</h2>
       {href && (
         <Link href={href} className="inline-flex items-center gap-1 text-sm font-semibold text-gold-600 hover:text-gold-700">
           {cta ?? "View all"} <ArrowRight className="h-4 w-4" />
@@ -108,7 +108,7 @@ function DashboardContent() {
   return (
     <div className="space-y-7">
       {/* Welcome banner */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-800 to-navy-950 p-6 text-white sm:p-8">
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-800 to-navy-950 dark:from-card dark:to-surface p-6 text-white sm:p-8">
         <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-gold-500/20 blur-3xl" />
         <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -122,7 +122,7 @@ function DashboardContent() {
               </Badge>
             </div>
             <h1 className="mt-3 font-heading text-3xl font-bold sm:text-4xl">
-              Welcome back, {firstName} 👋
+              Welcome back, {firstName} Coachee
             </h1>
             <p className="mt-2 max-w-lg text-cream-100/75">
               You&rsquo;ve watched {totals.done} of {totals.all || 0} videos across your coaching
@@ -159,15 +159,15 @@ function DashboardContent() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         {stats.map((s) => (
           <Card key={s.label} padded className="flex items-center gap-4">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-cream-100 text-gold-600">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-surface-2 text-gold-600">
               <s.icon className="h-6 w-6" />
             </span>
             <div>
-              <p className="font-heading text-2xl font-bold text-navy-800">
+              <p className="font-heading text-2xl font-bold text-heading">
                 {s.value}
-                {s.suffix && <span className="ml-1 text-sm font-medium text-ink-faint">{s.suffix}</span>}
+                {s.suffix && <span className="ml-1 text-sm font-medium text-faint">{s.suffix}</span>}
               </p>
-              <p className="text-sm text-ink-soft">{s.label}</p>
+              <p className="text-sm text-muted">{s.label}</p>
             </div>
           </Card>
         ))}
@@ -185,7 +185,7 @@ function DashboardContent() {
                 ))}
               </div>
             ) : (
-              <Card padded className="text-center text-ink-soft">
+              <Card padded className="text-center text-muted">
                 You haven&rsquo;t enrolled in any topics yet.{" "}
                 <Link href="/courses" className="font-semibold text-gold-600">Explore the catalog →</Link>
               </Card>
@@ -210,7 +210,7 @@ function DashboardContent() {
             {nextSession ? (
               <SessionCard session={nextSession} />
             ) : (
-              <Card padded className="text-sm text-ink-soft">No upcoming sessions.</Card>
+              <Card padded className="text-sm text-muted">No upcoming sessions.</Card>
             )}
           </section>
 
@@ -232,18 +232,18 @@ function DashboardContent() {
 
           {/* Recommended resources */}
           <Card padded>
-            <h3 className="flex items-center gap-2 font-heading text-base font-semibold text-navy-800">
+            <h3 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
               <BookMarked className="h-5 w-5 text-gold-600" /> Recommended resources
             </h3>
             <ul className="mt-4 space-y-3">
               {roleResources.map((r) => (
                 <li key={r.id} className="flex gap-3">
-                  <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cream-100 text-navy-600">
+                  <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-muted">
                     <BookOpen className="h-4 w-4" />
                   </span>
                   <div>
-                    <p className="text-sm font-semibold text-navy-800">{r.title}</p>
-                    <p className="text-xs text-ink-soft">
+                    <p className="text-sm font-semibold text-heading">{r.title}</p>
+                    <p className="text-xs text-muted">
                       <span className="capitalize">{r.type}</span> · {r.author}
                     </p>
                   </div>
@@ -255,7 +255,7 @@ function DashboardContent() {
           {/* Community preview */}
           <Card padded>
             <div className="flex items-center justify-between">
-              <h3 className="flex items-center gap-2 font-heading text-base font-semibold text-navy-800">
+              <h3 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
                 <MessageSquare className="h-5 w-5 text-gold-600" /> Community
               </h3>
               <Link href="/community" className="text-sm font-semibold text-gold-600 hover:text-gold-700">
@@ -267,11 +267,11 @@ function DashboardContent() {
                 <li key={p.id} className="flex gap-3">
                   <Avatar name={p.userName} size={32} />
                   <div className="min-w-0">
-                    <p className="text-xs text-ink-faint">
-                      <span className="font-semibold text-navy-700">{p.userName}</span> · {timeAgo(p.createdAt)}
+                    <p className="text-xs text-faint">
+                      <span className="font-semibold text-heading">{p.userName}</span> · {timeAgo(p.createdAt)}
                     </p>
-                    <p className="line-clamp-2 text-sm text-ink-soft">{p.text}</p>
-                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-ink-faint">
+                    <p className="line-clamp-2 text-sm text-muted">{p.text}</p>
+                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-faint">
                       <Heart className="h-3 w-3" /> {p.likedBy.length}
                     </p>
                   </div>

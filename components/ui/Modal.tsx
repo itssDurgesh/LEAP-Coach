@@ -31,16 +31,16 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       <div className="absolute inset-0 animate-fade-in bg-navy-950/50 backdrop-blur-sm" onClick={onClose} />
       <div
         className={cn(
-          "relative z-10 max-h-[90vh] w-full max-w-lg animate-scale-in overflow-y-auto rounded-3xl bg-white shadow-card-hover",
+          "relative z-10 max-h-[90vh] w-full max-w-lg animate-scale-in overflow-y-auto rounded-3xl bg-card shadow-card-hover",
           className,
         )}
       >
         {title ? (
-          <div className="flex items-center justify-between border-b border-cream-200 px-6 py-4">
-            <h2 className="font-heading text-lg font-bold text-navy-800">{title}</h2>
+          <div className="flex items-center justify-between border-b border-hair px-6 py-4">
+            <h2 className="font-heading text-lg font-bold text-heading">{title}</h2>
             <button
               onClick={onClose}
-              className="grid h-9 w-9 place-items-center rounded-xl text-ink-soft hover:bg-cream-100"
+              className="grid h-9 w-9 place-items-center rounded-xl text-muted hover:bg-surface-2"
               aria-label="Close"
             >
               <X className="h-5 w-5" />
@@ -49,7 +49,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
         ) : (
           <button
             onClick={onClose}
-            className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-xl text-ink-soft hover:bg-cream-100"
+            className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-xl text-muted hover:bg-surface-2"
             aria-label="Close"
           >
             <X className="h-5 w-5" />

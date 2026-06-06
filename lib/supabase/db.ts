@@ -1,14 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   CommunityPost,
+  Coupon,
   Course,
   DailyTip,
   Enrollment,
   LeadershipTrack,
   LiveSession,
   Note,
+  PricingTiers,
   Question,
   RecommendedResource,
+  Role,
   Submission,
   User,
   Video,
@@ -28,16 +31,17 @@ const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.
 const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at });
 const mapNote = (r: Row): Note => ({ id: r.id, userId: r.user_id, videoId: r.video_id, text: r.text, createdAt: r.created_at });
 const mapSubmission = (r: Row): Submission => ({ id: r.id, userId: r.user_id, assignmentId: r.assignment_id, courseId: r.course_id, answers: r.answers ?? {}, score: Number(r.score), passed: r.passed, feedback: r.feedback ?? [], attemptNumber: r.attempt_number, submittedAt: r.submitted_at });
-const mapProfile = (r: Row, ownedCourseIds: string[]): User => ({
+const mapProfile = (r: Row, ownedCourseIds: string[], ownedCategories: Role[] = []): User => ({
   id: r.id, name: r.name ?? "", email: r.email ?? "", role: r.role ?? null, avatarUrl: r.avatar_url,
   age: r.age ?? undefined, gender: r.gender ?? undefined, phone: r.phone ?? undefined, phoneVerified: r.phone_verified ?? false,
   company: r.company ?? undefined, nationality: r.nationality ?? undefined, region: r.region ?? undefined,
   learningCredits: r.learning_credits ?? 0, subscriptionPlan: r.subscription_plan ?? "none",
-  subscriptionValidUntil: r.subscription_valid_until ?? null, ownedCourseIds, banned: r.banned ?? false,
+  subscriptionValidUntil: r.subscription_valid_until ?? null, ownedCourseIds, ownedCategories, banned: r.banned ?? false,
   isAdmin: r.is_admin ?? false, createdAt: r.created_at, lastActiveAt: r.last_active_at,
 });
 const mapSession = (r: Row, attendeeIds: string[]): LiveSession => ({ id: r.id, title: r.title, courseTitle: r.course_title ?? undefined, instructorName: r.instructor_name, startsAt: r.starts_at, durationMins: r.duration_mins, meetLink: r.meet_link, description: r.description ?? "", targetRole: r.target_role, attendeeIds, capacity: r.capacity });
 const mapPost = (r: Row, likedBy: string[]): CommunityPost => ({ id: r.id, userId: r.user_id, userName: r.user_name, userRole: r.user_role, text: r.text, createdAt: r.created_at, editedAt: r.edited_at ?? undefined, likedBy });
+const mapCoupon = (r: Row): Coupon => ({ code: r.code, discountPercent: r.discount_percent, category: r.category, active: r.active, maxRedemptions: r.max_redemptions ?? null, redemptions: r.redemptions ?? 0, expiresAt: r.expires_at ?? null, createdAt: r.created_at });
 
 // ── course → row ──
 const courseRow = (c: Course): Row => ({
@@ -60,13 +64,16 @@ export interface LoadedData {
   progress: VideoProgress[];
   submissions: Submission[];
   notes: Note[];
+  coupons: Coupon[];
+  pricing: PricingTiers | null;
 }
 
 /** Fetch + assemble the entire app state from Supabase (RLS scopes per-user rows). */
 export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   const [
     profiles, purchases, tracks, courses, videos, assignments, questions,
-    tips, resources, sessions, attendees, enrollments, progress, submissions, notes, posts, likes,
+    tips, resources, sessions, attendees, enrollments, progress, submissions, notes, posts, likes, coupons,
+    categoryPasses, pricingRows,
   ] = await Promise.all([
     rows(sb.from("profiles").select("*")),
     rows(sb.from("course_purchases").select("*")),
@@ -85,12 +92,16 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     rows(sb.from("user_notes").select("*")),
     rows(sb.from("community_posts").select("*")),
     rows(sb.from("post_likes").select("*")),
+    rows(sb.from("coupons").select("*")),
+    rows(sb.from("category_passes").select("*")),
+    rows(sb.from("pricing_tiers").select("*")),
   ]);
 
   const questionsByAssignment = group(questions, (q) => q.assignment_id);
   const videosByCourse = group(videos, (v) => v.course_id);
   const assignmentsByCourse = group(assignments, (a) => a.course_id);
   const purchasesByUser = group(purchases, (p) => p.user_id);
+  const passesByUser = group(categoryPasses, (p) => p.user_id);
   const attendeesBySession = group(attendees, (a) => a.session_id);
   const likesByPost = group(likes, (l) => l.post_id);
 
@@ -109,7 +120,13 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   }));
 
   return {
-    users: profiles.map((p) => mapProfile(p, (purchasesByUser[p.id] ?? []).map((x) => x.course_id))),
+    users: profiles.map((p) =>
+      mapProfile(
+        p,
+        (purchasesByUser[p.id] ?? []).map((x) => x.course_id),
+        (passesByUser[p.id] ?? []).map((x) => x.category as Role),
+      ),
+    ),
     courses: assembledCourses,
     tracks: tracks.map(mapTrack),
     tips: tips.map(mapTip),
@@ -121,6 +138,10 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     progress: progress.map(mapProgress),
     submissions: submissions.map(mapSubmission),
     notes: notes.map(mapNote),
+    coupons: coupons.map(mapCoupon),
+    pricing: pricingRows[0]
+      ? { cat1: pricingRows[0].cat1, cat2: pricingRows[0].cat2, cat3: pricingRows[0].cat3 }
+      : null,
   };
 }
 
@@ -136,8 +157,15 @@ function group<T extends Row>(arr: T[], key: (r: T) => string): Record<string, T
 export async function fetchUser(sb: SupabaseClient, id: string): Promise<User | null> {
   const { data } = await sb.from("profiles").select("*").eq("id", id).maybeSingle();
   if (!data) return null;
-  const owned = await rows(sb.from("course_purchases").select("course_id").eq("user_id", id));
-  return mapProfile(data, owned.map((x) => x.course_id));
+  const [owned, passes] = await Promise.all([
+    rows(sb.from("course_purchases").select("course_id").eq("user_id", id)),
+    rows(sb.from("category_passes").select("category").eq("user_id", id)),
+  ]);
+  return mapProfile(
+    data,
+    owned.map((x) => x.course_id),
+    passes.map((x) => x.category as Role),
+  );
 }
 
 // ─────────────────────────── writes ───────────────────────────
@@ -228,3 +256,16 @@ export const upsertResource = (sb: SupabaseClient, r: RecommendedResource) =>
 export const saveQuestion = (sb: SupabaseClient, assignmentId: string, q: Question) =>
   sb.from("questions").upsert({ id: q.id, assignment_id: assignmentId, type: q.type, prompt: q.prompt, options: q.options, correct_answer: q.correctAnswer, explanation: q.explanation });
 export const deleteQuestion = (sb: SupabaseClient, id: string) => sb.from("questions").delete().eq("id", id);
+
+export const saveCoupon = (sb: SupabaseClient, c: Coupon) =>
+  sb.from("coupons").upsert({
+    code: c.code, discount_percent: c.discountPercent, category: c.category, active: c.active,
+    max_redemptions: c.maxRedemptions, redemptions: c.redemptions, expires_at: c.expiresAt, created_at: c.createdAt,
+  });
+export const deleteCoupon = (sb: SupabaseClient, code: string) => sb.from("coupons").delete().eq("code", code);
+
+export const grantCategoryPass = (sb: SupabaseClient, userId: string, category: Role) =>
+  sb.from("category_passes").upsert({ user_id: userId, category }, { onConflict: "user_id,category" });
+
+export const savePricing = (sb: SupabaseClient, t: PricingTiers) =>
+  sb.from("pricing_tiers").upsert({ id: 1, cat1: t.cat1, cat2: t.cat2, cat3: t.cat3 });

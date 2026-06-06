@@ -11,6 +11,7 @@ import {
   Users,
   Video,
   MessageSquare,
+  Ticket,
   LogOut,
   ExternalLink,
   Menu,
@@ -31,6 +32,7 @@ const nav: { label: string; href: string; icon: LucideIcon }[] = [
   { label: "Users", href: "/admin/users", icon: Users },
   { label: "Live Sessions", href: "/admin/sessions", icon: Video },
   { label: "Community", href: "/admin/community", icon: MessageSquare },
+  { label: "Plans & Coupons", href: "/admin/coupons", icon: Ticket },
 ];
 
 export function AdminShell({
@@ -65,7 +67,7 @@ export function AdminShell({
   const isActive = (href: string) => (href === "/admin" ? pathname === "/admin" : pathname.startsWith(href));
 
   const sidebar = (
-    <div className="flex h-full flex-col bg-navy-950 text-cream-100">
+    <div className="flex h-full flex-col bg-navy-950 dark:bg-[#15100a] text-cream-100">
       <div className="px-5 py-5">
         <Logo variant="light" href="/admin" />
       </div>
@@ -116,7 +118,7 @@ export function AdminShell({
   );
 
   return (
-    <div className="min-h-screen bg-cream-100 lg:grid lg:grid-cols-[260px_1fr]">
+    <div className="min-h-screen bg-surface lg:grid lg:grid-cols-[260px_1fr]">
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-screen lg:block">{sidebar}</aside>
 
@@ -129,18 +131,18 @@ export function AdminShell({
       )}
 
       <div className="flex min-h-screen flex-col">
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-cream-200 bg-white px-5 py-3.5 sm:px-7">
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-hair bg-card px-5 py-3.5 sm:px-7">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setOpen(true)}
-              className="grid h-9 w-9 place-items-center rounded-xl text-navy-700 hover:bg-cream-100 lg:hidden"
+              className="grid h-9 w-9 place-items-center rounded-xl text-heading hover:bg-surface-2 lg:hidden"
               aria-label="Menu"
             >
               <Menu className="h-5 w-5" />
             </button>
             <div>
-              <h1 className="font-heading text-xl font-bold text-navy-800">{title}</h1>
-              {subtitle && <p className="text-sm text-ink-soft">{subtitle}</p>}
+              <h1 className="font-heading text-xl font-bold text-heading">{title}</h1>
+              {subtitle && <p className="text-sm text-muted">{subtitle}</p>}
             </div>
           </div>
           {actions && <div className="flex items-center gap-2">{actions}</div>}

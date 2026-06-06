@@ -77,33 +77,33 @@ function SessionsAdmin() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-heading font-semibold text-navy-800">{s.title}</h3>
+                    <h3 className="font-heading font-semibold text-heading">{s.title}</h3>
                     <Badge variant="navy" className="capitalize">{s.targetRole}</Badge>
                   </div>
-                  <p className="mt-0.5 text-sm text-ink-soft">
+                  <p className="mt-0.5 text-sm text-muted">
                     {s.instructorName}
                     {s.courseTitle ? ` · ${s.courseTitle}` : ""}
                   </p>
-                  <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-ink-faint">
+                  <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-faint">
                     <Calendar className="h-3.5 w-3.5" />
                     {d.toLocaleString("en-IN", { weekday: "short", hour: "numeric", minute: "2-digit", hour12: true })} · {s.durationMins} min
                   </p>
                 </div>
               </div>
 
-              <div className="mt-4 flex items-center justify-between border-t border-cream-200 pt-3">
-                <span className="inline-flex items-center gap-1.5 text-sm text-ink-soft">
-                  <Users className="h-4 w-4 text-navy-500" />
-                  <span className="font-semibold text-navy-800">{s.attendeeIds.length}</span>/{s.capacity} voted
+              <div className="mt-4 flex items-center justify-between border-t border-hair pt-3">
+                <span className="inline-flex items-center gap-1.5 text-sm text-muted">
+                  <Users className="h-4 w-4 text-muted" />
+                  <span className="font-semibold text-heading">{s.attendeeIds.length}</span>/{s.capacity} voted
                 </span>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => reminder(s)} title="Send reminder" className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-cream-100 hover:text-gold-600">
+                  <button onClick={() => reminder(s)} title="Send reminder" className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-gold-600">
                     <Bell className="h-4 w-4" />
                   </button>
-                  <a href={s.meetLink} target="_blank" rel="noopener noreferrer" title="Open Meet" className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-cream-100 hover:text-navy-700">
+                  <a href={s.meetLink} target="_blank" rel="noopener noreferrer" title="Open Meet" className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading">
                     <Video className="h-4 w-4" />
                   </a>
-                  <button onClick={() => setEditing(s)} title="Edit" className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-cream-100 hover:text-navy-700">
+                  <button onClick={() => setEditing(s)} title="Edit" className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading">
                     <Pencil className="h-4 w-4" />
                   </button>
                   <button
@@ -111,7 +111,7 @@ function SessionsAdmin() {
                       if (confirm(`Delete "${s.title}"?`)) deleteSession(s.id);
                     }}
                     title="Delete"
-                    className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-red-50 hover:text-red-600"
+                    className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

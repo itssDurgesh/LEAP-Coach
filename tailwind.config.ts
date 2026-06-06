@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
@@ -9,6 +10,16 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // ── Semantic theme tokens (CSS-variable backed; flip under `.dark`) ──
+        // Use these for surfaces/text/borders so a single class themes itself.
+        // Literal gold/navy/cream/ink stay for accents & always-dark sections.
+        surface: "rgb(var(--surface) / <alpha-value>)", // page background
+        "surface-2": "rgb(var(--surface-2) / <alpha-value>)", // subtle / hover
+        card: "rgb(var(--card) / <alpha-value>)", // raised cards / panels
+        heading: "rgb(var(--heading) / <alpha-value>)", // primary text / headings
+        muted: "rgb(var(--muted) / <alpha-value>)", // secondary text
+        faint: "rgb(var(--faint) / <alpha-value>)", // tertiary text
+        hair: "var(--hair)", // hairline borders (alpha baked in)
         // Golden yellow — primary brand / action
         gold: {
           50: "#FBF3DF",

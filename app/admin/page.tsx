@@ -7,8 +7,7 @@ import {
   TrendingUp,
   ClipboardCheck,
   CalendarClock,
-  Activity,
-  Circle,
+  ShoppingCart,
   ArrowUpRight,
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -28,17 +27,12 @@ export default function AdminOverviewPage() {
   );
 }
 
-interface FeedEvent {
-  id: string;
-  name: string;
-  text: string;
-  at: number;
-}
-
 function Overview() {
   const { users, courses, enrollments, submissions, progress, courseProgress } = useApp();
 
-  const learners = users.filter((u) => !u.isAdmin);
+  // Memoized so `makeEvent`'s useCallback (and the feed effect) stays stable across renders —
+  // a fresh array each render would re-fire the effect's setFeed and cause an infinite loop.
+  const learners = React.useMemo(() => users.filter((u) => !u.isAdmin), [users]);
   const activeUsers = learners.filter((u) => !u.banned).length;
 
   // completion rate across all enrollments
@@ -63,32 +57,23 @@ function Overview() {
     return () => clearInterval(id);
   }, [activeUsers]);
 
-  // ── live activity feed ──
-  const makeEvent = React.useCallback((): FeedEvent => {
-    const u = learners[Math.floor(Math.random() * learners.length)];
-    const c = courses[Math.floor(Math.random() * courses.length)];
-    const v = c.videos[Math.floor(Math.random() * c.videos.length)];
-    const templates = [
-      `completed “${v.title}”`,
-      `enrolled in “${c.title}”`,
-      `passed a checkpoint with ${60 + Math.floor(Math.random() * 41)}%`,
-      `earned new learning credits`,
-      `posted in the community`,
-    ];
-    return {
-      id: Math.random().toString(36).slice(2),
-      name: u?.name ?? "A learner",
-      text: templates[Math.floor(Math.random() * templates.length)],
-      at: Date.now(),
-    };
-  }, [learners, courses]);
-
-  const [feed, setFeed] = React.useState<FeedEvent[]>([]);
-  React.useEffect(() => {
-    setFeed(Array.from({ length: 5 }, () => ({ ...makeEvent(), at: Date.now() - Math.random() * 300000 })));
-    const id = setInterval(() => setFeed((f) => [makeEvent(), ...f].slice(0, 10)), 3600);
-    return () => clearInterval(id);
-  }, [makeEvent]);
+  // ── recent course purchases (real data: who bought which topic) ──
+  const purchases = React.useMemo(() => {
+    const enrolledAt = new Map(enrollments.map((e) => [`${e.userId}|${e.courseId}`, e.enrolledAt]));
+    const titleOf = new Map(courses.map((c) => [c.id, c.title]));
+    return learners
+      .flatMap((u) =>
+        u.ownedCourseIds
+          .filter((cid) => titleOf.has(cid))
+          .map((cid) => ({
+            id: `${u.id}_${cid}`,
+            name: u.name,
+            course: titleOf.get(cid) as string,
+            at: enrolledAt.get(`${u.id}|${cid}`) ?? u.createdAt,
+          })),
+      )
+      .sort((a, b) => (a.at < b.at ? 1 : -1));
+  }, [learners, courses, enrollments]);
 
   const stats = [
     { icon: Users, label: "Active users", value: activeUsers, live: `${online} online now`, color: "text-navy-600 bg-navy-50" },
@@ -117,47 +102,50 @@ function Overview() {
                 </span>
               )}
             </div>
-            <p className="mt-3 font-heading text-3xl font-bold text-navy-800">{s.value}</p>
-            <p className="text-sm text-ink-soft">{s.label}</p>
-            {s.sub && <p className="mt-0.5 text-xs text-ink-faint">{s.sub}</p>}
+            <p className="mt-3 font-heading text-3xl font-bold text-heading">{s.value}</p>
+            <p className="text-sm text-muted">{s.label}</p>
+            {s.sub && <p className="mt-0.5 text-xs text-faint">{s.sub}</p>}
           </Card>
         ))}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Live activity feed */}
+        {/* Recent course purchases */}
         <Card className="lg:col-span-2">
-          <div className="flex items-center justify-between border-b border-cream-200 px-5 py-4">
-            <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-navy-800">
-              <Activity className="h-5 w-5 text-gold-600" /> Live activity feed
+          <div className="flex items-center justify-between border-b border-hair px-5 py-4">
+            <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
+              <ShoppingCart className="h-5 w-5 text-gold-600" /> Recent course purchases
             </h2>
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-600">
-              <Circle className="h-2 w-2 fill-green-500 text-green-500" /> Live
-            </span>
+            <span className="text-xs font-medium text-faint">{purchases.length} total</span>
           </div>
-          <ul className="divide-y divide-cream-200">
-            {feed.map((e) => (
-              <li key={e.id} className="flex items-center gap-3 px-5 py-3 animate-fade-in">
-                <Avatar name={e.name} size={34} />
-                <p className="flex-1 text-sm text-ink-soft">
-                  <span className="font-semibold text-navy-800">{e.name}</span> {e.text}
-                </p>
-                <span className="text-xs text-ink-faint">{timeAgo(new Date(e.at).toISOString())}</span>
-              </li>
-            ))}
-          </ul>
+          {purchases.length === 0 ? (
+            <p className="px-5 py-10 text-center text-sm text-faint">No course purchases yet.</p>
+          ) : (
+            <ul className="divide-y divide-hair">
+              {purchases.map((p) => (
+                <li key={p.id} className="flex items-center gap-3 px-5 py-3">
+                  <Avatar name={p.name} size={34} />
+                  <p className="flex-1 text-sm text-muted">
+                    <span className="font-semibold text-heading">{p.name}</span> purchased{" "}
+                    <span className="font-medium text-heading">“{p.course}”</span>
+                  </p>
+                  <span className="text-xs text-faint">{timeAgo(new Date(p.at).toISOString())}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
 
         {/* Cohort telemetry */}
         <Card padded>
-          <h2 className="font-heading text-base font-semibold text-navy-800">Cohort progress telemetry</h2>
+          <h2 className="font-heading text-base font-semibold text-heading">Cohort progress telemetry</h2>
           <div className="mt-5 space-y-5">
             {cohorts.map((c) => (
               <div key={c.id}>
                 <div className="mb-1.5 flex items-center justify-between text-sm">
-                  <span className="font-medium text-navy-700">{c.role}</span>
-                  <span className="text-ink-faint">
-                    {c.learners} learners · <span className="font-semibold text-navy-800">{c.avg}%</span>
+                  <span className="font-medium text-heading">{c.role}</span>
+                  <span className="text-faint">
+                    {c.learners} learners · <span className="font-semibold text-heading">{c.avg}%</span>
                   </span>
                 </div>
                 <ProgressBar value={c.avg} />
@@ -175,8 +163,8 @@ function Overview() {
 
       {/* Active topic modules */}
       <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-cream-200 px-5 py-4">
-          <h2 className="font-heading text-base font-semibold text-navy-800">Active topic modules</h2>
+        <div className="flex items-center justify-between border-b border-hair px-5 py-4">
+          <h2 className="font-heading text-base font-semibold text-heading">Active topic modules</h2>
           <Link href="/admin/courses" className="text-sm font-semibold text-gold-600 hover:text-gold-700">
             Manage
           </Link>
@@ -184,7 +172,7 @@ function Overview() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-cream-200 text-left text-xs uppercase tracking-wide text-ink-faint">
+              <tr className="border-b border-hair text-left text-xs uppercase tracking-wide text-faint">
                 <th className="px-5 py-3 font-medium">Topic</th>
                 <th className="px-5 py-3 font-medium">Instructor</th>
                 <th className="px-5 py-3 font-medium">Enrolled</th>
@@ -192,18 +180,18 @@ function Overview() {
                 <th className="px-5 py-3 font-medium">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-cream-200">
+            <tbody className="divide-y divide-hair">
               {courses.slice(0, 8).map((c) => (
-                <tr key={c.id} className="hover:bg-cream-50">
+                <tr key={c.id} className="hover:bg-surface-2">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-navy-800">{c.title}</span>
+                      <span className="font-medium text-heading">{c.title}</span>
                       {c.trending && <Badge variant="trending">🔥</Badge>}
                     </div>
                   </td>
-                  <td className="px-5 py-3 text-ink-soft">{c.instructorName}</td>
-                  <td className="px-5 py-3 text-ink-soft">{c.enrolledCount.toLocaleString("en-IN")}</td>
-                  <td className="px-5 py-3 text-ink-soft">{c.purchaseCount.toLocaleString("en-IN")}</td>
+                  <td className="px-5 py-3 text-muted">{c.instructorName}</td>
+                  <td className="px-5 py-3 text-muted">{c.enrolledCount.toLocaleString("en-IN")}</td>
+                  <td className="px-5 py-3 text-muted">{c.purchaseCount.toLocaleString("en-IN")}</td>
                   <td className="px-5 py-3">
                     {c.published ? (
                       <Badge variant="success">Published</Badge>

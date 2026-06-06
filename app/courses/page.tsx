@@ -67,8 +67,8 @@ function CatalogContent() {
   return (
     <div className="space-y-7">
       <div>
-        <h1 className="font-heading text-3xl font-bold text-navy-800">Explore Coaching Topics</h1>
-        <p className="mt-1.5 text-ink-soft">
+        <h1 className="font-heading text-3xl font-bold text-heading">Explore Coaching Topics</h1>
+        <p className="mt-1.5 text-muted">
           Curated for your path — discover programs that build authentic, high-performance leadership.
         </p>
       </div>
@@ -76,7 +76,7 @@ function CatalogContent() {
       {/* Trending strip */}
       {trending.length > 0 && (
         <section>
-          <h2 className="mb-3 flex items-center gap-2 font-heading text-lg font-bold text-navy-800">
+          <h2 className="mb-3 flex items-center gap-2 font-heading text-lg font-bold text-heading">
             <TrendingUp className="h-5 w-5 text-orange-500" /> Trending now
           </h2>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -88,10 +88,10 @@ function CatalogContent() {
       )}
 
       {/* Filters */}
-      <div className="rounded-2xl border border-cream-200 bg-white p-4 shadow-card sm:p-5">
+      <div className="rounded-2xl border border-hair bg-card p-4 shadow-card sm:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -118,7 +118,7 @@ function CatalogContent() {
                 "rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
                 category === cat.id
                   ? "bg-navy-800 text-white"
-                  : "bg-cream-100 text-navy-700 hover:bg-cream-200",
+                  : "bg-surface-2 text-heading hover:bg-surface-2",
               )}
             >
               {cat.label}
@@ -128,7 +128,7 @@ function CatalogContent() {
 
         {/* Leadership track chips */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-faint">
             <SlidersHorizontal className="h-3.5 w-3.5" /> Tracks
           </span>
           {tracks.map((t) => (
@@ -139,7 +139,7 @@ function CatalogContent() {
                 "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                 selectedTracks.includes(t.id)
                   ? "border-gold-300 bg-gold-50 text-gold-700"
-                  : "border-cream-300 bg-white text-ink-soft hover:border-navy-200",
+                  : "border-hair bg-card text-muted hover:border-navy-200",
               )}
             >
               {t.label}
@@ -151,8 +151,8 @@ function CatalogContent() {
       {/* Results */}
       <section>
         <div className="mb-4 flex items-center justify-between">
-          <p className="text-sm text-ink-soft">
-            <span className="font-semibold text-navy-800">{filtered.length}</span>{" "}
+          <p className="text-sm text-muted">
+            <span className="font-semibold text-heading">{filtered.length}</span>{" "}
             {filtered.length === 1 ? "topic" : "topics"}
           </p>
           {hasFilters && (
@@ -177,9 +177,9 @@ function CatalogContent() {
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-cream-300 bg-white py-16 text-center">
-            <p className="font-heading text-lg font-semibold text-navy-800">No topics match your filters</p>
-            <p className="mt-1 text-sm text-ink-soft">Try widening your search or clearing filters.</p>
+          <div className="rounded-2xl border border-dashed border-hair bg-card py-16 text-center">
+            <p className="font-heading text-lg font-semibold text-heading">No topics match your filters</p>
+            <p className="mt-1 text-sm text-muted">Try widening your search or clearing filters.</p>
           </div>
         )}
       </section>

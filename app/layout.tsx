@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppProvider } from "@/lib/store/AppProvider";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
+
+// Runs before paint: re-applies a remembered dark choice so there's no flash.
+// Default is light, so we only add the class when the user previously chose dark.
+const themeScript = `(function(){try{if(localStorage.getItem('leap-theme')==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})();`;
 
 export const metadata: Metadata = {
-  title: "Leap Coach — Scale Human Wisdom",
+  title: "LEAP Coach — Scale Human Wisdom",
   description:
     "AI-enhanced, avatar-led learning for Students, Professionals, and Entrepreneurs. Leadership Excellence and Authentic Performance.",
 };
@@ -14,8 +19,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -28,7 +34,9 @@ export default function RootLayout({
         />
       </head>
       <body className="font-sans antialiased">
-        <AppProvider>{children}</AppProvider>
+        <ThemeProvider>
+          <AppProvider>{children}</AppProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

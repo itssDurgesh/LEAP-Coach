@@ -90,7 +90,7 @@ function UsersAdmin() {
       {/* Demographics */}
       <div className="grid gap-6 lg:grid-cols-3">
         <Card padded>
-          <h2 className="font-heading text-base font-semibold text-navy-800">By gender</h2>
+          <h2 className="font-heading text-base font-semibold text-heading">By gender</h2>
           <div className="mt-2 h-48">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -103,7 +103,7 @@ function UsersAdmin() {
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <div className="flex flex-wrap justify-center gap-3 text-xs text-ink-soft">
+          <div className="flex flex-wrap justify-center gap-3 text-xs text-muted">
             {byGender.map((g, i) => (
               <span key={g.name} className="inline-flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: COLORS[i % COLORS.length] }} /> {g.name}
@@ -113,11 +113,11 @@ function UsersAdmin() {
         </Card>
 
         <Card padded>
-          <h2 className="font-heading text-base font-semibold text-navy-800">By age group</h2>
+          <h2 className="font-heading text-base font-semibold text-heading">By age group</h2>
           <div className="mt-4 h-52">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byAge} margin={{ left: -22, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EEE5D2" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(150,140,120,0.18)" vertical={false} />
                 <XAxis dataKey="name" stroke="#8A97AC" fontSize={11} tickLine={false} axisLine={false} />
                 <YAxis stroke="#8A97AC" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                 <Tooltip cursor={{ fill: "#FAF5EA" }} contentStyle={{ borderRadius: 12, border: "1px solid #EEE5D2" }} />
@@ -128,17 +128,17 @@ function UsersAdmin() {
         </Card>
 
         <Card padded>
-          <h2 className="font-heading text-base font-semibold text-navy-800">Top regions</h2>
+          <h2 className="font-heading text-base font-semibold text-heading">Top regions</h2>
           <ul className="mt-4 space-y-3">
             {byRegion.map((r) => {
               const max = byRegion[0]?.value || 1;
               return (
                 <li key={r.name}>
                   <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="inline-flex items-center gap-1.5 text-navy-700">
-                      <MapPin className="h-3.5 w-3.5 text-ink-faint" /> {r.name}
+                    <span className="inline-flex items-center gap-1.5 text-heading">
+                      <MapPin className="h-3.5 w-3.5 text-faint" /> {r.name}
                     </span>
-                    <span className="font-semibold text-navy-800">{r.value}</span>
+                    <span className="font-semibold text-heading">{r.value}</span>
                   </div>
                   <ProgressBar value={(r.value / max) * 100} color="navy" size="sm" />
                 </li>
@@ -152,7 +152,7 @@ function UsersAdmin() {
       <Card padded>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name, email, company, region…" className="pl-10" />
           </div>
           <Select value={role} onChange={(e) => setRole(e.target.value)} className="sm:w-44">
@@ -174,7 +174,7 @@ function UsersAdmin() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-cream-200 text-left text-xs uppercase tracking-wide text-ink-faint">
+              <tr className="border-b border-hair text-left text-xs uppercase tracking-wide text-faint">
                 <th className="px-5 py-3 font-medium">Learner</th>
                 <th className="px-5 py-3 font-medium">Role</th>
                 <th className="px-5 py-3 font-medium">Credits</th>
@@ -184,39 +184,39 @@ function UsersAdmin() {
                 <th className="px-5 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-cream-200">
+            <tbody className="divide-y divide-hair">
               {filtered.map((u) => {
                 const tier = tierForCredits(u.learningCredits);
                 const courses = enrollments.filter((e) => e.userId === u.id).length;
                 return (
-                  <tr key={u.id} className="hover:bg-cream-50">
+                  <tr key={u.id} className="hover:bg-surface-2">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <Avatar name={u.name} size={36} />
                         <div>
-                          <p className="font-medium text-navy-800">{u.name}</p>
-                          <p className="text-xs text-ink-faint">{u.email}</p>
+                          <p className="font-medium text-heading">{u.name}</p>
+                          <p className="text-xs text-faint">{u.email}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-3 capitalize text-ink-soft">{u.role}</td>
+                    <td className="px-5 py-3 capitalize text-muted">{u.role}</td>
                     <td className="px-5 py-3">
                       <Badge variant={tier.color}>{u.learningCredits} · {tier.label}</Badge>
                     </td>
-                    <td className="px-5 py-3 text-ink-soft">{courses}</td>
-                    <td className="px-5 py-3 text-ink-soft">{u.region ?? "—"}</td>
+                    <td className="px-5 py-3 text-muted">{courses}</td>
+                    <td className="px-5 py-3 text-muted">{u.region ?? "—"}</td>
                     <td className="px-5 py-3">
                       {u.banned ? <Badge variant="warning">Banned</Badge> : <Badge variant="success">Active</Badge>}
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => setViewing(u)} title="View" className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-cream-100 hover:text-navy-700">
+                        <button onClick={() => setViewing(u)} title="View" className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading">
                           <Eye className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => setBanned(u.id, !u.banned)}
                           title={u.banned ? "Unban" : "Ban"}
-                          className={cn("grid h-8 w-8 place-items-center rounded-lg hover:bg-cream-100", u.banned ? "text-green-600" : "text-ink-faint hover:text-orange-600")}
+                          className={cn("grid h-8 w-8 place-items-center rounded-lg hover:bg-surface-2", u.banned ? "text-green-600" : "text-faint hover:text-orange-600")}
                         >
                           {u.banned ? <ShieldCheck className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
                         </button>
@@ -225,7 +225,7 @@ function UsersAdmin() {
                             if (confirm(`Delete ${u.name}? This cannot be undone.`)) deleteUser(u.id);
                           }}
                           title="Delete"
-                          className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-red-50 hover:text-red-600"
+                          className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -236,7 +236,7 @@ function UsersAdmin() {
               })}
             </tbody>
           </table>
-          {filtered.length === 0 && <p className="py-10 text-center text-sm text-ink-soft">No learners match your filters.</p>}
+          {filtered.length === 0 && <p className="py-10 text-center text-sm text-muted">No learners match your filters.</p>}
         </div>
       </Card>
 
@@ -269,7 +269,7 @@ function UserProfile({ user }: { user: User }) {
       <div className="flex items-center gap-4">
         <Avatar name={user.name} size={56} />
         <div>
-          <p className="font-heading text-lg font-bold text-navy-800">{user.name}</p>
+          <p className="font-heading text-lg font-bold text-heading">{user.name}</p>
           <div className="mt-1 flex items-center gap-2">
             <Badge variant="navy" className="capitalize">{user.role}</Badge>
             <Badge variant={tier.color}>{tier.label} · {user.learningCredits} cr</Badge>
@@ -281,13 +281,13 @@ function UserProfile({ user }: { user: User }) {
       <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         {facts.map(([k, v]) => (
           <div key={k}>
-            <dt className="text-xs uppercase tracking-wide text-ink-faint">{k}</dt>
-            <dd className="capitalize text-navy-800">{v}</dd>
+            <dt className="text-xs uppercase tracking-wide text-faint">{k}</dt>
+            <dd className="capitalize text-heading">{v}</dd>
           </div>
         ))}
       </dl>
 
-      <h3 className="mt-6 font-heading text-sm font-semibold text-navy-800">Topic progress</h3>
+      <h3 className="mt-6 font-heading text-sm font-semibold text-heading">Topic progress</h3>
       <div className="mt-3 space-y-3">
         {myEnrollments.length ? (
           myEnrollments.map((e) => {
@@ -297,15 +297,15 @@ function UserProfile({ user }: { user: User }) {
             return (
               <div key={e.courseId}>
                 <div className="mb-1 flex items-center justify-between text-sm">
-                  <span className="text-navy-700">{c.title}</span>
-                  <span className="text-ink-faint">{p.pct}%</span>
+                  <span className="text-heading">{c.title}</span>
+                  <span className="text-faint">{p.pct}%</span>
                 </div>
                 <ProgressBar value={p.pct} />
               </div>
             );
           })
         ) : (
-          <p className="text-sm text-ink-soft">No enrollments yet.</p>
+          <p className="text-sm text-muted">No enrollments yet.</p>
         )}
       </div>
     </div>

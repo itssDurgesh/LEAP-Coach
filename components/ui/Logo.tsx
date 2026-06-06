@@ -12,9 +12,9 @@ interface LogoProps {
   size?: "sm" | "md" | "lg";
 }
 
-const markSize = { sm: "h-9 w-9", md: "h-11 w-11", lg: "h-16 w-16" };
+const markSize = { sm: "h-8 w-8", md: "h-10 w-10", lg: "h-14 w-14" };
 const iconSize = { sm: "h-5 w-5", md: "h-6 w-6", lg: "h-8 w-8" };
-const textSize = { sm: "text-base", md: "text-xl", lg: "text-[1.7rem]" };
+const textSize = { sm: "text-base", md: "text-lg", lg: "text-[1.7rem]" };
 
 export function Logo({ className, href = "/", variant = "default", size = "md" }: LogoProps) {
   const [imgOk, setImgOk] = React.useState(true);
@@ -28,16 +28,16 @@ export function Logo({ className, href = "/", variant = "default", size = "md" }
         !imgOk
           ? "bg-gradient-to-br from-gold-400 to-gold-600 shadow-gold"
           : onDark
-            ? "bg-white p-1 ring-1 ring-white/20"
-            : "",
+            ? "ring-1 ring-white/25"
+            : "ring-1 ring-hair",
       )}
     >
       {imgOk ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src="/logo.png?v=3"
-          alt="Leap Coach"
-          className="h-full w-full object-contain"
+          alt="LEAP Coach"
+          className="h-full w-full rounded-xl object-cover"
           onError={() => setImgOk(false)}
         />
       ) : (
@@ -47,10 +47,10 @@ export function Logo({ className, href = "/", variant = "default", size = "md" }
   );
 
   const content = (
-    <span className={cn("inline-flex items-center gap-2.5", className)}>
+    <span className={cn("inline-flex items-center gap-2", className)}>
       {mark}
-      <span className={cn("font-heading font-bold leading-none", textSize[size])}>
-        <span className={onDark ? "text-white" : "text-navy-800"}>Leap</span>
+      <span className={cn("font-heading font-bold leading-none tracking-tight", textSize[size])}>
+        <span className={cn("tracking-wide", onDark ? "text-white" : "text-heading")}>LEAP</span>
         <span className="text-gold-500"> Coach</span>
       </span>
     </span>

@@ -15,8 +15,8 @@ const variants: Record<BadgeVariant, string> = {
   navy: "bg-navy-50 text-navy-700 border-navy-100",
   success: "bg-green-50 text-green-700 border-green-200",
   warning: "bg-orange-50 text-orange-700 border-orange-200",
-  neutral: "bg-cream-100 text-ink-soft border-cream-200",
-  outline: "bg-white/80 text-navy-600 border-navy-200",
+  neutral: "bg-surface-2 text-muted border-hair",
+  outline: "bg-card/80 text-muted border-hair",
   trending:
     "bg-gradient-to-r from-orange-500 to-gold-500 text-white border-transparent shadow-sm",
 };

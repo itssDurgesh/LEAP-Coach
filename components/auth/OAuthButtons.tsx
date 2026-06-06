@@ -25,7 +25,7 @@ interface OAuthButtonsProps {
 
 export function OAuthButtons({ onSelect }: OAuthButtonsProps) {
   const cls =
-    "inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-cream-300 bg-white text-sm font-medium text-navy-700 transition-colors hover:bg-cream-100";
+    "inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-hair bg-card text-sm font-medium text-heading transition-colors hover:bg-surface-2";
   return (
     <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
       <button type="button" onClick={() => onSelect("google")} className={cls}>

@@ -26,7 +26,7 @@ function Moderation() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <Card padded>
-        <p className="mb-2 text-sm font-medium text-navy-700">Post an announcement as Admin</p>
+        <p className="mb-2 text-sm font-medium text-heading">Post an announcement as Admin</p>
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -47,7 +47,7 @@ function Moderation() {
       </Card>
 
       <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-navy-800">
+        <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
           <MessageSquare className="h-5 w-5 text-gold-600" /> {community.length} posts
         </h2>
       </div>
@@ -59,19 +59,19 @@ function Moderation() {
               <Avatar name={p.userName} size={38} />
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-heading font-semibold text-navy-800">{p.userName}</span>
+                  <span className="font-heading font-semibold text-heading">{p.userName}</span>
                   {p.userRole === "admin" ? (
                     <Badge variant="navy"><Shield className="h-3 w-3" /> Admin</Badge>
                   ) : (
                     <Badge variant="neutral" className="capitalize">{p.userRole}</Badge>
                   )}
-                  <span className="text-xs text-ink-faint">
+                  <span className="text-xs text-faint">
                     · {timeAgo(p.createdAt)}
                     {p.editedAt ? " · edited" : ""}
                   </span>
                 </div>
-                <p className="mt-1.5 whitespace-pre-line leading-relaxed text-navy-800">{p.text}</p>
-                <div className="mt-2 flex items-center gap-1.5 text-xs text-ink-faint">
+                <p className="mt-1.5 whitespace-pre-line leading-relaxed text-heading">{p.text}</p>
+                <div className="mt-2 flex items-center gap-1.5 text-xs text-faint">
                   <Heart className="h-3.5 w-3.5" /> {p.likedBy.length}
                 </div>
               </div>
@@ -79,7 +79,7 @@ function Moderation() {
                 onClick={() => {
                   if (confirm("Remove this post for everyone?")) deleteMessage(p.id);
                 }}
-                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-ink-faint hover:bg-red-50 hover:text-red-600"
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-faint hover:bg-red-50 hover:text-red-600"
               >
                 <Trash2 className="h-4 w-4" /> Remove
               </button>

@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   Assignment,
   CommunityPost,
+  Coupon,
   Course,
   DailyTip,
   Enrollment,
@@ -11,6 +12,7 @@ import {
   LeadershipTrack,
   LiveSession,
   Note,
+  PricingTiers,
   Question,
   RecommendedResource,
   Role,
@@ -19,10 +21,11 @@ import {
   Video,
   VideoProgress,
 } from "@/lib/types";
-import { DEFAULT_TRACKS } from "@/lib/types";
+import { DEFAULT_TRACKS, DEFAULT_PRICING } from "@/lib/types";
 import {
   ADMIN_PASSWORD,
   seedCommunity,
+  seedCoupons,
   seedCourses,
   seedEnrollments,
   seedNotes,
@@ -36,8 +39,18 @@ import {
 import { getSupabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import * as db from "@/lib/supabase/db";
+import { normalizeCode } from "@/lib/coupons";
 
 const STORAGE_KEY = "leap-coach-state-v1";
+
+// Captured at module-eval time — i.e. BEFORE the first React render calls
+// getSupabase(), whose detectSessionInUrl strips the OAuth `?code=`/`#access_token`
+// from the URL. Reading the flag here (not inside the effect, which runs after that
+// render) is the only reliable way to know we landed on a Google/LinkedIn callback.
+const OAUTH_CALLBACK =
+  typeof window !== "undefined" &&
+  (/[?&]code=/.test(window.location.search) || /[#&]access_token=/.test(window.location.hash));
+
 const CREDITS_PER_VIDEO = 15;
 const CREDITS_PER_ASSIGNMENT = 60;
 const PASS_MARK = 60;
@@ -55,6 +68,8 @@ interface AppState {
   progress: VideoProgress[];
   submissions: Submission[];
   notes: Note[];
+  coupons: Coupon[];
+  pricing: PricingTiers;
   currentUserId: string | null;
 }
 
@@ -71,6 +86,8 @@ function seedState(): AppState {
     progress: seedProgress,
     submissions: seedSubmissions,
     notes: seedNotes,
+    coupons: seedCoupons,
+    pricing: DEFAULT_PRICING,
     currentUserId: null,
   };
 }
@@ -78,7 +95,8 @@ function seedState(): AppState {
 function emptyState(): AppState {
   return {
     users: [], courses: [], tracks: DEFAULT_TRACKS, tips: [], sessions: [], resources: [],
-    community: [], enrollments: [], progress: [], submissions: [], notes: [], currentUserId: null,
+    community: [], enrollments: [], progress: [], submissions: [], notes: [], coupons: [],
+    pricing: DEFAULT_PRICING, currentUserId: null,
   };
 }
 
@@ -106,7 +124,7 @@ interface AppContextValue extends AppState {
   signIn(email: string, password?: string): Promise<AuthResult>;
   signUp(data: SignUpData): Promise<AuthResult>;
   adminSignIn(email: string, password: string): Promise<AuthResult>;
-  oauthSignIn(provider: "google" | "linkedin"): Promise<void>;
+  oauthSignIn(provider: "google" | "linkedin"): Promise<{ ok: boolean; error?: string }>;
   signOut(): void;
   setRole(role: Role): void;
   verifyPhone(): void;
@@ -114,8 +132,13 @@ interface AppContextValue extends AppState {
   isEnrolled(courseId: string, userId?: string): boolean;
   hasAccess(courseId: string, userId?: string): boolean;
   enrollFree(courseId: string): void;
-  purchaseCourse(courseId: string): void;
-  subscribeAllAccess(): void;
+  // skipPersist: the grant was already written server-side (after verified payment),
+  // so only update in-memory state — don't fire a client Supabase write.
+  purchaseCourse(courseId: string, skipPersist?: boolean): void;
+  subscribeAllAccess(skipPersist?: boolean): void;
+  // category-bundle pass: grant access to all topics in the given categories.
+  purchaseBundle(categories: Role[], skipPersist?: boolean): void;
+  savePricing(tiers: PricingTiers): void;
   // progress
   isVideoCompleted(videoId: string, userId?: string): boolean;
   markVideoComplete(videoId: string): void;
@@ -154,6 +177,10 @@ interface AppContextValue extends AppState {
   deleteSession(id: string): void;
   setBanned(userId: string, banned: boolean): void;
   deleteUser(userId: string): void;
+  // admin — coupons
+  saveCoupon(coupon: Coupon): void;
+  deleteCoupon(code: string): void;
+  getCoupon(code: string): Coupon | undefined;
   seedDemoContent(): Promise<void>;
   // lookups
   getCourse(id: string): Course | undefined;
@@ -187,21 +214,80 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     let active = true;
-    const reload = async (userId: string | null) => {
-      const data = await db.loadAll(sb);
-      if (!active) return;
-      setState((s) => ({ ...s, ...data, currentUserId: userId }));
-      setHydrated(true);
+    // Which user the in-memory data is currently loaded for. `undefined` = not loaded yet.
+    let loadedFor: string | null | undefined = undefined;
+
+    const reload = (userId: string | null) => {
+      // Defer out of the auth callback: doing Supabase queries *inside* onAuthStateChange
+      // holds GoTrue's auth lock and deadlocks those queries. setTimeout(0) releases it first.
+      setTimeout(async () => {
+        const data = await db.loadAll(sb);
+        if (!active) return;
+        // Guarantee the signed-in user is in `users` — otherwise currentUser is null
+        // and guarded pages bounce to /login even with a valid session. loadAll can
+        // miss a brand-new OAuth profile (new-user trigger lag / RLS scoping), so fetch
+        // it directly as a fallback.
+        let users = data.users;
+        if (userId && !users.some((u) => u.id === userId)) {
+          const me = await db.fetchUser(sb, userId);
+          if (!active) return;
+          if (me) users = [...users, me];
+        }
+        setState((s) => ({ ...s, ...data, users, pricing: data.pricing ?? s.pricing, currentUserId: userId }));
+        setHydrated(true);
+      }, 0);
     };
+
+    // Run a full load exactly once per distinct signed-in identity.
+    const finalize = (userId: string | null) => {
+      if (!active || (loadedFor !== undefined && userId === loadedFor)) return;
+      loadedFor = userId; // mark synchronously so duplicate events don't re-trigger loadAll
+      reload(userId);
+    };
+
+    // Authoritative initial auth state. getSession() internally awaits Supabase's
+    // detectSessionInUrl PKCE exchange, so on a Google/LinkedIn redirect it resolves to
+    // the REAL signed-in user — not the transient logged-out state the old URL-sniffing
+    // path raced against (which bounced new OAuth users to /login).
+    sb.auth
+      .getSession()
+      .then(({ data }) => {
+        const userId = data.session?.user?.id ?? null;
+        // OAuth landing but no session resolved yet → wait for the SIGNED_IN below
+        // instead of finalizing logged-out (which would bounce /select-role to /login).
+        if (!userId && OAUTH_CALLBACK && loadedFor === undefined) return;
+        finalize(userId);
+      })
+      .catch(() => {
+        if (loadedFor === undefined && !OAUTH_CALLBACK) finalize(null);
+      });
+
     const { data: sub } = sb.auth.onAuthStateChange((event, session) => {
-      if (event === "TOKEN_REFRESHED") {
-        setState((s) => ({ ...s, currentUserId: session?.user?.id ?? s.currentUserId }));
+      const userId = session?.user?.id ?? null;
+      // The initial state is owned by getSession() above.
+      if (event === "INITIAL_SESSION") return;
+      // TOKEN_REFRESHED and focus-triggered SIGNED_IN events keep the same user — don't
+      // re-fetch the entire app state on every tab refocus, just keep the session current.
+      if (event === "TOKEN_REFRESHED" || (loadedFor !== undefined && userId === loadedFor)) {
+        if (!active) return;
+        setHydrated(true);
+        setState((s) => ({ ...s, currentUserId: userId ?? s.currentUserId }));
         return;
       }
-      reload(session?.user?.id ?? null);
+      finalize(userId);
     });
+
+    // Safety net: if an OAuth exchange stalls (or fails), don't hang on the loader
+    // forever — finalize a logged-out state after a few seconds.
+    const fallback = OAUTH_CALLBACK
+      ? setTimeout(() => {
+          if (active && loadedFor === undefined) finalize(null);
+        }, 6000)
+      : undefined;
+
     return () => {
       active = false;
+      if (fallback) clearTimeout(fallback);
       sub.subscription.unsubscribe();
     };
   }, []);
@@ -242,6 +328,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const u = state.users.find((x) => x.id === who(userId));
       if (!u) return false;
       if (u.subscriptionPlan === "all_access") return true;
+      if ((u.ownedCategories ?? []).includes(course.category)) return true; // category pass
       return u.ownedCourseIds.includes(courseId);
     };
 
@@ -318,6 +405,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             await sb.auth.signOut();
             return { ok: false, error: "This account has been suspended." };
           }
+          if (u)
+            setState((s) => ({
+              ...s,
+              currentUserId: u.id,
+              users: s.users.some((x) => x.id === u.id) ? s.users : [...s.users, u],
+            }));
           return { ok: true, user: u ?? undefined };
         }
         const u = state.users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
@@ -384,6 +477,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             await sb.auth.signOut();
             return { ok: false, error: "Not an admin account." };
           }
+          setState((s) => ({
+            ...s,
+            currentUserId: u.id,
+            users: s.users.some((x) => x.id === u.id) ? s.users : [...s.users, u],
+          }));
           return { ok: true, user: u };
         }
         const u = state.users.find(
@@ -395,13 +493,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ok: true, user: u };
       },
       async oauthSignIn(provider) {
-        if (!sb) return;
-        await sb.auth.signInWithOAuth({
+        if (!sb) return { ok: false, error: "Sign-in is not configured." };
+        const { error } = await sb.auth.signInWithOAuth({
           provider: provider === "linkedin" ? "linkedin_oidc" : "google",
           options: {
             redirectTo: typeof window !== "undefined" ? `${window.location.origin}/select-role` : undefined,
           },
         });
+        // On success the browser redirects; we only return here if it failed
+        // (e.g. the provider isn't enabled in Supabase).
+        if (error)
+          return {
+            ok: false,
+            error:
+              /not enabled|unsupported provider/i.test(error.message)
+                ? `${provider === "linkedin" ? "LinkedIn" : "Google"} sign-in isn't enabled yet. Please use email, or try again later.`
+                : error.message,
+          };
+        return { ok: true };
       },
       signOut() {
         if (sb) {
@@ -439,7 +548,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }));
         if (sb) fire(db.enroll(sb, currentUser.id, courseId));
       },
-      purchaseCourse(courseId) {
+      purchaseCourse(courseId, skipPersist) {
         if (!currentUser) return;
         const wasEnrolled = isEnrolled(courseId);
         patchUser(currentUser.id, (u) => ({
@@ -459,12 +568,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? s.enrollments
             : [...s.enrollments, { userId: currentUser.id, courseId, enrolledAt: new Date().toISOString() }],
         }));
-        if (sb) {
+        if (sb && !skipPersist) {
           fire(db.purchase(sb, currentUser.id, courseId));
           if (!wasEnrolled) fire(db.enroll(sb, currentUser.id, courseId));
         }
       },
-      subscribeAllAccess() {
+      subscribeAllAccess(skipPersist) {
         if (!currentUser) return;
         const validUntil = new Date();
         validUntil.setFullYear(validUntil.getFullYear() + 1);
@@ -473,11 +582,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           subscriptionPlan: "all_access",
           subscriptionValidUntil: validUntil.toISOString(),
         }));
-        if (sb)
+        if (sb && !skipPersist)
           fire(db.updateProfile(sb, currentUser.id, {
             subscription_plan: "all_access",
             subscription_valid_until: validUntil.toISOString(),
           }));
+      },
+      purchaseBundle(categories, skipPersist) {
+        if (!currentUser || !categories.length) return;
+        const merged = Array.from(new Set([...(currentUser.ownedCategories ?? []), ...categories]));
+        const ALL: Role[] = ["student", "professional", "entrepreneur"];
+        const allThree = ALL.every((r) => merged.includes(r));
+        const validUntil = new Date();
+        validUntil.setFullYear(validUntil.getFullYear() + 1);
+        patchUser(currentUser.id, (u) => ({
+          ...u,
+          ownedCategories: merged,
+          ...(allThree
+            ? { subscriptionPlan: "all_access" as const, subscriptionValidUntil: validUntil.toISOString() }
+            : {}),
+        }));
+        if (sb && !skipPersist) {
+          for (const c of categories) fire(db.grantCategoryPass(sb, currentUser.id, c));
+          if (allThree)
+            fire(db.updateProfile(sb, currentUser.id, {
+              subscription_plan: "all_access",
+              subscription_valid_until: validUntil.toISOString(),
+            }));
+        }
       },
 
       // ── progress ──
@@ -797,6 +929,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setState((s) => ({ ...s, users: s.users.filter((u) => u.id !== userId) }));
         if (sb) fire(db.deleteUserProfile(sb, userId));
       },
+
+      // ── admin: coupons ──
+      saveCoupon(coupon) {
+        const c: Coupon = { ...coupon, code: normalizeCode(coupon.code) };
+        setState((s) => ({
+          ...s,
+          coupons: s.coupons.some((x) => x.code === c.code)
+            ? s.coupons.map((x) => (x.code === c.code ? c : x))
+            : [c, ...s.coupons],
+        }));
+        if (sb) fire(db.saveCoupon(sb, c));
+      },
+      deleteCoupon(code) {
+        const c = normalizeCode(code);
+        setState((s) => ({ ...s, coupons: s.coupons.filter((x) => x.code !== c) }));
+        if (sb) fire(db.deleteCoupon(sb, c));
+      },
+      getCoupon(code) {
+        const c = normalizeCode(code);
+        return state.coupons.find((x) => x.code === c);
+      },
+      savePricing(tiers) {
+        setState((s) => ({ ...s, pricing: tiers }));
+        if (sb) fire(db.savePricing(sb, tiers));
+      },
       async seedDemoContent() {
         if (!sb || !currentUser?.isAdmin) return;
         for (const t of DEFAULT_TRACKS) await db.addTrack(sb, t);
@@ -804,8 +961,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const t of seedTips) await db.saveTip(sb, t);
         for (const r of seedResources) await db.upsertResource(sb, r);
         for (const sess of seedSessions) await db.saveSession(sb, sess);
+        for (const c of seedCoupons) await db.saveCoupon(sb, c);
+        await db.savePricing(sb, state.pricing);
         const data = await db.loadAll(sb);
-        setState((s) => ({ ...s, ...data }));
+        setState((s) => ({ ...s, ...data, pricing: data.pricing ?? s.pricing }));
       },
 
       // ── lookups ──

@@ -24,7 +24,7 @@ export function Avatar({ src, name, size = 40, className, ring = true }: AvatarP
     <span
       className={cn(
         "relative inline-grid shrink-0 place-items-center overflow-hidden rounded-full bg-navy-100 font-heading font-semibold text-navy-700",
-        ring && "ring-2 ring-white",
+        ring && "ring-2 ring-card",
         className,
       )}
       style={{ width: size, height: size, fontSize: size * 0.38 }}

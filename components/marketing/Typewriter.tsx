@@ -11,7 +11,7 @@ interface TypewriterProps {
 }
 
 /** Types `text` out character-by-character with a blinking cursor. */
-export function Typewriter({ text, className, speed = 42, startDelay = 350 }: TypewriterProps) {
+export function Typewriter({ text, className, speed = 25, startDelay = 450 }: TypewriterProps) {
   const [count, setCount] = React.useState(0);
 
   React.useEffect(() => {

@@ -38,16 +38,21 @@ export default function LoginPage() {
     router.push(homeFor(r.user));
   }
 
-  function onOAuth(provider: "google" | "linkedin") {
-    if (supabaseMode) oauthSignIn(provider);
-    else go(DEMO_ACCOUNTS.professional);
+  async function onOAuth(provider: "google" | "linkedin") {
+    if (supabaseMode) {
+      setError("");
+      const r = await oauthSignIn(provider);
+      if (!r.ok) setError(r.error ?? "Couldn't start sign-in. Please try again.");
+    } else {
+      go(DEMO_ACCOUNTS.professional);
+    }
   }
 
   return (
-    <AuthShell eyebrow="Welcome back" title="Sign in to Leap Coach" subtitle="Continue your learning journey.">
+    <AuthShell eyebrow="Welcome back" title="Sign in to LEAP Coach" subtitle="Continue your learning journey.">
       <OAuthButtons onSelect={onOAuth} />
 
-      <div className="my-5 flex items-center gap-3 text-xs text-ink-faint">
+      <div className="my-5 flex items-center gap-3 text-xs text-faint">
         <span className="h-px flex-1 bg-cream-300" /> or sign in with email
         <span className="h-px flex-1 bg-cream-300" />
       </div>
@@ -68,7 +73,7 @@ export default function LoginPage() {
       >
         <Field label="Email" htmlFor="email">
           <div className="relative">
-            <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+            <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
             <Input
               id="email"
               type="email"
@@ -86,7 +91,7 @@ export default function LoginPage() {
           hint={supabaseMode ? undefined : "Prototype: password isn't checked — any value works."}
         >
           <div className="relative">
-            <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+            <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
             <Input
               id="password"
               type="password"
@@ -104,14 +109,14 @@ export default function LoginPage() {
       </form>
 
       {!supabaseMode && (
-        <div className="mt-6 rounded-xl border border-cream-200 bg-cream-50 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">Quick demo sign-in</p>
+        <div className="mt-6 rounded-xl border border-hair bg-surface-2 p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-faint">Quick demo sign-in</p>
           <div className="mt-2.5 flex flex-wrap gap-2">
             {demoRoles.map((d) => (
               <button
                 key={d.role}
                 onClick={() => go(DEMO_ACCOUNTS[d.role])}
-                className="rounded-lg border border-cream-300 bg-white px-3 py-1.5 text-sm font-medium text-navy-700 transition-colors hover:border-gold-300 hover:bg-gold-50"
+                className="rounded-lg border border-hair bg-card px-3 py-1.5 text-sm font-medium text-heading transition-colors hover:border-gold-300 hover:bg-gold-50"
               >
                 {d.label}
               </button>
@@ -120,18 +125,18 @@ export default function LoginPage() {
         </div>
       )}
 
-      <p className="mt-6 text-center text-sm text-ink-soft">
-        New to Leap Coach?{" "}
+      <p className="mt-6 text-center text-sm text-muted">
+        New to LEAP Coach?{" "}
         <Link href="/signup" className="font-semibold text-gold-600 hover:text-gold-700">
           Create an account
         </Link>
       </p>
-      <p className="mt-3 text-center text-xs text-ink-faint">
-        <Link href="/admin/login" className="hover:text-navy-700">
+      <p className="mt-3 text-center text-xs text-faint">
+        <Link href="/admin/login" className="hover:text-heading">
           Admin sign in
         </Link>
         <span className="mx-2">·</span>
-        <a href="mailto:coaching@leapcoach.com" className="hover:text-navy-700">
+        <a href="mailto:coaching@leapcoach.com" className="hover:text-heading">
           Apply for Coaching
         </a>
       </p>

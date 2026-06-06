@@ -49,6 +49,21 @@ export function tierForCredits(credits: number): CreditTier {
 
 export type SubscriptionPlan = "none" | "all_access" | "per_course";
 
+// Category-bundle pricing (INR), admin-editable. Price is by the COUNT of
+// categories chosen: 1 → cat1, 2 → cat2, 3 → cat3 (= all-access).
+export interface PricingTiers {
+  cat1: number; // single-category pass
+  cat2: number; // any two categories
+  cat3: number; // all three categories (all-access)
+}
+
+export const DEFAULT_PRICING: PricingTiers = { cat1: 6000, cat2: 10000, cat3: 17000 };
+
+/** Price for a bundle given how many categories are selected. */
+export function bundlePrice(tiers: PricingTiers, count: number): number {
+  return count >= 3 ? tiers.cat3 : count === 2 ? tiers.cat2 : tiers.cat1;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -66,10 +81,25 @@ export interface User {
   subscriptionPlan: SubscriptionPlan;
   subscriptionValidUntil?: string | null;
   ownedCourseIds: string[]; // per-course lifetime purchases
+  ownedCategories?: Role[]; // category passes — unlock every topic in the category
   banned?: boolean;
   isAdmin?: boolean;
   createdAt: string;
   lastActiveAt: string;
+}
+
+// Discount coupon. `category` scopes eligibility: a Role limits it to that
+// category's topics (+ that single-category pass); "all" applies to everything,
+// including the top all-access plan.
+export interface Coupon {
+  code: string; // unique, stored uppercase
+  discountPercent: number; // 1–100
+  category: Role | "all";
+  active: boolean;
+  maxRedemptions: number | null; // null = unlimited
+  redemptions: number;
+  expiresAt: string | null; // ISO date, or null = no expiry
+  createdAt: string;
 }
 
 export interface Resource {

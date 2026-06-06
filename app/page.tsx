@@ -2,8 +2,6 @@ import Link from "next/link";
 import {
   Sparkles,
   ArrowRight,
-  Play,
-  Star,
   Bot,
   Users,
   BookOpen,
@@ -25,16 +23,13 @@ import {
 import { SiteNav } from "@/components/marketing/SiteNav";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { Typewriter } from "@/components/marketing/Typewriter";
+import { FeaturedCourses } from "@/components/marketing/FeaturedCourses";
 import { HeroMedia } from "@/components/HeroMedia";
-import { CourseThumb } from "@/components/CourseThumb";
 import { ProfessorPhoto } from "@/components/ProfessorPhoto";
 import { PROFESSOR } from "@/lib/professor";
 import { Badge } from "@/components/ui/Badge";
-import { Avatar } from "@/components/ui/Avatar";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { ROLES, Role } from "@/lib/types";
-import { seedCourses } from "@/lib/mock/seed";
-import { formatINR } from "@/lib/utils";
 
 const roleIconMap: Record<Role, LucideIcon> = {
   student: GraduationCap,
@@ -78,18 +73,13 @@ const steps = [
   { n: "03", title: "Prove it & level up", body: "Pass AI-graded checkpoints, earn credits, and unlock the next stage." },
 ];
 
-const featured = [...seedCourses]
-  .filter((c) => c.published)
-  .sort((a, b) => Number(b.trending) - Number(a.trending) || b.rating - a.rating)
-  .slice(0, 3);
-
 export default function Home() {
   return (
-    <div className="min-h-screen bg-cream-50">
+    <div className="min-h-screen bg-surface">
       <SiteNav overlay />
 
       {/* ── Hero ── */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-navy-900 via-navy-900 to-navy-950">
+      <section className="relative overflow-hidden bg-gradient-to-b from-navy-900 via-navy-900 to-navy-950 dark:from-card dark:via-card dark:to-surface">
         <div className="pointer-events-none absolute -top-24 right-0 h-96 w-96 rounded-full bg-gold-500/20 blur-3xl" />
         <div className="pointer-events-none absolute -left-24 top-44 h-80 w-80 rounded-full bg-navy-600/40 blur-3xl" />
 
@@ -120,7 +110,7 @@ export default function Home() {
                 className={buttonClasses({
                   variant: "outline",
                   size: "lg",
-                  className: "border-white/30 bg-transparent text-white hover:bg-white/10",
+                  className: "border-white/30 bg-transparent text-white hover:bg-card/10",
                 })}
               >
                 Explore Topics
@@ -130,10 +120,10 @@ export default function Home() {
               {PROFESSOR.heroStats.map((s) => (
                 <span
                   key={s.label}
-                  className="inline-flex items-baseline gap-1.5 rounded-full border border-cream-200 bg-white px-3 py-1.5 shadow-sm"
+                  className="inline-flex items-baseline gap-1.5 rounded-full border border-hair bg-[#ffffff] px-3 py-1.5 shadow-sm"
                 >
-                  <span className="font-heading text-sm font-bold text-navy-800">{s.value}</span>
-                  <span className="text-xs text-ink-soft">{s.label}</span>
+                  <span className="font-heading text-sm font-bold text-navy-900">{s.value}</span>
+                  <span className="text-xs text-navy-600">{s.label}</span>
                 </span>
               ))}
             </div>
@@ -142,21 +132,21 @@ export default function Home() {
           {/* Professor / avatar-video card */}
           <div className="relative">
             <div
-              className="absolute -right-2 bottom-14 z-10 hidden animate-float rounded-2xl bg-white p-3 shadow-card sm:flex"
+              className="absolute -right-2 bottom-14 z-10 hidden animate-float rounded-2xl bg-[#ffffff] p-3 shadow-card sm:flex"
               style={{ animationDelay: "1.6s" }}
             >
               <div className="flex items-center gap-2.5">
-                <span className="grid h-9 w-9 place-items-center rounded-xl bg-navy-50 text-navy-700">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-navy-50 text-navy-900">
                   <Bot className="h-4 w-4" />
                 </span>
                 <div>
-                  <p className="font-heading text-sm font-bold text-navy-800">LEAP AI</p>
-                  <p className="text-xs text-ink-faint">Tutor on every lesson</p>
+                  <p className="font-heading text-sm font-bold text-navy-900">LEAP AI</p>
+                  <p className="text-xs text-navy-500">Tutor on every lesson</p>
                 </div>
               </div>
             </div>
 
-            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-700 to-navy-900 p-7 shadow-navy ring-1 ring-white/10">
+            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-700 to-navy-900 dark:from-surface-2 dark:to-card p-7 shadow-navy ring-1 ring-white/10">
               <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-gold-500/20 blur-2xl" />
               <div className="relative flex items-center gap-4">
                 <ProfessorPhoto className="h-16 w-16 ring-4 ring-white/10" position="top" />
@@ -169,14 +159,8 @@ export default function Home() {
               <div className="relative mt-6 aspect-video overflow-hidden rounded-2xl bg-gradient-to-br from-navy-600 to-navy-800 ring-1 ring-white/10">
                 <HeroMedia className="absolute inset-0 h-full w-full" />
                 <div className="absolute inset-0 bg-gradient-to-t from-navy-950/70 via-navy-900/20 to-transparent" />
-                <div className="absolute inset-0 grid place-items-center">
-                  <span className="grid h-14 w-14 place-items-center rounded-full bg-gold-500 text-navy-900 shadow-gold transition-transform hover:scale-105">
-                    <Play className="ml-0.5 h-6 w-6 fill-navy-900" />
-                  </span>
-                </div>
-                <span className="absolute left-3 top-3 rounded-full bg-black/30 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur">
-                  AI Avatar Lesson
-                </span>
+
+
               </div>
 
               <p className="mt-5 text-pretty italic text-cream-100/90">
@@ -188,16 +172,16 @@ export default function Home() {
       </section>
 
       {/* ── Stats bar ── */}
-      <section className="border-y border-cream-200 bg-white">
+      <section className="border-y border-hair bg-card">
         <div className="mx-auto grid max-w-7xl grid-cols-2 gap-6 px-5 py-9 sm:px-8 md:grid-cols-4">
           {stats.map((s) => (
             <div key={s.label} className="flex items-center gap-3.5">
-              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-cream-100 text-gold-600">
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-surface-2 text-gold-600">
                 <s.icon className="h-6 w-6" />
               </span>
               <div>
-                <p className="font-heading text-2xl font-bold text-navy-800">{s.value}</p>
-                <p className="text-sm text-ink-soft">{s.label}</p>
+                <p className="font-heading text-2xl font-bold text-heading">{s.value}</p>
+                <p className="text-sm text-muted">{s.label}</p>
               </div>
             </div>
           ))}
@@ -208,10 +192,10 @@ export default function Home() {
       <section id="paths" className="mx-auto max-w-7xl px-5 py-20 sm:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <Badge variant="gold">Three Learning Paths</Badge>
-          <h2 className="mt-4 font-heading text-3xl font-bold text-navy-800 sm:text-4xl">
+          <h2 className="mt-4 font-heading text-3xl font-bold text-heading sm:text-4xl">
             Built for who you are right now
           </h2>
-          <p className="mt-3 text-ink-soft">
+          <p className="mt-3 text-muted">
             Your dashboard, catalog, and recommendations adapt to your path from the moment you join.
           </p>
         </div>
@@ -222,18 +206,18 @@ export default function Home() {
               <Link
                 key={role.id}
                 href="/signup"
-                className="group relative overflow-hidden rounded-2xl border border-cream-200 bg-white p-7 shadow-card transition-all duration-300 hover:-translate-y-1 hover:shadow-card-hover"
+                className="group relative overflow-hidden rounded-2xl border border-hair bg-card p-7 shadow-card transition-all duration-300 hover:-translate-y-1 hover:shadow-card-hover"
               >
                 <div
                   className={`absolute inset-x-0 top-0 h-1.5 ${
                     i === 0 ? "bg-navy-600" : i === 1 ? "bg-gold-500" : "bg-gradient-to-r from-gold-500 to-navy-600"
                   }`}
                 />
-                <span className="grid h-14 w-14 place-items-center rounded-2xl bg-cream-100 text-navy-700 transition-colors group-hover:bg-gold-100 group-hover:text-gold-600">
+                <span className="grid h-14 w-14 place-items-center rounded-2xl bg-surface-2 text-heading transition-colors group-hover:bg-gold-100 group-hover:text-gold-600">
                   <Icon className="h-7 w-7" />
                 </span>
-                <h3 className="mt-5 font-heading text-xl font-bold text-navy-800">{role.label}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink-soft">{role.tagline}</p>
+                <h3 className="mt-5 font-heading text-xl font-bold text-heading">{role.label}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted">{role.tagline}</p>
                 <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-gold-600">
                   Explore path
                   <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
@@ -245,14 +229,14 @@ export default function Home() {
       </section>
 
       {/* ── Features ── */}
-      <section id="how" className="bg-white">
+      <section id="how" className="bg-card">
         <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8">
           <div className="mx-auto max-w-2xl text-center">
             <Badge variant="navy">How it Works</Badge>
-            <h2 className="mt-4 font-heading text-3xl font-bold text-navy-800 sm:text-4xl">
+            <h2 className="mt-4 font-heading text-3xl font-bold text-heading sm:text-4xl">
               Everything you need to actually learn
             </h2>
-            <p className="mt-3 text-ink-soft">
+            <p className="mt-3 text-muted">
               Not just videos — a complete system that teaches, tutors, and tests.
             </p>
           </div>
@@ -261,18 +245,18 @@ export default function Home() {
             {features.map((f) => (
               <div
                 key={f.title}
-                className="rounded-2xl border border-cream-200 bg-cream-50 p-6 transition-colors hover:border-gold-200"
+                className="rounded-2xl border border-hair bg-surface p-6 transition-colors hover:border-gold-200"
               >
                 <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 text-navy-900 shadow-gold">
                   <f.icon className="h-6 w-6" />
                 </span>
-                <h3 className="mt-4 font-heading text-lg font-semibold text-navy-800">{f.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink-soft">{f.body}</p>
+                <h3 className="mt-4 font-heading text-lg font-semibold text-heading">{f.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted">{f.body}</p>
               </div>
             ))}
           </div>
 
-          <div className="mt-14 grid gap-6 rounded-3xl bg-navy-900 p-8 sm:grid-cols-3 sm:p-10">
+          <div className="mt-14 grid gap-6 rounded-3xl bg-navy-900 dark:bg-surface p-8 sm:grid-cols-3 sm:p-10">
             {steps.map((s) => (
               <div key={s.n}>
                 <p className="font-heading text-3xl font-bold text-gold-400">{s.n}</p>
@@ -289,7 +273,7 @@ export default function Home() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <Badge variant="gold">Featured Programs</Badge>
-            <h2 className="mt-4 font-heading text-3xl font-bold text-navy-800 sm:text-4xl">
+            <h2 className="mt-4 font-heading text-3xl font-bold text-heading sm:text-4xl">
               Learn from the best minds
             </h2>
           </div>
@@ -298,51 +282,17 @@ export default function Home() {
           </Link>
         </div>
 
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
-          {featured.map((c) => (
-            <Link
-              key={c.id}
-              href={`/courses/${c.slug}`}
-              className="group overflow-hidden rounded-2xl border border-cream-200 bg-white shadow-card transition-all duration-300 hover:-translate-y-1 hover:shadow-card-hover"
-            >
-              <div className="relative">
-                <CourseThumb accent={c.accent} category={c.category} className="aspect-[16/9]" />
-                {c.trending && (
-                  <span className="absolute right-3 top-3">
-                    <Badge variant="trending">🔥 Trending</Badge>
-                  </span>
-                )}
-              </div>
-              <div className="p-5">
-                <div className="flex items-center gap-2 text-xs text-ink-faint">
-                  <Avatar name={c.instructorName} size={22} />
-                  {c.instructorName}
-                </div>
-                <h3 className="mt-2.5 font-heading text-lg font-bold leading-snug text-navy-800 group-hover:text-gold-600">
-                  {c.title}
-                </h3>
-                <div className="mt-3 flex items-center justify-between text-sm">
-                  <span className="inline-flex items-center gap-1 font-medium text-navy-700">
-                    <Star className="h-4 w-4 fill-gold-500 text-gold-500" /> {c.rating.toFixed(1)}
-                  </span>
-                  <span className="font-heading font-bold text-navy-800">
-                    {c.price === 0 ? "Free" : formatINR(c.price)}
-                  </span>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+        <FeaturedCourses />
       </section>
 
       {/* ── About the professor ── */}
-      <section id="about" className="bg-white">
+      <section id="about" className="bg-card">
         <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8">
           <div className="grid items-center gap-10 lg:grid-cols-[0.85fr_1.15fr]">
             {/* Portrait */}
             <div className="relative">
               <div className="absolute -inset-3 -z-10 rounded-[2rem] bg-gradient-to-br from-gold-200 to-navy-100 opacity-60 blur-xl" />
-              <div className="overflow-hidden rounded-3xl border border-cream-200 shadow-card">
+              <div className="overflow-hidden rounded-3xl border border-hair shadow-card">
                 <ProfessorPhoto className="aspect-[4/5] w-full" rounded="rounded-none" position="top" />
               </div>
             </div>
@@ -350,14 +300,14 @@ export default function Home() {
             {/* Bio */}
             <div>
               <Badge variant="navy">Meet your mentor</Badge>
-              <h2 className="mt-4 font-heading text-3xl font-bold text-navy-800 sm:text-4xl">
+              <h2 className="mt-4 font-heading text-3xl font-bold text-heading sm:text-4xl">
                 Learn directly from Prof. Vishal Gupta
               </h2>
               <p className="mt-1.5 font-medium text-gold-700">{PROFESSOR.title}</p>
-              <p className="mt-4 leading-relaxed text-ink-soft">{PROFESSOR.bio}</p>
+              <p className="mt-4 leading-relaxed text-muted">{PROFESSOR.bio}</p>
               <ul className="mt-5 grid gap-2.5 sm:grid-cols-2">
                 {PROFESSOR.highlights.map((h) => (
-                  <li key={h} className="flex items-start gap-2.5 text-sm text-navy-700">
+                  <li key={h} className="flex items-start gap-2.5 text-sm text-heading">
                     <Award className="mt-0.5 h-4 w-4 shrink-0 text-gold-600" /> {h}
                   </li>
                 ))}
@@ -373,7 +323,7 @@ export default function Home() {
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="grid h-10 w-10 place-items-center rounded-xl border border-cream-200 bg-white text-navy-700 transition-colors hover:border-gold-300 hover:text-gold-600"
+                    className="grid h-10 w-10 place-items-center rounded-xl border border-hair bg-card text-heading transition-colors hover:border-gold-300 hover:text-gold-600"
                   >
                     <Icon className="h-5 w-5" />
                   </a>
@@ -393,9 +343,9 @@ export default function Home() {
           {/* Achievement stats */}
           <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             {PROFESSOR.stats.map((s) => (
-              <div key={s.label} className="rounded-2xl border border-cream-200 bg-cream-50 p-4 text-center">
-                <p className="font-heading text-2xl font-bold text-navy-800">{s.value}</p>
-                <p className="mt-0.5 text-xs text-ink-soft">{s.label}</p>
+              <div key={s.label} className="rounded-2xl border border-hair bg-surface p-4 text-center">
+                <p className="font-heading text-2xl font-bold text-heading">{s.value}</p>
+                <p className="mt-0.5 text-xs text-muted">{s.label}</p>
               </div>
             ))}
           </div>
@@ -413,20 +363,20 @@ export default function Home() {
 
       {/* ── Final CTA ── */}
       <section className="mx-auto max-w-7xl px-5 pb-20 sm:px-8">
-        <div className="relative overflow-hidden rounded-3xl bg-navy-900 px-6 py-14 text-center sm:px-12">
+        <div className="relative overflow-hidden rounded-3xl bg-navy-900 dark:bg-card px-6 py-14 text-center sm:px-12">
           <div className="pointer-events-none absolute -right-16 -top-16 h-72 w-72 rounded-full bg-gold-500/20 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-20 -left-10 h-72 w-72 rounded-full bg-navy-600/40 blur-3xl" />
           <h2 className="relative font-heading text-3xl font-bold text-white sm:text-4xl">
             Ready to become a high performance star?
           </h2>
           <p className="relative mx-auto mt-3 max-w-xl text-cream-100/75">
-            Join Leap Coach today and start your first AI-led lesson in minutes.
+            Join LEAP Coach today and start your first AI-led lesson in minutes.
           </p>
           <div className="relative mt-8 flex flex-wrap justify-center gap-3">
             <Link href="/signup" className={buttonClasses({ variant: "primary", size: "lg" })}>
               Start Your Journey <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link href="/login" className={buttonClasses({ variant: "outline", size: "lg", className: "border-white/30 bg-transparent text-white hover:bg-white/10" })}>
+            <Link href="/login" className={buttonClasses({ variant: "outline", size: "lg", className: "border-white/30 bg-transparent text-white hover:bg-card/10" })}>
               I already have an account
             </Link>
           </div>

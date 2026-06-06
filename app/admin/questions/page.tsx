@@ -53,8 +53,8 @@ function Bank() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-soft">
-          <span className="font-semibold text-navy-800">{totalQuestions}</span> questions across{" "}
+        <p className="text-sm text-muted">
+          <span className="font-semibold text-heading">{totalQuestions}</span> questions across{" "}
           {withAssignments.length} topics
         </p>
         <Select value={filter} onChange={(e) => setFilter(e.target.value)} className="w-64">
@@ -69,18 +69,18 @@ function Bank() {
 
       {visible.map((c) => (
         <Card key={c.id} className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-cream-200 px-5 py-3.5">
-            <h2 className="font-heading font-semibold text-navy-800">{c.title}</h2>
+          <div className="flex items-center justify-between border-b border-hair px-5 py-3.5">
+            <h2 className="font-heading font-semibold text-heading">{c.title}</h2>
             <Badge variant="neutral" className="capitalize">{c.category}</Badge>
           </div>
-          <div className="divide-y divide-cream-200">
+          <div className="divide-y divide-hair">
             {c.assignments.map((a) => (
               <div key={a.id} className="p-5">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="inline-flex items-center gap-2 text-sm font-semibold text-navy-700">
+                  <p className="inline-flex items-center gap-2 text-sm font-semibold text-heading">
                     <ClipboardList className="h-4 w-4 text-gold-600" /> Checkpoint · after video{" "}
                     {a.afterVideoOrder}
-                    <span className="font-normal text-ink-faint">({a.questions.length} questions)</span>
+                    <span className="font-normal text-faint">({a.questions.length} questions)</span>
                   </p>
                   <Button
                     size="sm"
@@ -92,21 +92,21 @@ function Bank() {
                 </div>
                 <ul className="space-y-2">
                   {a.questions.map((q, i) => (
-                    <li key={q.id} className="flex items-start gap-3 rounded-xl border border-cream-200 p-3">
+                    <li key={q.id} className="flex items-start gap-3 rounded-xl border border-hair p-3">
                       <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-navy-800 text-xs font-bold text-white">
                         {i + 1}
                       </span>
                       <div className="min-w-0 flex-1">
                         <Badge variant="neutral">{q.type === "mcq" ? "MCQ" : "Fill-blank"}</Badge>
-                        <p className="mt-1 text-sm text-navy-800">{q.prompt}</p>
-                        <p className="mt-1 text-xs text-ink-soft">
+                        <p className="mt-1 text-sm text-heading">{q.prompt}</p>
+                        <p className="mt-1 text-xs text-muted">
                           Correct: <span className="font-medium text-green-700">{q.correctAnswer}</span>
                         </p>
                       </div>
                       <div className="flex gap-1">
                         <button
                           onClick={() => setEditing({ courseId: c.id, assignmentId: a.id, question: q, isNew: false })}
-                          className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-cream-100 hover:text-navy-700"
+                          className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading"
                           aria-label="Edit"
                         >
                           <Pencil className="h-4 w-4" />
@@ -115,7 +115,7 @@ function Bank() {
                           onClick={() => {
                             if (confirm("Delete this question?")) deleteQuestion(c.id, a.id, q.id);
                           }}
-                          className="grid h-8 w-8 place-items-center rounded-lg text-ink-faint hover:bg-red-50 hover:text-red-600"
+                          className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600"
                           aria-label="Delete"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -123,7 +123,7 @@ function Bank() {
                       </div>
                     </li>
                   ))}
-                  {a.questions.length === 0 && <li className="text-xs text-ink-faint">No questions yet.</li>}
+                  {a.questions.length === 0 && <li className="text-xs text-faint">No questions yet.</li>}
                 </ul>
               </div>
             ))}
@@ -132,7 +132,7 @@ function Bank() {
       ))}
 
       {visible.length === 0 && (
-        <Card padded className="text-center text-sm text-ink-soft">
+        <Card padded className="text-center text-sm text-muted">
           No topics with checkpoints yet. Add checkpoints in the Course Wizard first.
         </Card>
       )}
@@ -180,7 +180,7 @@ function QuestionForm({ editing, onClose }: { editing: Editing; onClose: () => v
                 title="Mark correct"
                 className={cn(
                   "grid h-5 w-5 shrink-0 place-items-center rounded-full border",
-                  opt && q.correctAnswer === opt ? "border-green-500 bg-green-500 text-white" : "border-cream-300",
+                  opt && q.correctAnswer === opt ? "border-green-500 bg-green-500 text-white" : "border-hair",
                 )}
               >
                 {opt && q.correctAnswer === opt && <Check className="h-3 w-3" strokeWidth={3} />}

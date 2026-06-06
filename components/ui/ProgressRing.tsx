@@ -40,7 +40,7 @@ export function ProgressRing({
           r={radius}
           fill="none"
           strokeWidth={stroke}
-          className="text-cream-300"
+          className="text-hair"
           stroke="currentColor"
         />
         <circle
@@ -62,14 +62,14 @@ export function ProgressRing({
       <div className="absolute inset-0 grid place-items-center text-center">
         <div>
           <div
-            className="font-heading font-bold leading-none text-navy-800"
+            className="font-heading font-bold leading-none text-heading"
             style={{ fontSize: size * 0.26 }}
           >
             {Math.round(pct)}
             <span className="text-[0.6em] align-top">%</span>
           </div>
           {label && (
-            <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-faint">
+            <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-faint">
               {label}
             </div>
           )}

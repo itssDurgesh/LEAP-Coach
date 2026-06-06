@@ -60,7 +60,7 @@ function CourseDetail() {
   if (!course) {
     return (
       <div className="py-20 text-center">
-        <p className="font-heading text-xl font-bold text-navy-800">Topic not found</p>
+        <p className="font-heading text-xl font-bold text-heading">Topic not found</p>
         <Link href="/courses" className={buttonClasses({ variant: "primary", size: "md", className: "mt-5" })}>
           Back to catalog
         </Link>
@@ -108,7 +108,7 @@ function CourseDetail() {
 
   return (
     <div className="space-y-8">
-      <Link href="/courses" className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-soft hover:text-navy-800">
+      <Link href="/courses" className="inline-flex items-center gap-1.5 text-sm font-medium text-muted hover:text-heading">
         <ArrowLeft className="h-4 w-4" /> Back to catalog
       </Link>
 
@@ -121,15 +121,15 @@ function CourseDetail() {
             {course.trending && <Badge variant="trending">🔥 Trending</Badge>}
             {enrolled && <Badge variant="success"><Check className="h-3 w-3" /> Enrolled</Badge>}
           </div>
-          <h1 className="mt-3 font-heading text-3xl font-bold leading-tight text-navy-800 sm:text-4xl">
+          <h1 className="mt-3 font-heading text-3xl font-bold leading-tight text-heading sm:text-4xl">
             {course.title}
           </h1>
-          <p className="mt-3 max-w-2xl leading-relaxed text-ink-soft">{course.description}</p>
+          <p className="mt-3 max-w-2xl leading-relaxed text-muted">{course.description}</p>
 
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-ink-soft">
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted">
             <span className="inline-flex items-center gap-1.5">
               <Star className="h-4 w-4 fill-gold-500 text-gold-500" />
-              <span className="font-semibold text-navy-700">{course.rating.toFixed(1)}</span>
+              <span className="font-semibold text-heading">{course.rating.toFixed(1)}</span>
               ({course.ratingCount})
             </span>
             <span className="inline-flex items-center gap-1.5">
@@ -145,7 +145,7 @@ function CourseDetail() {
 
           <div className="mt-4 flex flex-wrap gap-2">
             {course.hashtags.map((h) => (
-              <span key={h} className="rounded-full bg-cream-100 px-2.5 py-1 text-xs font-medium text-navy-600">
+              <span key={h} className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">
                 {h}
               </span>
             ))}
@@ -154,15 +154,15 @@ function CourseDetail() {
           <div className="mt-5 flex items-center gap-3">
             <Avatar name={course.instructorName} size={44} />
             <div>
-              <p className="font-heading font-semibold text-navy-800">{course.instructorName}</p>
-              <p className="text-sm text-ink-soft">{course.instructorTitle}</p>
+              <p className="font-heading font-semibold text-heading">{course.instructorName}</p>
+              <p className="text-sm text-muted">{course.instructorTitle}</p>
             </div>
           </div>
         </div>
 
         {/* Access / enroll card */}
         <div className="lg:sticky lg:top-24 lg:self-start">
-          <div className="overflow-hidden rounded-2xl border border-cream-200 bg-white shadow-card">
+          <div className="overflow-hidden rounded-2xl border border-hair bg-card shadow-card">
             <CourseThumb accent={course.accent} category={course.category} className="aspect-[16/9]" />
             <div className="p-5">
               {enrolled ? (
@@ -170,8 +170,8 @@ function CourseDetail() {
                   <div className="flex items-center gap-4">
                     <ProgressRing value={prog.pct} size={72} stroke={7} />
                     <div>
-                      <p className="font-heading font-semibold text-navy-800">Your progress</p>
-                      <p className="text-sm text-ink-soft">
+                      <p className="font-heading font-semibold text-heading">Your progress</p>
+                      <p className="text-sm text-muted">
                         {prog.completed} of {prog.total} videos complete
                       </p>
                     </div>
@@ -187,10 +187,10 @@ function CourseDetail() {
               ) : (
                 <>
                   <div className="flex items-baseline justify-between">
-                    <span className="font-heading text-3xl font-bold text-navy-800">
+                    <span className="font-heading text-3xl font-bold text-heading">
                       {course.price === 0 ? "Free" : formatINR(course.price)}
                     </span>
-                    {course.price > 0 && <span className="text-sm text-ink-faint">lifetime access</span>}
+                    {course.price > 0 && <span className="text-sm text-faint">lifetime access</span>}
                   </div>
                   {access && course.price > 0 && (
                     <p className="mt-1 text-sm font-medium text-green-600">Included in your All-Access Pass</p>
@@ -198,7 +198,7 @@ function CourseDetail() {
                   <Button onClick={handleEnroll} size="lg" className="mt-4 w-full">
                     {course.price === 0 || access ? "Enroll now" : `Enroll · ${formatINR(course.price)}`}
                   </Button>
-                  <ul className="mt-5 space-y-2.5 text-sm text-ink-soft">
+                  <ul className="mt-5 space-y-2.5 text-sm text-muted">
                     {[
                       `${course.videos.length} avatar-led videos`,
                       `${course.assignments.length} AI-graded checkpoints`,
@@ -222,23 +222,23 @@ function CourseDetail() {
       <section className="grid gap-8 lg:grid-cols-[1.6fr_1fr]">
         <div>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-heading text-2xl font-bold text-navy-800">
+            <h2 className="font-heading text-2xl font-bold text-heading">
               {enrolled ? "Your roadmap" : "Topic syllabus"}
             </h2>
-            <span className="text-sm text-ink-soft">{course.videos.length} videos</span>
+            <span className="text-sm text-muted">{course.videos.length} videos</span>
           </div>
 
           {enrolled && (
-            <div className="mb-4 rounded-2xl border border-cream-200 bg-white p-4 shadow-card">
+            <div className="mb-4 rounded-2xl border border-hair bg-card p-4 shadow-card">
               <div className="mb-1.5 flex items-center justify-between text-sm">
-                <span className="font-medium text-navy-700">Overall progress</span>
-                <span className="font-semibold text-navy-800">{prog.pct}%</span>
+                <span className="font-medium text-heading">Overall progress</span>
+                <span className="font-semibold text-heading">{prog.pct}%</span>
               </div>
               <ProgressBar value={prog.pct} size="lg" />
             </div>
           )}
 
-          <div className="overflow-hidden rounded-2xl border border-cream-200 bg-white shadow-card">
+          <div className="overflow-hidden rounded-2xl border border-hair bg-card shadow-card">
             {rows.map((row, i) => {
               if (row.kind === "video") {
                 const video = course.videos.find((v) => v.order === row.order)!;
@@ -252,8 +252,8 @@ function CourseDetail() {
                     href={clickable ? `/learn/${course.id}/${video.order}` : undefined}
                     key={video.id}
                     className={cn(
-                      "flex items-center gap-4 border-b border-cream-200 px-5 py-4 last:border-0",
-                      clickable ? "cursor-pointer hover:bg-cream-50" : "opacity-80",
+                      "flex items-center gap-4 border-b border-hair px-5 py-4 last:border-0",
+                      clickable ? "cursor-pointer hover:bg-surface-2" : "opacity-80",
                     )}
                   >
                     <span
@@ -263,16 +263,16 @@ function CourseDetail() {
                           ? "bg-green-100 text-green-600"
                           : open
                             ? "bg-gold-100 text-gold-600"
-                            : "bg-cream-100 text-ink-faint",
+                            : "bg-surface-2 text-faint",
                       )}
                     >
                       {done ? <CheckCircle2 className="h-5 w-5" /> : open ? <PlayCircle className="h-5 w-5" /> : <Lock className="h-4 w-4" />}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-ink-faint">Video {video.order}</p>
-                      <p className="font-medium text-navy-800">{video.title}</p>
+                      <p className="text-xs font-medium text-faint">Video {video.order}</p>
+                      <p className="font-medium text-heading">{video.title}</p>
                     </div>
-                    <span className="text-sm text-ink-faint">{formatClock(video.durationSeconds)}</span>
+                    <span className="text-sm text-faint">{formatClock(video.durationSeconds)}</span>
                   </Tag>
                 );
               }
@@ -283,16 +283,16 @@ function CourseDetail() {
               return (
                 <div
                   key={row.id}
-                  className="flex items-center gap-4 border-b border-cream-200 bg-cream-50/60 px-5 py-4 last:border-0"
+                  className="flex items-center gap-4 border-b border-hair bg-surface-2/60 px-5 py-4 last:border-0"
                 >
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-navy-100 text-navy-700">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-2 text-heading">
                     <ClipboardCheck className="h-5 w-5" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-ink-faint">
+                    <p className="text-xs font-medium text-faint">
                       Checkpoint · after video {row.afterVideoOrder}
                     </p>
-                    <p className="font-medium text-navy-800">AI-graded assignment</p>
+                    <p className="font-medium text-heading">AI-graded assignment</p>
                   </div>
                   {res.passed ? (
                     <Badge variant="success">Passed {res.bestScore}%</Badge>
@@ -311,19 +311,19 @@ function CourseDetail() {
 
         {/* Instructor bio */}
         <div>
-          <h2 className="mb-4 font-heading text-2xl font-bold text-navy-800">Your instructor</h2>
-          <div className="rounded-2xl border border-cream-200 bg-white p-5 shadow-card">
+          <h2 className="mb-4 font-heading text-2xl font-bold text-heading">Your instructor</h2>
+          <div className="rounded-2xl border border-hair bg-card p-5 shadow-card">
             <div className="flex items-center gap-3">
               <Avatar name={course.instructorName} size={52} />
               <div>
-                <p className="font-heading text-lg font-semibold text-navy-800">{course.instructorName}</p>
-                <p className="text-sm text-ink-soft">{course.instructorTitle}</p>
+                <p className="font-heading text-lg font-semibold text-heading">{course.instructorName}</p>
+                <p className="text-sm text-muted">{course.instructorTitle}</p>
               </div>
             </div>
-            <p className="mt-4 text-sm leading-relaxed text-ink-soft">{course.instructorBio}</p>
-            <div className="mt-4 flex items-center gap-2 rounded-xl bg-cream-50 p-3 text-sm">
+            <p className="mt-4 text-sm leading-relaxed text-muted">{course.instructorBio}</p>
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-surface-2 p-3 text-sm">
               <Award className="h-5 w-5 text-gold-600" />
-              <span className="text-ink-soft">Rated <span className="font-semibold text-navy-700">{course.rating.toFixed(1)}</span> by {course.ratingCount} learners</span>
+              <span className="text-muted">Rated <span className="font-semibold text-heading">{course.rating.toFixed(1)}</span> by {course.ratingCount} learners</span>
             </div>
           </div>
         </div>
@@ -332,7 +332,7 @@ function CourseDetail() {
       {/* Recommended */}
       {recommended.length > 0 && (
         <section>
-          <h2 className="mb-4 font-heading text-2xl font-bold text-navy-800">You might also like</h2>
+          <h2 className="mb-4 font-heading text-2xl font-bold text-heading">You might also like</h2>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {recommended.map((c) => (
               <CourseCard key={c.id} course={c} enrolled={isEnrolled(c.id)} />

@@ -83,12 +83,12 @@ function Analytics() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((s) => (
           <Card key={s.label} padded className="flex items-center gap-4">
-            <span className="grid h-11 w-11 place-items-center rounded-xl bg-cream-100 text-gold-600">
+            <span className="grid h-11 w-11 place-items-center rounded-xl bg-surface-2 text-gold-600">
               <s.icon className="h-5 w-5" />
             </span>
             <div>
-              <p className="font-heading text-2xl font-bold text-navy-800">{s.value}</p>
-              <p className="text-sm text-ink-soft">{s.label}</p>
+              <p className="font-heading text-2xl font-bold text-heading">{s.value}</p>
+              <p className="text-sm text-muted">{s.label}</p>
             </div>
           </Card>
         ))}
@@ -96,8 +96,8 @@ function Analytics() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card padded className="lg:col-span-2">
-          <h2 className="font-heading text-base font-semibold text-navy-800">Enrollment timeline</h2>
-          <p className="text-sm text-ink-soft">Sign-ups over the last 8 weeks</p>
+          <h2 className="font-heading text-base font-semibold text-heading">Enrollment timeline</h2>
+          <p className="text-sm text-muted">Sign-ups over the last 8 weeks</p>
           <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trend} margin={{ left: -20, right: 8, top: 8 }}>
@@ -107,7 +107,7 @@ function Analytics() {
                     <stop offset="100%" stopColor={GOLD} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EEE5D2" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(150,140,120,0.18)" vertical={false} />
                 <XAxis dataKey="label" stroke="#8A97AC" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis stroke="#8A97AC" fontSize={12} tickLine={false} axisLine={false} />
                 <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #EEE5D2" }} />
@@ -118,8 +118,8 @@ function Analytics() {
         </Card>
 
         <Card padded>
-          <h2 className="font-heading text-base font-semibold text-navy-800">Assessment outcomes</h2>
-          <p className="text-sm text-ink-soft">{passRate}% pass rate</p>
+          <h2 className="font-heading text-base font-semibold text-heading">Assessment outcomes</h2>
+          <p className="text-sm text-muted">{passRate}% pass rate</p>
           <div className="mt-2 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -134,7 +134,7 @@ function Analytics() {
           </div>
           <div className="flex justify-center gap-4 text-sm">
             {outcomes.map((o) => (
-              <span key={o.name} className="inline-flex items-center gap-1.5 text-ink-soft">
+              <span key={o.name} className="inline-flex items-center gap-1.5 text-muted">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: o.color }} /> {o.name}
               </span>
             ))}
@@ -142,11 +142,11 @@ function Analytics() {
         </Card>
 
         <Card padded>
-          <h2 className="font-heading text-base font-semibold text-navy-800">Enrollments by path</h2>
+          <h2 className="font-heading text-base font-semibold text-heading">Enrollments by path</h2>
           <div className="mt-4 h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byPath} margin={{ left: -20, right: 8, top: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EEE5D2" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(150,140,120,0.18)" vertical={false} />
                 <XAxis dataKey="name" stroke="#8A97AC" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis stroke="#8A97AC" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
                 <Tooltip cursor={{ fill: "#FAF5EA" }} contentStyle={{ borderRadius: 12, border: "1px solid #EEE5D2" }} />
@@ -157,12 +157,12 @@ function Analytics() {
         </Card>
 
         <Card padded className="lg:col-span-2">
-          <h2 className="font-heading text-base font-semibold text-navy-800">Cohort velocity</h2>
-          <p className="text-sm text-ink-soft">Lessons completed per day, by cohort</p>
+          <h2 className="font-heading text-base font-semibold text-heading">Cohort velocity</h2>
+          <p className="text-sm text-muted">Lessons completed per day, by cohort</p>
           <div className="mt-4 h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={velocity} layout="vertical" margin={{ left: 30, right: 16, top: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EEE5D2" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(150,140,120,0.18)" horizontal={false} />
                 <XAxis type="number" stroke="#8A97AC" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
                 <YAxis type="category" dataKey="name" stroke="#8A97AC" fontSize={12} tickLine={false} axisLine={false} width={90} />
                 <Tooltip cursor={{ fill: "#FAF5EA" }} contentStyle={{ borderRadius: 12, border: "1px solid #EEE5D2" }} />

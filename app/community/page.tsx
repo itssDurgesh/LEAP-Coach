@@ -27,8 +27,8 @@ function Community() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <header>
-        <h1 className="font-heading text-3xl font-bold text-navy-800">Community</h1>
-        <p className="mt-1.5 text-ink-soft">Share wins, ask questions, and grow together.</p>
+        <h1 className="font-heading text-3xl font-bold text-heading">Community</h1>
+        <p className="mt-1.5 text-muted">Share wins, ask questions, and grow together.</p>
       </header>
 
       <Card padded>
@@ -80,7 +80,7 @@ function PostItem({ post }: { post: CommunityPost }) {
         <Avatar name={post.userName} size={40} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-heading font-semibold text-navy-800">{post.userName}</span>
+            <span className="font-heading font-semibold text-heading">{post.userName}</span>
             {post.userRole === "admin" ? (
               <Badge variant="navy">
                 <Shield className="h-3 w-3" /> Admin
@@ -88,7 +88,7 @@ function PostItem({ post }: { post: CommunityPost }) {
             ) : (
               <Badge variant="neutral" className="capitalize">{post.userRole}</Badge>
             )}
-            <span className="text-xs text-ink-faint">
+            <span className="text-xs text-faint">
               · {timeAgo(post.createdAt)}
               {post.editedAt ? " · edited" : ""}
             </span>
@@ -120,7 +120,7 @@ function PostItem({ post }: { post: CommunityPost }) {
               </div>
             </div>
           ) : (
-            <p className="mt-1.5 whitespace-pre-line leading-relaxed text-navy-800">{post.text}</p>
+            <p className="mt-1.5 whitespace-pre-line leading-relaxed text-heading">{post.text}</p>
           )}
 
           <div className="mt-3 flex items-center gap-4">
@@ -128,13 +128,13 @@ function PostItem({ post }: { post: CommunityPost }) {
               onClick={() => toggleLike(post.id)}
               className={cn(
                 "inline-flex items-center gap-1.5 text-sm transition-colors",
-                liked ? "text-gold-600" : "text-ink-faint hover:text-navy-700",
+                liked ? "text-gold-600" : "text-faint hover:text-heading",
               )}
             >
               <Heart className={cn("h-4 w-4", liked && "fill-gold-500 text-gold-500")} /> {post.likedBy.length}
             </button>
             {mine && !editing && (
-              <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1 text-sm text-ink-faint hover:text-navy-700">
+              <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1 text-sm text-faint hover:text-heading">
                 <Pencil className="h-3.5 w-3.5" /> Edit
               </button>
             )}
@@ -143,7 +143,7 @@ function PostItem({ post }: { post: CommunityPost }) {
                 onClick={() => {
                   if (confirm("Delete this post?")) deleteMessage(post.id);
                 }}
-                className="inline-flex items-center gap-1 text-sm text-ink-faint hover:text-red-600"
+                className="inline-flex items-center gap-1 text-sm text-faint hover:text-red-600"
               >
                 <Trash2 className="h-3.5 w-3.5" /> Delete
               </button>

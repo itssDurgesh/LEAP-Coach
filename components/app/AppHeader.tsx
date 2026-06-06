@@ -19,6 +19,7 @@ import {
 import { Logo } from "@/components/ui/Logo";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { useApp } from "@/lib/store/AppProvider";
 import { tierForCredits } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -48,7 +49,7 @@ export function AppHeader() {
   const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
 
   return (
-    <header className="sticky top-0 z-40 border-b border-cream-200 bg-cream-50/90 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-hair bg-surface/90 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
         <div className="flex items-center gap-7">
           <Logo href="/dashboard" />
@@ -61,7 +62,7 @@ export function AppHeader() {
                   "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                   isActive(l.href)
                     ? "bg-navy-800 text-white"
-                    : "text-ink-soft hover:bg-cream-100 hover:text-navy-800",
+                    : "text-muted hover:bg-surface-2 hover:text-heading",
                 )}
               >
                 <l.icon className="h-4 w-4" />
@@ -82,27 +83,29 @@ export function AppHeader() {
             <span className="text-gold-500">cr</span>
           </Link>
 
-          <button className="relative grid h-10 w-10 place-items-center rounded-xl text-navy-700 hover:bg-cream-100">
+          <ThemeToggle />
+
+          <button className="relative grid h-10 w-10 place-items-center rounded-xl text-heading hover:bg-surface-2">
             <Bell className="h-5 w-5" />
-            <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-gold-500 ring-2 ring-cream-50" />
+            <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-gold-500 ring-2 ring-surface" />
           </button>
 
           {/* Avatar menu */}
           <div className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
-              className="flex items-center gap-1.5 rounded-full p-0.5 pr-1.5 transition-colors hover:bg-cream-100"
+              className="flex items-center gap-1.5 rounded-full p-0.5 pr-1.5 transition-colors hover:bg-surface-2"
             >
               <Avatar name={currentUser.name} size={34} />
-              <ChevronDown className="hidden h-4 w-4 text-ink-soft sm:block" />
+              <ChevronDown className="hidden h-4 w-4 text-muted sm:block" />
             </button>
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-0 z-20 mt-2 w-60 overflow-hidden rounded-2xl border border-cream-200 bg-white shadow-card-hover">
-                  <div className="border-b border-cream-200 p-4">
-                    <p className="font-heading font-semibold text-navy-800">{currentUser.name}</p>
-                    <p className="truncate text-xs text-ink-soft">{currentUser.email}</p>
+                <div className="absolute right-0 z-20 mt-2 w-60 overflow-hidden rounded-2xl border border-hair bg-card shadow-card-hover">
+                  <div className="border-b border-hair p-4">
+                    <p className="font-heading font-semibold text-heading">{currentUser.name}</p>
+                    <p className="truncate text-xs text-muted">{currentUser.email}</p>
                     <div className="mt-2 flex items-center gap-2">
                       <Badge variant="navy" className="capitalize">{currentUser.role}</Badge>
                       <Badge variant={tier.color}>{tier.label}</Badge>
@@ -112,7 +115,7 @@ export function AppHeader() {
                     <Link
                       href="/dashboard"
                       onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-navy-700 hover:bg-cream-100"
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-heading hover:bg-surface-2"
                     >
                       <UserIcon className="h-4 w-4" /> My dashboard
                     </Link>
@@ -130,7 +133,7 @@ export function AppHeader() {
 
           <button
             onClick={() => setMobileOpen((v) => !v)}
-            className="grid h-10 w-10 place-items-center rounded-xl text-navy-700 hover:bg-cream-100 lg:hidden"
+            className="grid h-10 w-10 place-items-center rounded-xl text-heading hover:bg-surface-2 lg:hidden"
             aria-label="Menu"
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -139,7 +142,7 @@ export function AppHeader() {
       </div>
 
       {mobileOpen && (
-        <nav className="border-t border-cream-200 bg-cream-50 px-5 py-3 lg:hidden">
+        <nav className="border-t border-hair bg-surface px-5 py-3 lg:hidden">
           {navLinks.map((l) => (
             <Link
               key={l.href}
@@ -147,7 +150,7 @@ export function AppHeader() {
               onClick={() => setMobileOpen(false)}
               className={cn(
                 "flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium",
-                isActive(l.href) ? "bg-navy-800 text-white" : "text-navy-700 hover:bg-cream-100",
+                isActive(l.href) ? "bg-navy-800 text-white" : "text-heading hover:bg-surface-2",
               )}
             >
               <l.icon className="h-4 w-4" />

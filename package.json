@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@mux/mux-player-react": "^3.13.0",
     "@supabase/supabase-js": "^2.107.0",
     "clsx": "^2.1.1",
     "framer-motion": "^11.11.17",

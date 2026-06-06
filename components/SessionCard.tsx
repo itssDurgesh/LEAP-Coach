@@ -16,32 +16,32 @@ export function SessionCard({ session }: { session: LiveSession }) {
   const weekday = date.toLocaleString("en-IN", { weekday: "long" });
 
   return (
-    <div className="rounded-2xl border border-cream-200 bg-white p-5 shadow-card">
+    <div className="rounded-2xl border border-hair bg-card p-5 shadow-card">
       <div className="flex items-start gap-4">
         <div className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-gold-400 to-gold-600 text-navy-900">
           <span className="text-[10px] font-bold uppercase leading-none">{month}</span>
           <span className="font-heading text-xl font-bold leading-none">{day}</span>
         </div>
         <div className="min-w-0 flex-1">
-          <h4 className="font-heading text-base font-semibold leading-snug text-navy-800">
+          <h4 className="font-heading text-base font-semibold leading-snug text-heading">
             {session.title}
           </h4>
-          <p className="mt-1 text-sm text-ink-soft">
+          <p className="mt-1 text-sm text-muted">
             {session.instructorName}
             {session.courseTitle ? ` · ${session.courseTitle}` : ""}
           </p>
-          <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-ink-faint">
+          <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-faint">
             <Clock className="h-3.5 w-3.5" /> {weekday}, {time} · {session.durationMins} min
           </p>
         </div>
       </div>
 
-      <p className="mt-3 text-sm leading-relaxed text-ink-soft">{session.description}</p>
+      <p className="mt-3 text-sm leading-relaxed text-muted">{session.description}</p>
 
       <div className="mt-4 flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5 text-sm text-ink-soft">
-          <Users className="h-4 w-4 text-navy-500" />
-          <span className="font-semibold text-navy-700">{session.attendeeIds.length}</span> attending
+        <span className="inline-flex items-center gap-1.5 text-sm text-muted">
+          <Users className="h-4 w-4 text-muted" />
+          <span className="font-semibold text-heading">{session.attendeeIds.length}</span> attending
         </span>
         <div className="flex items-center gap-2">
           <Button

@@ -44,7 +44,7 @@ export default function AdminLoginPage() {
       <form onSubmit={submit} className="space-y-4">
         <Field label="Admin email" htmlFor="email">
           <div className="relative">
-            <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+            <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
             <Input
               id="email"
               type="email"
@@ -58,7 +58,7 @@ export default function AdminLoginPage() {
         </Field>
         <Field label="Password" htmlFor="password">
           <div className="relative">
-            <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+            <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
             <Input
               id="password"
               type="password"
@@ -75,12 +75,12 @@ export default function AdminLoginPage() {
         </Button>
       </form>
 
-      <div className="mt-5 rounded-xl border border-cream-200 bg-cream-50 p-3.5 text-xs text-ink-soft">
-        <span className="font-semibold text-navy-700">Prototype credentials:</span> admin@leapcoach.com
+      <div className="mt-5 rounded-xl border border-hair bg-surface-2 p-3.5 text-xs text-muted">
+        <span className="font-semibold text-heading">Prototype credentials:</span> admin@leapcoach.com
         / leap-admin
       </div>
 
-      <p className="mt-6 text-center text-sm text-ink-soft">
+      <p className="mt-6 text-center text-sm text-muted">
         Not an admin?{" "}
         <Link href="/login" className="font-semibold text-gold-600 hover:text-gold-700">
           Learner sign in
