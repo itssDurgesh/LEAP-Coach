@@ -26,8 +26,10 @@ export interface PriceQuote {
 }
 
 async function pricingTiers(sb: SupabaseClient): Promise<PricingTiers> {
-  const { data } = await sb.from("pricing_tiers").select("cat1,cat2,cat3").eq("id", 1).maybeSingle();
-  return data ? { cat1: data.cat1, cat2: data.cat2, cat3: data.cat3 } : DEFAULT_PRICING;
+  const { data } = await sb.from("pricing_tiers").select("cat1,cat2,cat3,per_topic_from").eq("id", 1).maybeSingle();
+  return data
+    ? { cat1: data.cat1, cat2: data.cat2, cat3: data.cat3, perTopicFrom: data.per_topic_from ?? DEFAULT_PRICING.perTopicFrom }
+    : DEFAULT_PRICING;
 }
 
 /** Sanitize a category list to the valid roles, de-duplicated. */

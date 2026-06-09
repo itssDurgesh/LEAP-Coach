@@ -34,7 +34,7 @@ export function FeaturedCourses() {
           className="group overflow-hidden rounded-2xl border border-hair bg-card shadow-card transition-all duration-300 hover:-translate-y-1 hover:shadow-card-hover"
         >
           <div className="relative">
-            <CourseThumb accent={c.accent} category={c.category} className="aspect-[16/9]" />
+            <CourseThumb accent={c.accent} category={c.category} src={c.thumbnailUrl} className="aspect-[16/9]" />
             {c.trending && (
               <span className="absolute right-3 top-3">
                 <Badge variant="trending">🔥 Trending</Badge>

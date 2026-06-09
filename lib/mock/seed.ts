@@ -1,5 +1,7 @@
 import {
   Assignment,
+  AppNotification,
+  Book,
   Coupon,
   Course,
   CommunityPost,
@@ -7,14 +9,17 @@ import {
   Enrollment,
   LiveSession,
   Note,
+  PostComment,
   Question,
   RecommendedResource,
   Resource,
   Submission,
+  TeamMember,
   User,
   Video,
   VideoProgress,
 } from "@/lib/types";
+import { PROFESSOR } from "@/lib/professor";
 
 // ── deterministic id counters (stable within a runtime) ──
 let Q = 0;
@@ -489,63 +494,72 @@ export const seedCourses: Course[] = [
 
 export const seedUsers: User[] = [
   {
-    id: "u_admin", name: "Prof. Vishal Gupta", email: "admin@leapcoach.com", role: null, isAdmin: true,
+    id: "u_admin", name: "Prof. Vishal Gupta", username: "vishalgupta", email: "admin@leapcoach.com", role: null, isAdmin: true,
     learningCredits: 0, subscriptionPlan: "none", ownedCourseIds: [],
     createdAt: "2026-01-01T08:00:00.000Z", lastActiveAt: "2026-06-01T08:30:00.000Z",
   },
   {
-    id: "u_student", name: "Aarav Sharma", email: "aarav@example.com", role: "student",
+    id: "u_student", name: "Aarav Sharma", username: "aarav", email: "aarav@example.com", role: "student",
     age: 20, gender: "male", phone: "+91 98200 11111", phoneVerified: true, company: "VJTI Mumbai",
-    nationality: "India", region: "Maharashtra", learningCredits: 320, subscriptionPlan: "none",
+    nationality: "India", region: "Maharashtra",
+    headline: "Engineering undergrad · aspiring product leader",
+    bio: "Second-year student at VJTI Mumbai, building leadership and communication skills before I graduate. Big believer in systems over willpower.",
+    learningCredits: 320, subscriptionPlan: "none",
     ownedCourseIds: ["c_student_leadership", "c_career_launch"],
     createdAt: "2026-03-10T08:00:00.000Z", lastActiveAt: "2026-05-31T19:10:00.000Z",
   },
   {
-    id: "u_pro", name: "Priya Nair", email: "priya@example.com", role: "professional",
+    id: "u_pro", name: "Priya Nair", username: "priya", email: "priya@example.com", role: "professional",
     age: 34, gender: "female", phone: "+91 98800 22222", phoneVerified: true, company: "Infosys",
-    nationality: "India", region: "Karnataka", learningCredits: 640, subscriptionPlan: "all_access",
+    nationality: "India", region: "Karnataka",
+    headline: "Engineering Manager @ Infosys · leading people, not just projects",
+    bio: "Engineering manager learning to lead from values. Currently working through The Authentic Leader and loving the peak/trough exercise.",
+    learningCredits: 640, subscriptionPlan: "all_access",
     subscriptionValidUntil: "2027-03-01T00:00:00.000Z", ownedCourseIds: [],
     createdAt: "2026-02-15T08:00:00.000Z", lastActiveAt: "2026-06-01T07:45:00.000Z",
   },
   {
-    id: "u_ent", name: "Karan Patel", email: "karan@example.com", role: "entrepreneur",
+    id: "u_ent", name: "Karan Patel", username: "karan", email: "karan@example.com", role: "entrepreneur",
     age: 29, gender: "male", phone: "+91 99000 33333", phoneVerified: true, company: "Foundpe (Founder)",
-    nationality: "India", region: "Gujarat", learningCredits: 980, subscriptionPlan: "per_course",
+    nationality: "India", region: "Gujarat",
+    headline: "Founder @ Foundpe · 0→1, talking to users daily",
+    bio: "Building Foundpe. Learned more from 12 user interviews than 12 weeks of building. Here for the founder track and the live pitch teardowns.",
+    learningCredits: 980, subscriptionPlan: "per_course",
     ownedCourseIds: ["c_idea_to_funded", "c_high_perf_teams"],
     createdAt: "2026-02-02T08:00:00.000Z", lastActiveAt: "2026-05-30T22:05:00.000Z",
   },
   {
-    id: "u5", name: "Meera Iyer", email: "meera@example.com", role: "student",
+    id: "u5", name: "Meera Iyer", username: "meera", email: "meera@example.com", role: "student",
     age: 22, gender: "female", nationality: "India", region: "Tamil Nadu", phoneVerified: true,
     learningCredits: 150, subscriptionPlan: "none", ownedCourseIds: ["c_student_leadership"],
     createdAt: "2026-03-20T08:00:00.000Z", lastActiveAt: "2026-05-29T12:00:00.000Z",
   },
   {
-    id: "u6", name: "Rahul Verma", email: "rahul@example.com", role: "professional",
+    id: "u6", name: "Rahul Verma", username: "rahul", email: "rahul@example.com", role: "professional",
     age: 41, gender: "male", nationality: "India", region: "Delhi", phoneVerified: true,
     learningCredits: 420, subscriptionPlan: "all_access", subscriptionValidUntil: "2027-01-15T00:00:00.000Z",
     ownedCourseIds: [], createdAt: "2026-01-18T08:00:00.000Z", lastActiveAt: "2026-05-28T09:30:00.000Z",
   },
   {
-    id: "u7", name: "Sneha Gupta", email: "sneha@example.com", role: "entrepreneur",
+    id: "u7", name: "Sneha Gupta", username: "sneha", email: "sneha@example.com", role: "entrepreneur",
     age: 26, gender: "female", nationality: "India", region: "Uttar Pradesh", phoneVerified: false,
     learningCredits: 60, subscriptionPlan: "none", ownedCourseIds: [],
     createdAt: "2026-04-05T08:00:00.000Z", lastActiveAt: "2026-05-20T16:00:00.000Z",
   },
   {
-    id: "u8", name: "Vikram Singh", email: "vikram@example.com", role: "professional",
+    id: "u8", name: "Vikram Singh", username: "vikram", email: "vikram@example.com", role: "professional",
     age: 38, gender: "male", nationality: "India", region: "Punjab", phoneVerified: true,
     learningCredits: 0, subscriptionPlan: "none", ownedCourseIds: [], banned: true,
     createdAt: "2026-02-28T08:00:00.000Z", lastActiveAt: "2026-04-10T11:00:00.000Z",
   },
   {
-    id: "u9", name: "Daniel Lee", email: "daniel@example.com", role: "student",
+    id: "u9", name: "Daniel Lee", username: "daniel", email: "daniel@example.com", role: "student",
     age: 19, gender: "male", nationality: "Singapore", region: "Singapore", phoneVerified: true,
     learningCredits: 230, subscriptionPlan: "none", ownedCourseIds: ["c_career_launch"],
     createdAt: "2026-03-25T08:00:00.000Z", lastActiveAt: "2026-05-31T14:20:00.000Z",
   },
   {
-    id: "u10", name: "Fatima Khan", email: "fatima@example.com", role: "professional",
+    id: "u10", name: "Fatima Khan", username: "fatima", email: "fatima@example.com", role: "professional",
     age: 31, gender: "female", nationality: "UAE", region: "Dubai", phoneVerified: true,
     learningCredits: 510, subscriptionPlan: "all_access", subscriptionValidUntil: "2027-02-01T00:00:00.000Z",
     ownedCourseIds: [], createdAt: "2026-02-10T08:00:00.000Z", lastActiveAt: "2026-06-01T06:00:00.000Z",
@@ -664,4 +678,89 @@ export const seedCommunity: CommunityPost[] = [
 export const seedCoupons: Coupon[] = [
   { code: "WELCOME10", discountPercent: 10, category: "all", active: true, maxRedemptions: 100, redemptions: 0, expiresAt: null, createdAt: "2026-06-01T00:00:00.000Z" },
   { code: "STUDENT20", discountPercent: 20, category: "student", active: true, maxRedemptions: null, redemptions: 0, expiresAt: null, createdAt: "2026-06-01T00:00:00.000Z" },
+];
+
+// ─────────────────────────── TEAM ───────────────────────────
+// Seeded with the founder. Research associates / interns are added by the
+// admin via the Team panel (or sent in by the professor).
+export const seedTeam: TeamMember[] = [
+  {
+    id: "tm_founder",
+    name: "Prof. Vishal Gupta",
+    title: "Founder · Professor of Organizational Behaviour, IIM Ahmedabad",
+    group: "founder",
+    photoUrl: "/professor.jpg",
+    bio: PROFESSOR.bio,
+    vision:
+      "To provide high-quality, evidence-based behavioural education in a practical and engaging manner to students, professionals and entrepreneurs.",
+    links: {
+      linkedin: PROFESSOR.links.linkedin,
+      youtube: PROFESSOR.links.youtube,
+      instagram: PROFESSOR.links.instagram,
+      site: PROFESSOR.links.site,
+    },
+    featured: true,
+    order: 0,
+    active: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
+];
+
+// ─────────────────────────── BOOKS ───────────────────────────
+export const seedBooks: Book[] = [
+  {
+    id: "bk_first_among_equals",
+    title: "First Among Equals: T-R-E-A-T Leadership for L-E-A-P",
+    author: "Prof. Vishal Gupta",
+    coverUrl: null,
+    blurb:
+      "A practical T-R-E-A-T framework for leaders who must influence without authority and bring out the best in their peers — the philosophy at the heart of LEAP.",
+    link: PROFESSOR.links.books,
+    order: 0,
+    active: true,
+  },
+  {
+    id: "bk_demystifying_leadership",
+    title: "Demystifying Leadership",
+    author: "Prof. Vishal Gupta",
+    coverUrl: null,
+    blurb:
+      "Evidence-based answers to the questions every leader asks — drawn from decades of research on motivation, authenticity, and high performance.",
+    link: PROFESSOR.links.books,
+    order: 1,
+    active: true,
+  },
+];
+
+// ───────────────────── DISCUSSION COMMENTS ─────────────────────
+export const seedComments: PostComment[] = [
+  {
+    id: "cm1", postId: "p1", parentId: null, userId: "u_admin", userName: "Prof. Vishal Gupta", userRole: "admin",
+    text: "Wonderful, Priya! Naming your top three values is exactly the first step. Which one surprised you most?",
+    mentions: ["u_pro"], createdAt: "2026-05-31T19:00:00.000Z", likedBy: ["u_pro"],
+  },
+  {
+    id: "cm2", postId: "p1", parentId: "cm1", userId: "u_pro", userName: "Priya Nair", userRole: "professional",
+    text: "Thank you @vishalgupta — 'courage' surprised me the most.",
+    mentions: ["u_admin"], createdAt: "2026-05-31T19:20:00.000Z", likedBy: [],
+  },
+  {
+    id: "cm3", postId: "p5", parentId: null, userId: "u_pro", userName: "Priya Nair", userRole: "professional",
+    text: "Re-anchor calmly with justification — don't react to their number, restate yours @rahul.",
+    mentions: ["u6"], createdAt: "2026-06-01T07:30:00.000Z", likedBy: ["u6"],
+  },
+];
+
+// ─────────────────────── NOTIFICATIONS ───────────────────────
+export const seedNotifications: AppNotification[] = [
+  {
+    id: "nt1", userId: "u_pro", type: "reply", actorId: "u_admin", actorName: "Prof. Vishal Gupta",
+    postId: "p1", commentId: "cm1", preview: "Wonderful, Priya! Naming your top three values…", read: false,
+    createdAt: "2026-05-31T19:00:00.000Z",
+  },
+  {
+    id: "nt2", userId: "u6", type: "mention", actorId: "u_pro", actorName: "Priya Nair",
+    postId: "p5", commentId: "cm3", preview: "Re-anchor calmly with justification…", read: false,
+    createdAt: "2026-06-01T07:30:00.000Z",
+  },
 ];

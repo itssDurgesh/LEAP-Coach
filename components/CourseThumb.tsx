@@ -24,6 +24,7 @@ interface CourseThumbProps {
   showTitle?: boolean;
   className?: string;
   rounded?: string;
+  src?: string | null; // uploaded cover image — overrides the gradient
 }
 
 export function CourseThumb({
@@ -33,8 +34,26 @@ export function CourseThumb({
   showTitle,
   className,
   rounded = "rounded-t-2xl",
+  src,
 }: CourseThumbProps) {
   const Icon = roleIcon[category];
+
+  if (src) {
+    return (
+      <div className={cn("relative overflow-hidden bg-surface-2", rounded, className)}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={title ?? "cover"} className="h-full w-full object-cover" />
+        {showTitle && title && (
+          <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-navy-950/75 via-navy-950/10 to-transparent p-4">
+            <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-medium capitalize text-white backdrop-blur">
+              <Icon className="h-3.5 w-3.5" /> {category}
+            </span>
+            <h3 className="mt-2 font-heading text-lg font-bold leading-tight text-white">{title}</h3>
+          </div>
+        )}
+      </div>
+    );
+  }
   const onGold = accent % GRADIENTS.length === 1;
   const fg = onGold ? "text-navy-900" : "text-white";
 

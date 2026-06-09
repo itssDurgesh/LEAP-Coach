@@ -29,7 +29,7 @@ const ORANGE = "#F97316";
 
 export default function AnalyticsPage() {
   return (
-    <AdminShell title="Analytics" subtitle="Strategic overview of learning across the platform">
+    <AdminShell title="Analytics" subtitle="Strategic overview of learning across the platform" requires="owner">
       <Analytics />
     </AdminShell>
   );
@@ -39,11 +39,18 @@ function Analytics() {
   const { users, courses, enrollments, submissions, progress } = useApp();
   const learners = users.filter((u) => !u.isAdmin);
 
-  // ── enrollments over time (synthetic 8-week trend) ──
-  const trend = Array.from({ length: 8 }, (_, i) => ({
-    label: `W${i + 1}`,
-    signups: Math.round(38 + i * 16 + Math.sin(i) * 10),
-  }));
+  // ── enrollments over the last 8 weeks (real, from enrolledAt) ──
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const trend = Array.from({ length: 8 }, (_, i) => {
+    const start = now - (8 - i) * WEEK;
+    const end = start + WEEK;
+    const count = enrollments.filter((e) => {
+      const t = new Date(e.enrolledAt).getTime();
+      return t >= start && t < end;
+    }).length;
+    return { label: `W${i + 1}`, signups: count };
+  });
 
   // ── enrollments by path ──
   const byPath = ROLES.map((r) => ({
@@ -55,16 +62,16 @@ function Analytics() {
   const passed = submissions.filter((s) => s.passed).length;
   const failed = Math.max(submissions.length - passed, 0);
   const outcomes = [
-    { name: "Passed", value: passed || 1, color: GREEN },
-    { name: "In progress", value: failed, color: ORANGE },
+    { name: "Passed", value: passed, color: GREEN },
+    { name: "Not yet passed", value: failed, color: ORANGE },
   ];
   const passRate = submissions.length ? Math.round((passed / submissions.length) * 100) : 0;
 
-  // ── cohort velocity (videos completed/day, derived + smoothed) ──
+  // ── lessons completed by cohort (real) ──
   const velocity = ROLES.map((r) => {
-    const ids = learners.filter((u) => u.role === r.id).map((u) => u.id);
-    const completed = progress.filter((p) => p.completed && ids.includes(p.userId)).length;
-    return { name: r.label, value: Math.max(1, Math.round(completed / 3 + r.label.length / 4)) };
+    const ids = new Set(learners.filter((u) => u.role === r.id).map((u) => u.id));
+    const completed = progress.filter((p) => p.completed && ids.has(p.userId)).length;
+    return { name: r.label, value: completed };
   });
 
   const stats = [
@@ -97,7 +104,7 @@ function Analytics() {
       <div className="grid gap-6 lg:grid-cols-3">
         <Card padded className="lg:col-span-2">
           <h2 className="font-heading text-base font-semibold text-heading">Enrollment timeline</h2>
-          <p className="text-sm text-muted">Sign-ups over the last 8 weeks</p>
+          <p className="text-sm text-muted">Enrollments over the last 8 weeks</p>
           <div className="mt-4 h-64">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trend} margin={{ left: -20, right: 8, top: 8 }}>
@@ -157,8 +164,8 @@ function Analytics() {
         </Card>
 
         <Card padded className="lg:col-span-2">
-          <h2 className="font-heading text-base font-semibold text-heading">Cohort velocity</h2>
-          <p className="text-sm text-muted">Lessons completed per day, by cohort</p>
+          <h2 className="font-heading text-base font-semibold text-heading">Lessons completed by cohort</h2>
+          <p className="text-sm text-muted">Total lessons completed by each cohort</p>
           <div className="mt-4 h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={velocity} layout="vertical" margin={{ left: 30, right: 16, top: 8 }}>

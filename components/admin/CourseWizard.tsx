@@ -14,13 +14,16 @@ import {
   ClipboardList,
   Info,
   Eye,
+  Upload,
+  ImageIcon,
+  BookMarked,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Select, Field } from "@/components/ui/Field";
 import { useApp } from "@/lib/store/AppProvider";
-import { Course, Question, Role } from "@/lib/types";
+import { Course, Question, Role, ROLES, courseCategories, isOwner } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
 
 interface DraftQuestion {
@@ -38,72 +41,87 @@ interface DraftVideo {
   durationMins: number;
   summary: string;
   notesPdfName: string;
+  notesPdfUrl: string | null;
   transcript: string;
+}
+interface DraftAssignment {
+  tmpId: string;
+  afterVideoOrder: number;
+  title: string;
+  questions: DraftQuestion[];
 }
 interface Draft {
   id: string;
   title: string;
   description: string;
-  category: Role;
+  categories: Role[];
   instructorName: string;
   instructorTitle: string;
   instructorBio: string;
   level: Course["level"];
   price: number;
   accent: number;
+  thumbnailUrl: string | null;
+  workbookName: string | null;
+  workbookUrl: string | null;
   hashtags: string[];
   tracks: string[];
   videos: DraftVideo[];
-  questionsByOrder: Record<number, DraftQuestion[]>;
+  assignments: DraftAssignment[];
   published: boolean;
 }
 
 const tmp = () => Math.random().toString(36).slice(2, 9);
 const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
+function readFileAsDataUrl(file: File, onDone: (dataUrl: string) => void) {
+  const reader = new FileReader();
+  reader.onload = () => onDone(String(reader.result));
+  reader.readAsDataURL(file);
+}
+
+function newVideo(): DraftVideo {
+  return { tmpId: tmp(), title: "", muxPlaybackId: "", durationMins: 20, summary: "", notesPdfName: "", notesPdfUrl: null, transcript: "" };
+}
+
 function blankDraft(): Draft {
   return {
     id: `c_${tmp()}`,
     title: "",
     description: "",
-    category: "professional",
+    categories: ["professional"],
     instructorName: "",
     instructorTitle: "",
     instructorBio: "",
     level: "Beginner",
     price: 0,
     accent: 0,
+    thumbnailUrl: null,
+    workbookName: null,
+    workbookUrl: null,
     hashtags: ["", "", "", ""],
     tracks: [],
-    videos: [{ tmpId: tmp(), title: "", muxPlaybackId: "", durationMins: 20, summary: "", notesPdfName: "", transcript: "" }],
-    questionsByOrder: {},
+    videos: [newVideo()],
+    assignments: [],
     published: false,
   };
 }
 
 function toDraft(c: Course): Draft {
-  const questionsByOrder: Record<number, DraftQuestion[]> = {};
-  c.assignments.forEach((a) => {
-    questionsByOrder[a.afterVideoOrder] = a.questions.map((q) => ({
-      tmpId: tmp(),
-      type: q.type,
-      prompt: q.prompt,
-      options: [...q.options, "", "", "", ""].slice(0, 4),
-      correctAnswer: q.correctAnswer,
-      explanation: q.explanation,
-    }));
-  });
   return {
     id: c.id,
     title: c.title,
     description: c.description,
-    category: c.category,
+    categories: courseCategories(c),
     instructorName: c.instructorName,
     instructorTitle: c.instructorTitle,
     instructorBio: c.instructorBio,
     level: c.level,
     price: c.price,
     accent: c.accent,
+    thumbnailUrl: c.thumbnailUrl ?? null,
+    workbookName: c.workbookName ?? null,
+    workbookUrl: c.workbookUrl ?? null,
     hashtags: [...c.hashtags, "", "", "", ""].slice(0, 4),
     tracks: c.tracks,
     videos: c.videos
@@ -116,14 +134,31 @@ function toDraft(c: Course): Draft {
         durationMins: Math.round(v.durationSeconds / 60),
         summary: v.summary,
         notesPdfName: v.notesPdfName ?? "",
+        notesPdfUrl: v.notesPdfUrl ?? null,
         transcript: v.transcript,
       })),
-    questionsByOrder,
+    assignments: c.assignments
+      .slice()
+      .sort((a, b) => a.afterVideoOrder - b.afterVideoOrder)
+      .map((a) => ({
+        tmpId: tmp(),
+        afterVideoOrder: a.afterVideoOrder,
+        title: a.title,
+        questions: a.questions.map((q) => ({
+          tmpId: tmp(),
+          type: q.type,
+          prompt: q.prompt,
+          options: [...q.options, "", "", "", ""].slice(0, 4),
+          correctAnswer: q.correctAnswer,
+          explanation: q.explanation,
+        })),
+      })),
     published: c.published,
   };
 }
 
 function toCourse(d: Draft, existing?: Course): Course {
+  const categories = d.categories.length ? d.categories : ["professional" as Role];
   const videos = d.videos.map((v, i) => ({
     id: `${d.id}_v${i + 1}`,
     courseId: d.id,
@@ -134,19 +169,20 @@ function toCourse(d: Draft, existing?: Course): Course {
     transcript: v.transcript,
     summary: v.summary,
     notesPdfName: v.notesPdfName || `${d.id}-session-${i + 1}-notes.pdf`,
+    notesPdfUrl: v.notesPdfUrl,
     resources: existing?.videos.find((x) => x.order === i + 1)?.resources ?? [],
   }));
-  const assignments = Object.entries(d.questionsByOrder)
-    .filter(([, qs]) => qs.length > 0)
-    .map(([order, qs]) => ({
-      id: `${d.id}_a${order}`,
+  const assignments = d.assignments
+    .filter((a) => a.afterVideoOrder >= 1 && a.afterVideoOrder <= videos.length)
+    .map((a) => ({
+      id: `${d.id}_a${a.afterVideoOrder}`,
       courseId: d.id,
-      afterVideoOrder: Number(order),
-      title: `Checkpoint after session ${order}`,
-      questions: qs
+      afterVideoOrder: a.afterVideoOrder,
+      title: a.title || `Checkpoint after session ${a.afterVideoOrder}`,
+      questions: a.questions
         .filter((q) => q.prompt.trim())
         .map<Question>((q) => ({
-          id: `${d.id}_q${order}_${q.tmpId}`,
+          id: `${d.id}_q${a.afterVideoOrder}_${q.tmpId}`,
           type: q.type,
           prompt: q.prompt,
           options: q.options.filter((o) => o.trim()),
@@ -154,14 +190,15 @@ function toCourse(d: Draft, existing?: Course): Course {
           explanation: q.explanation,
         })),
     }))
-    .filter((a) => a.questions.length > 0 && a.afterVideoOrder <= videos.length);
+    .filter((a) => a.questions.length > 0);
 
   return {
     id: d.id,
     slug: existing?.slug ?? (slugify(d.title) || d.id),
     title: d.title || "Untitled topic",
     description: d.description,
-    category: d.category,
+    category: categories[0],
+    categories,
     instructorName: d.instructorName || "LEAP Coach Faculty",
     instructorTitle: d.instructorTitle || "Instructor",
     instructorBio: d.instructorBio,
@@ -183,6 +220,11 @@ function toCourse(d: Draft, existing?: Course): Course {
     trending: existing?.trending ?? false,
     published: d.published,
     accent: d.accent,
+    thumbnailUrl: d.thumbnailUrl,
+    workbookName: d.workbookName,
+    workbookUrl: d.workbookUrl,
+    pendingApproval: existing?.pendingApproval ?? false,
+    submittedBy: existing?.submittedBy ?? null,
     videos,
     assignments,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
@@ -199,16 +241,31 @@ const STEPS = [
 ];
 
 export function CourseWizard({ initial }: { initial?: Course }) {
-  const { saveCourse, tracks } = useApp();
+  const { saveCourse, tracks, currentUser } = useApp();
   const router = useRouter();
   const [step, setStep] = React.useState(0);
   const [draft, setDraft] = React.useState<Draft>(() => (initial ? toDraft(initial) : blankDraft()));
+  const owner = isOwner(currentUser);
 
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
   const setVideo = (i: number, patch: Partial<DraftVideo>) =>
     setDraft((d) => ({ ...d, videos: d.videos.map((v, idx) => (idx === i ? { ...v, ...patch } : v)) }));
+  const setAssignment = (i: number, patch: Partial<DraftAssignment>) =>
+    setDraft((d) => ({ ...d, assignments: d.assignments.map((a, idx) => (idx === i ? { ...a, ...patch } : a)) }));
 
-  const evenOrders = draft.videos.map((_, i) => i + 1).filter((o) => o % 2 === 0);
+  const toggleCategory = (r: Role) =>
+    setDraft((d) => ({
+      ...d,
+      categories: d.categories.includes(r) ? d.categories.filter((x) => x !== r) : [...d.categories, r],
+    }));
+
+  function addAssignment() {
+    const used = new Set(draft.assignments.map((a) => a.afterVideoOrder));
+    const nextOrder = draft.videos.map((_, i) => i + 1).find((o) => !used.has(o)) ?? draft.videos.length;
+    set({
+      assignments: [...draft.assignments, { tmpId: tmp(), afterVideoOrder: Math.max(1, nextOrder), title: "", questions: [] }],
+    });
+  }
 
   function save(publish: boolean) {
     saveCourse(toCourse({ ...draft, published: publish }, initial));
@@ -257,19 +314,71 @@ export function CourseWizard({ initial }: { initial?: Course }) {
               <Field label="Description">
                 <Textarea value={draft.description} onChange={(e) => set({ description: e.target.value })} placeholder="What learners will gain…" />
               </Field>
+
+              {/* Multi-category */}
+              <Field label="Categories" hint="A topic can belong to more than one path. Pick all that apply.">
+                <div className="flex flex-wrap gap-2">
+                  {ROLES.map((r) => {
+                    const on = draft.categories.includes(r.id);
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => toggleCategory(r.id)}
+                        className={cn(
+                          "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+                          on ? "border-gold-300 bg-gold-50 text-gold-700 dark:bg-gold-500/10" : "border-hair text-muted hover:border-navy-200",
+                        )}
+                      >
+                        {on && <Check className="mr-1 inline h-3.5 w-3.5" />}
+                        {r.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+
+              {/* Thumbnail */}
+              <Field label="Thumbnail" hint="Upload a cover image, or pick a brand style below.">
+                <div className="flex items-center gap-4">
+                  <div className="h-20 w-32 shrink-0 overflow-hidden rounded-lg border border-hair bg-surface-2">
+                    {draft.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={draft.thumbnailUrl} alt="cover" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="grid h-full w-full place-items-center text-faint">
+                        <ImageIcon className="h-6 w-6" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <UploadButton
+                      accept="image/*"
+                      label="Upload image"
+                      onFile={(f) => readFileAsDataUrl(f, (url) => set({ thumbnailUrl: url }))}
+                    />
+                    {draft.thumbnailUrl && (
+                      <button type="button" onClick={() => set({ thumbnailUrl: null })} className="block text-xs text-faint hover:text-red-600">
+                        Remove image
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </Field>
+
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Category">
-                  <Select value={draft.category} onChange={(e) => set({ category: e.target.value as Role })}>
-                    <option value="student">Student</option>
-                    <option value="professional">Professional</option>
-                    <option value="entrepreneur">Entrepreneur</option>
-                  </Select>
-                </Field>
                 <Field label="Level">
                   <Select value={draft.level} onChange={(e) => set({ level: e.target.value as Course["level"] })}>
                     <option>Beginner</option>
                     <option>Intermediate</option>
                     <option>Advanced</option>
+                  </Select>
+                </Field>
+                <Field label="Thumbnail style (no image)">
+                  <Select value={draft.accent} onChange={(e) => set({ accent: Number(e.target.value) })}>
+                    {[0, 1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>Style {n + 1}</option>
+                    ))}
                   </Select>
                 </Field>
               </div>
@@ -284,18 +393,9 @@ export function CourseWizard({ initial }: { initial?: Course }) {
               <Field label="Instructor bio">
                 <Textarea value={draft.instructorBio} onChange={(e) => set({ instructorBio: e.target.value })} className="min-h-[72px]" />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Price (INR, 0 = free)">
-                  <Input type="number" min={0} value={draft.price} onChange={(e) => set({ price: Number(e.target.value) })} />
-                </Field>
-                <Field label="Thumbnail style">
-                  <Select value={draft.accent} onChange={(e) => set({ accent: Number(e.target.value) })}>
-                    {[0, 1, 2, 3, 4, 5].map((n) => (
-                      <option key={n} value={n}>Style {n + 1}</option>
-                    ))}
-                  </Select>
-                </Field>
-              </div>
+              <Field label="Price (INR, 0 = free)">
+                <Input type="number" min={0} value={draft.price} onChange={(e) => set({ price: Number(e.target.value) })} />
+              </Field>
               <Field label="Hashtags (4)" hint="Shown on the topic card and power recommendations.">
                 <div className="grid grid-cols-2 gap-2">
                   {draft.hashtags.map((h, i) => (
@@ -319,7 +419,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                         onClick={() => set({ tracks: on ? draft.tracks.filter((x) => x !== t.id) : [...draft.tracks, t.id] })}
                         className={cn(
                           "rounded-full border px-3 py-1.5 text-sm font-medium",
-                          on ? "border-gold-300 bg-gold-50 text-gold-700" : "border-hair text-muted hover:border-navy-200",
+                          on ? "border-gold-300 bg-gold-50 text-gold-700 dark:bg-gold-500/10" : "border-hair text-muted hover:border-navy-200",
                         )}
                       >
                         {t.label}
@@ -339,10 +439,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                   <div className="mb-3 flex items-center justify-between">
                     <span className="font-heading text-sm font-semibold text-heading">Session {i + 1}</span>
                     {draft.videos.length > 1 && (
-                      <button
-                        onClick={() => set({ videos: draft.videos.filter((_, idx) => idx !== i) })}
-                        className="text-faint hover:text-red-600"
-                      >
+                      <button onClick={() => set({ videos: draft.videos.filter((_, idx) => idx !== i) })} className="text-faint hover:text-red-600">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
@@ -357,10 +454,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                   </div>
                 </div>
               ))}
-              <Button
-                variant="outline"
-                onClick={() => set({ videos: [...draft.videos, { tmpId: tmp(), title: "", muxPlaybackId: "", durationMins: 20, summary: "", notesPdfName: "", transcript: "" }] })}
-              >
+              <Button variant="outline" onClick={() => set({ videos: [...draft.videos, newVideo()] })}>
                 <Plus className="h-4 w-4" /> Add session
               </Button>
             </div>
@@ -368,14 +462,25 @@ export function CourseWizard({ initial }: { initial?: Course }) {
 
           {step === 2 && (
             <div className="mt-5 space-y-3">
-              <p className="text-sm text-muted">Attach a notes PDF per session (enter the file name — uploads are mocked).</p>
+              <p className="text-sm text-muted">Upload a notes file per session (PDF). Learners can download it on the lesson page.</p>
               {draft.videos.map((v, i) => (
-                <div key={v.tmpId} className="flex items-center gap-3 rounded-xl border border-hair p-3">
+                <div key={v.tmpId} className="flex flex-wrap items-center gap-3 rounded-xl border border-hair p-3">
                   <span className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 text-muted">
                     <FileText className="h-4 w-4" />
                   </span>
                   <span className="w-24 shrink-0 text-sm font-medium text-heading">Session {i + 1}</span>
-                  <Input value={v.notesPdfName} onChange={(e) => setVideo(i, { notesPdfName: e.target.value })} placeholder="session-notes.pdf" className="flex-1" />
+                  <Input
+                    value={v.notesPdfName}
+                    onChange={(e) => setVideo(i, { notesPdfName: e.target.value })}
+                    placeholder="session-notes.pdf"
+                    className="min-w-[160px] flex-1"
+                  />
+                  <UploadButton
+                    accept=".pdf,.doc,.docx,application/pdf"
+                    label={v.notesPdfUrl ? "Replace" : "Upload"}
+                    onFile={(f) => readFileAsDataUrl(f, (url) => setVideo(i, { notesPdfUrl: url, notesPdfName: f.name }))}
+                  />
+                  {v.notesPdfUrl && <Badge variant="success"><Check className="h-3 w-3" /> Uploaded</Badge>}
                 </div>
               ))}
             </div>
@@ -394,16 +499,50 @@ export function CourseWizard({ initial }: { initial?: Course }) {
 
           {step === 4 && (
             <div className="mt-5 space-y-5">
-              <p className="text-sm text-muted">Add an AI-graded checkpoint after every 2nd session. Mark the correct option for each question.</p>
-              {evenOrders.length === 0 && <p className="text-sm text-faint">Add at least 2 sessions to create a checkpoint.</p>}
-              {evenOrders.map((order) => (
+              <p className="text-sm text-muted">
+                Add checkpoints wherever you like — choose the session each one unlocks after. Mark the correct option per question.
+              </p>
+              {draft.assignments.length === 0 && (
+                <p className="text-sm text-faint">No checkpoints yet. Add one below — they&rsquo;re optional.</p>
+              )}
+              {draft.assignments.map((a, i) => (
                 <AssignmentEditor
-                  key={order}
-                  order={order}
-                  questions={draft.questionsByOrder[order] ?? []}
-                  onChange={(qs) => set({ questionsByOrder: { ...draft.questionsByOrder, [order]: qs } })}
+                  key={a.tmpId}
+                  assignment={a}
+                  videoCount={draft.videos.length}
+                  onChange={(patch) => setAssignment(i, patch)}
+                  onRemove={() => set({ assignments: draft.assignments.filter((_, idx) => idx !== i) })}
                 />
               ))}
+              <Button variant="outline" onClick={addAssignment} disabled={draft.videos.length === 0}>
+                <Plus className="h-4 w-4" /> Add checkpoint
+              </Button>
+
+              {/* Final workbook */}
+              <div className="rounded-xl border border-hair p-4">
+                <div className="flex items-center gap-2">
+                  <BookMarked className="h-5 w-5 text-gold-600" />
+                  <h3 className="font-heading text-sm font-semibold text-heading">Final workbook (optional)</h3>
+                </div>
+                <p className="mt-1 text-sm text-muted">
+                  Upload a workbook as the final assignment. Learners download it as a PDF or editable DOCX.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <UploadButton
+                    accept=".pdf,.doc,.docx,application/pdf"
+                    label={draft.workbookUrl ? "Replace workbook" : "Upload workbook"}
+                    onFile={(f) => readFileAsDataUrl(f, (url) => set({ workbookUrl: url, workbookName: f.name }))}
+                  />
+                  {draft.workbookName && (
+                    <span className="inline-flex items-center gap-2 text-sm text-heading">
+                      <FileText className="h-4 w-4 text-gold-600" /> {draft.workbookName}
+                      <button type="button" onClick={() => set({ workbookUrl: null, workbookName: null })} className="text-faint hover:text-red-600">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -413,20 +552,29 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                 <p className="font-heading text-lg font-bold text-heading">{draft.title || "Untitled topic"}</p>
                 <p className="mt-1 text-sm text-muted">{draft.description || "No description."}</p>
                 <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                  <Badge variant="navy" className="capitalize">{draft.category}</Badge>
+                  {draft.categories.map((c) => (
+                    <Badge key={c} variant="navy" className="capitalize">{c}</Badge>
+                  ))}
                   <Badge variant="neutral">{draft.level}</Badge>
                   <Badge variant="gold">{draft.price === 0 ? "Free" : formatINR(draft.price)}</Badge>
                 </div>
                 <ul className="mt-3 space-y-1 text-sm text-muted">
                   <li>• {draft.videos.length} sessions ({draft.videos.reduce((s, v) => s + (v.durationMins || 0), 0)} mins)</li>
-                  <li>• {Object.values(draft.questionsByOrder).filter((q) => q.length).length} checkpoints</li>
+                  <li>• {draft.assignments.filter((a) => a.questions.some((q) => q.prompt.trim())).length} checkpoints</li>
+                  <li>• Workbook: {draft.workbookName ?? "none"}</li>
                   <li>• Instructor: {draft.instructorName || "—"}</li>
-                  <li>• Tracks: {draft.tracks.length ? draft.tracks.join(", ") : "none"}</li>
                 </ul>
               </div>
+
+              {!owner && (
+                <div className="rounded-xl border border-gold-200 bg-gold-50 p-4 text-sm text-heading dark:bg-gold-500/10">
+                  As a sub-admin, your topic is sent to the main admin for approval before it goes live.
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-3">
                 <Button onClick={() => save(true)}>
-                  <Check className="h-4 w-4" /> Publish topic
+                  <Check className="h-4 w-4" /> {owner ? "Publish topic" : "Submit for approval"}
                 </Button>
                 <Button variant="outline" onClick={() => save(false)}>
                   Save as draft
@@ -452,46 +600,94 @@ export function CourseWizard({ initial }: { initial?: Course }) {
   );
 }
 
+function UploadButton({ accept, label, onFile }: { accept: string; label: string; onFile: (f: File) => void }) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input
+        ref={ref}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = "";
+        }}
+      />
+      <Button type="button" variant="outline" size="sm" onClick={() => ref.current?.click()}>
+        <Upload className="h-4 w-4" /> {label}
+      </Button>
+    </>
+  );
+}
+
 function AssignmentEditor({
-  order,
-  questions,
+  assignment,
+  videoCount,
   onChange,
+  onRemove,
 }: {
-  order: number;
-  questions: DraftQuestion[];
-  onChange: (qs: DraftQuestion[]) => void;
+  assignment: DraftAssignment;
+  videoCount: number;
+  onChange: (patch: Partial<DraftAssignment>) => void;
+  onRemove: () => void;
 }) {
+  const questions = assignment.questions;
+  const setQuestions = (qs: DraftQuestion[]) => onChange({ questions: qs });
+
   function add(type: "mcq" | "fill_blank") {
-    onChange([
+    setQuestions([
       ...questions,
       { tmpId: tmp(), type, prompt: "", options: ["", "", "", ""], correctAnswer: "", explanation: "" },
     ]);
   }
   function update(i: number, patch: Partial<DraftQuestion>) {
-    onChange(questions.map((q, idx) => (idx === i ? { ...q, ...patch } : q)));
+    setQuestions(questions.map((q, idx) => (idx === i ? { ...q, ...patch } : q)));
   }
 
   return (
     <div className="rounded-xl border border-hair p-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-heading text-sm font-semibold text-heading">Checkpoint after session {order}</h3>
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-heading">Checkpoint after session</span>
+          <Select
+            value={assignment.afterVideoOrder}
+            onChange={(e) => onChange({ afterVideoOrder: Number(e.target.value) })}
+            className="w-20 py-1.5"
+          >
+            {Array.from({ length: Math.max(1, videoCount) }, (_, i) => i + 1).map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
           <Button size="sm" variant="subtle" onClick={() => add("mcq")}>
             <Plus className="h-3.5 w-3.5" /> MCQ
           </Button>
           <Button size="sm" variant="subtle" onClick={() => add("fill_blank")}>
             <Plus className="h-3.5 w-3.5" /> Fill-blank
           </Button>
+          <button onClick={onRemove} title="Remove checkpoint" className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600">
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
+      <Input
+        value={assignment.title}
+        onChange={(e) => onChange({ title: e.target.value })}
+        placeholder={`Checkpoint title (optional)`}
+        className="mt-3 py-2 text-sm"
+      />
+
       <div className="mt-3 space-y-4">
-        {questions.length === 0 && <p className="text-xs text-faint">No questions yet.</p>}
+        {questions.length === 0 && <p className="text-xs text-faint">No questions yet — add an MCQ or fill-blank.</p>}
         {questions.map((q, i) => (
           <div key={q.tmpId} className="rounded-lg bg-surface-2 p-3">
             <div className="mb-2 flex items-center justify-between">
               <Badge variant="neutral">{q.type === "mcq" ? "Multiple choice" : "Fill in the blank"}</Badge>
-              <button onClick={() => onChange(questions.filter((_, idx) => idx !== i))} className="text-faint hover:text-red-600">
+              <button onClick={() => setQuestions(questions.filter((_, idx) => idx !== i))} className="text-faint hover:text-red-600">
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>

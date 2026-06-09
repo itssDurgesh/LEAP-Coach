@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import {
+  AppNotification,
   Assignment,
+  Book,
   CommunityPost,
   Coupon,
   Course,
@@ -12,27 +14,36 @@ import {
   LeadershipTrack,
   LiveSession,
   Note,
+  NotificationType,
+  Permission,
+  PostComment,
   PricingTiers,
   Question,
   RecommendedResource,
   Role,
+  SiteContent,
   Submission,
+  TeamMember,
   User,
   Video,
   VideoProgress,
 } from "@/lib/types";
-import { DEFAULT_TRACKS, DEFAULT_PRICING } from "@/lib/types";
+import { DEFAULT_TRACKS, DEFAULT_PRICING, DEFAULT_SITE_CONTENT, courseCategories, isOwner } from "@/lib/types";
 import {
   ADMIN_PASSWORD,
+  seedBooks,
+  seedComments,
   seedCommunity,
   seedCoupons,
   seedCourses,
   seedEnrollments,
   seedNotes,
+  seedNotifications,
   seedProgress,
   seedResources,
   seedSessions,
   seedSubmissions,
+  seedTeam,
   seedTips,
   seedUsers,
 } from "@/lib/mock/seed";
@@ -40,8 +51,13 @@ import { getSupabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import * as db from "@/lib/supabase/db";
 import { normalizeCode } from "@/lib/coupons";
+import { baseUsername, uniqueUsername } from "@/lib/username";
 
 const STORAGE_KEY = "leap-coach-state-v1";
+// Per-user stale-while-revalidate cache for Supabase mode: paint instantly from the
+// last snapshot on reload, then refresh in the background. Keyed by user id so one
+// account never sees another's cached data.
+const SB_CACHE_PREFIX = "leap-sb-cache-v1:";
 
 // Captured at module-eval time — i.e. BEFORE the first React render calls
 // getSupabase(), whose detectSessionInUrl strips the OAuth `?code=`/`#access_token`
@@ -64,6 +80,11 @@ interface AppState {
   sessions: LiveSession[];
   resources: RecommendedResource[];
   community: CommunityPost[];
+  comments: PostComment[];
+  notifications: AppNotification[];
+  teamMembers: TeamMember[];
+  books: Book[];
+  siteContent: SiteContent;
   enrollments: Enrollment[];
   progress: VideoProgress[];
   submissions: Submission[];
@@ -82,6 +103,11 @@ function seedState(): AppState {
     sessions: seedSessions,
     resources: seedResources,
     community: seedCommunity,
+    comments: seedComments,
+    notifications: seedNotifications,
+    teamMembers: seedTeam,
+    books: seedBooks,
+    siteContent: DEFAULT_SITE_CONTENT,
     enrollments: seedEnrollments,
     progress: seedProgress,
     submissions: seedSubmissions,
@@ -95,7 +121,8 @@ function seedState(): AppState {
 function emptyState(): AppState {
   return {
     users: [], courses: [], tracks: DEFAULT_TRACKS, tips: [], sessions: [], resources: [],
-    community: [], enrollments: [], progress: [], submissions: [], notes: [], coupons: [],
+    community: [], comments: [], notifications: [], teamMembers: [], books: [],
+    siteContent: DEFAULT_SITE_CONTENT, enrollments: [], progress: [], submissions: [], notes: [], coupons: [],
     pricing: DEFAULT_PRICING, currentUserId: null,
   };
 }
@@ -160,6 +187,17 @@ interface AppContextValue extends AppState {
   editMessage(id: string, text: string): void;
   deleteMessage(id: string): void;
   toggleLike(id: string): void;
+  // discussion board — threaded comments
+  commentsFor(postId: string): PostComment[];
+  addComment(postId: string, text: string, parentId?: string | null, mentionIds?: string[]): void;
+  editComment(id: string, text: string): void;
+  deleteComment(id: string): void;
+  toggleCommentLike(id: string): void;
+  // notifications
+  markNotificationRead(id: string): void;
+  markAllNotificationsRead(): void;
+  // profile — self-service account editing
+  updateProfileInfo(patch: Partial<User>): void;
   // sessions
   toggleAttendance(sessionId: string): void;
   // admin — courses
@@ -167,6 +205,8 @@ interface AppContextValue extends AppState {
   deleteCourse(courseId: string): void;
   togglePublish(courseId: string): void;
   toggleTrending(courseId: string): void;
+  approveCourse(courseId: string): void;
+  rejectCourse(courseId: string): void;
   saveQuestion(courseId: string, assignmentId: string, question: Question): void;
   deleteQuestion(courseId: string, assignmentId: string, questionId: string): void;
   // admin — tips / tracks / sessions / users
@@ -177,11 +217,19 @@ interface AppContextValue extends AppState {
   deleteSession(id: string): void;
   setBanned(userId: string, banned: boolean): void;
   deleteUser(userId: string): void;
+  setSubAdmin(userId: string, permissions: Permission[]): void;
+  revokeAdmin(userId: string): void;
   // admin — coupons
   saveCoupon(coupon: Coupon): void;
   deleteCoupon(code: string): void;
   getCoupon(code: string): Coupon | undefined;
   seedDemoContent(): Promise<void>;
+  // admin — homepage CMS / team / books
+  saveSiteContent(content: SiteContent): void;
+  saveTeamMember(member: TeamMember): void;
+  deleteTeamMember(id: string): void;
+  saveBook(book: Book): void;
+  deleteBook(id: string): void;
   // lookups
   getCourse(id: string): Course | undefined;
   getCourseBySlug(slug: string): Course | undefined;
@@ -218,6 +266,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let loadedFor: string | null | undefined = undefined;
 
     const reload = (userId: string | null) => {
+      // Instant paint from the cached snapshot for this user, so admin pages don't sit
+      // on a spinner waiting for the full load on every reload (stale-while-revalidate).
+      if (userId) {
+        try {
+          const raw = localStorage.getItem(SB_CACHE_PREFIX + userId);
+          if (raw) {
+            const cached = JSON.parse(raw) as Partial<AppState>;
+            setState((s) => ({ ...s, ...cached, currentUserId: userId }));
+            setHydrated(true);
+          }
+        } catch {
+          /* ignore corrupt cache */
+        }
+      }
       // Defer out of the auth callback: doing Supabase queries *inside* onAuthStateChange
       // holds GoTrue's auth lock and deadlocks those queries. setTimeout(0) releases it first.
       setTimeout(async () => {
@@ -233,7 +295,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (!active) return;
           if (me) users = [...users, me];
         }
-        setState((s) => ({ ...s, ...data, users, pricing: data.pricing ?? s.pricing, currentUserId: userId }));
+        setState((s) => ({
+          ...s,
+          ...data,
+          users,
+          pricing: data.pricing ?? s.pricing,
+          siteContent: data.siteContent ? { ...DEFAULT_SITE_CONTENT, ...data.siteContent } : s.siteContent,
+          currentUserId: userId,
+        }));
         setHydrated(true);
       }, 0);
     };
@@ -302,6 +371,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state, hydrated]);
 
+  // ── Cache the per-user snapshot (Supabase mode) for instant reloads ──
+  React.useEffect(() => {
+    if (!hydrated || !isSupabaseConfigured || !state.currentUserId) return;
+    try {
+      localStorage.setItem(SB_CACHE_PREFIX + state.currentUserId, JSON.stringify(state));
+    } catch {
+      /* ignore quota errors — falls back to a full load next time */
+    }
+  }, [state, hydrated]);
+
   const value = React.useMemo<AppContextValue>(() => {
     const sb = getSupabase();
     const currentUser = state.users.find((u) => u.id === state.currentUserId) ?? null;
@@ -328,7 +407,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const u = state.users.find((x) => x.id === who(userId));
       if (!u) return false;
       if (u.subscriptionPlan === "all_access") return true;
-      if ((u.ownedCategories ?? []).includes(course.category)) return true; // category pass
+      if (courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c))) return true; // category pass
       return u.ownedCourseIds.includes(courseId);
     };
 
@@ -428,9 +507,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
           if (error) return { ok: false, error: error.message };
           if (d.user) {
+            const username = uniqueUsername(
+              baseUsername(data.name, data.email),
+              new Set(state.users.map((u) => u.username).filter(Boolean) as string[]),
+            );
             fire(
               db.updateProfile(sb, d.user.id, {
                 name: data.name,
+                username,
                 age: data.age ?? null,
                 gender: data.gender ?? null,
                 phone: data.phone ?? null,
@@ -450,6 +534,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const newUser: User = {
           id: uid("u"),
           name: data.name,
+          username: uniqueUsername(
+            baseUsername(data.name, data.email),
+            new Set(state.users.map((u) => u.username).filter(Boolean) as string[]),
+          ),
           email: data.email.trim(),
           role: data.role ?? null,
           age: data.age,
@@ -794,6 +882,139 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (sb) fire(db.setLike(sb, id, currentUser.id, !liked));
       },
 
+      // ── discussion board: threaded comments ──
+      commentsFor(postId) {
+        return state.comments
+          .filter((c) => c.postId === postId)
+          .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+      },
+      addComment(postId, text, parentId, mentionIds) {
+        if (!currentUser || !text.trim()) return;
+        const id = uid("cm");
+        const createdAt = new Date().toISOString();
+        const mentions = (mentionIds ?? []).filter((m) => m && m !== currentUser.id);
+        const comment: PostComment = {
+          id,
+          postId,
+          parentId: parentId ?? null,
+          userId: currentUser.id,
+          userName: currentUser.name,
+          userRole: currentUser.isAdmin ? "admin" : (currentUser.role ?? "student"),
+          text: text.trim(),
+          mentions,
+          createdAt,
+          likedBy: [],
+        };
+        // Notification recipients — an @mention wins over a plain reply for the same person.
+        const recipients = new Map<string, NotificationType>();
+        for (const m of mentions) recipients.set(m, "mention");
+        if (parentId) {
+          const parent = state.comments.find((c) => c.id === parentId);
+          if (parent && parent.userId !== currentUser.id && !recipients.has(parent.userId))
+            recipients.set(parent.userId, "reply");
+        } else {
+          const post = state.community.find((p) => p.id === postId);
+          if (post && post.userId !== currentUser.id && !recipients.has(post.userId))
+            recipients.set(post.userId, "reply");
+        }
+        const preview = text.trim().slice(0, 120);
+        const notifs: AppNotification[] = [...recipients.entries()].map(([rid, type]) => ({
+          id: uid("nt"),
+          userId: rid,
+          type,
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+          postId,
+          commentId: id,
+          preview,
+          read: false,
+          createdAt,
+        }));
+        setState((s) => ({
+          ...s,
+          comments: [...s.comments, comment],
+          notifications: [...notifs, ...s.notifications],
+        }));
+        if (sb) {
+          fire(db.insertComment(sb, comment));
+          for (const n of notifs) fire(db.insertNotification(sb, n));
+        }
+      },
+      editComment(id, text) {
+        if (!text.trim()) return;
+        setState((s) => ({
+          ...s,
+          comments: s.comments.map((c) =>
+            c.id === id ? { ...c, text: text.trim(), editedAt: new Date().toISOString() } : c,
+          ),
+        }));
+        if (sb) fire(db.updateComment(sb, id, text.trim()));
+      },
+      deleteComment(id) {
+        // remove the comment and any direct replies to it
+        setState((s) => ({ ...s, comments: s.comments.filter((c) => c.id !== id && c.parentId !== id) }));
+        if (sb) fire(db.deleteComment(sb, id));
+      },
+      toggleCommentLike(id) {
+        if (!currentUser) return;
+        const c = state.comments.find((x) => x.id === id);
+        const liked = c ? c.likedBy.includes(currentUser.id) : false;
+        setState((s) => ({
+          ...s,
+          comments: s.comments.map((x) =>
+            x.id === id
+              ? {
+                  ...x,
+                  likedBy: liked
+                    ? x.likedBy.filter((u) => u !== currentUser.id)
+                    : [...x.likedBy, currentUser.id],
+                }
+              : x,
+          ),
+        }));
+        if (sb) fire(db.setCommentLike(sb, id, currentUser.id, !liked));
+      },
+
+      // ── notifications ──
+      markNotificationRead(id) {
+        setState((s) => ({
+          ...s,
+          notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
+        }));
+        if (sb) fire(db.markNotificationRead(sb, id));
+      },
+      markAllNotificationsRead() {
+        if (!currentUser) return;
+        setState((s) => ({
+          ...s,
+          notifications: s.notifications.map((n) =>
+            n.userId === currentUser.id ? { ...n, read: true } : n,
+          ),
+        }));
+        if (sb) fire(db.markAllNotificationsRead(sb, currentUser.id));
+      },
+
+      // ── profile (self-service account editing) ──
+      updateProfileInfo(patch) {
+        if (!currentUser) return;
+        patchUser(currentUser.id, (u) => ({ ...u, ...patch }));
+        if (sb) {
+          const p: Record<string, unknown> = {};
+          if (patch.name !== undefined) p.name = patch.name;
+          if (patch.username !== undefined) p.username = patch.username ?? null;
+          if (patch.headline !== undefined) p.headline = patch.headline ?? null;
+          if (patch.bio !== undefined) p.bio = patch.bio ?? null;
+          if (patch.age !== undefined) p.age = patch.age ?? null;
+          if (patch.gender !== undefined) p.gender = patch.gender ?? null;
+          if (patch.company !== undefined) p.company = patch.company ?? null;
+          if (patch.region !== undefined) p.region = patch.region ?? null;
+          if (patch.phone !== undefined) p.phone = patch.phone ?? null;
+          if (patch.nationality !== undefined) p.nationality = patch.nationality ?? null;
+          if (patch.avatarUrl !== undefined) p.avatar_url = patch.avatarUrl ?? null;
+          if (Object.keys(p).length) fire(db.updateProfile(sb, currentUser.id, p));
+        }
+      },
+
       // ── sessions ──
       toggleAttendance(sessionId) {
         if (!currentUser) return;
@@ -817,13 +1038,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       // ── admin: courses ──
       saveCourse(course) {
+        // Sub-admins (admins limited by a permission set) can't publish directly —
+        // their topic is sent to the owner for approval.
+        const sub = !!currentUser?.isAdmin && !isOwner(currentUser);
+        const finalCourse: Course = sub
+          ? { ...course, published: false, pendingApproval: true, submittedBy: currentUser!.id }
+          : { ...course, pendingApproval: course.pendingApproval ?? false };
         setState((s) => ({
           ...s,
-          courses: s.courses.some((c) => c.id === course.id)
-            ? s.courses.map((c) => (c.id === course.id ? course : c))
-            : [course, ...s.courses],
+          courses: s.courses.some((c) => c.id === finalCourse.id)
+            ? s.courses.map((c) => (c.id === finalCourse.id ? finalCourse : c))
+            : [finalCourse, ...s.courses],
         }));
-        if (sb) fire(db.saveCourse(sb, course));
+        if (sb) fire(db.saveCourse(sb, finalCourse));
       },
       deleteCourse(courseId) {
         setState((s) => ({ ...s, courses: s.courses.filter((c) => c.id !== courseId) }));
@@ -844,6 +1071,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           courses: s.courses.map((x) => (x.id === courseId ? { ...x, trending: !x.trending } : x)),
         }));
         if (sb && c) fire(db.updateCourse(sb, courseId, { trending: !c.trending }));
+      },
+      approveCourse(courseId) {
+        if (!getCourse(courseId)) return;
+        setState((s) => ({
+          ...s,
+          courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: true, pendingApproval: false } : x)),
+        }));
+        if (sb) fire(db.updateCourse(sb, courseId, { published: true, pending_approval: false }));
+      },
+      rejectCourse(courseId) {
+        if (!getCourse(courseId)) return;
+        setState((s) => ({
+          ...s,
+          courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: false, pendingApproval: false } : x)),
+        }));
+        if (sb) fire(db.updateCourse(sb, courseId, { published: false, pending_approval: false }));
       },
       saveQuestion(courseId, assignmentId, question) {
         setState((s) => ({
@@ -929,6 +1172,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setState((s) => ({ ...s, users: s.users.filter((u) => u.id !== userId) }));
         if (sb) fire(db.deleteUserProfile(sb, userId));
       },
+      setSubAdmin(userId, permissions) {
+        patchUser(userId, (u) => ({ ...u, isAdmin: true, permissions }));
+        if (sb) fire(db.updateProfile(sb, userId, { is_admin: true, permissions }));
+      },
+      revokeAdmin(userId) {
+        patchUser(userId, (u) => ({ ...u, isAdmin: false, permissions: null }));
+        if (sb) fire(db.updateProfile(sb, userId, { is_admin: false, permissions: null }));
+      },
 
       // ── admin: coupons ──
       saveCoupon(coupon) {
@@ -954,6 +1205,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setState((s) => ({ ...s, pricing: tiers }));
         if (sb) fire(db.savePricing(sb, tiers));
       },
+
+      // ── admin: homepage CMS / team / books ──
+      saveSiteContent(content) {
+        setState((s) => ({ ...s, siteContent: content }));
+        if (sb) fire(db.saveSiteContent(sb, content));
+      },
+      saveTeamMember(member) {
+        setState((s) => ({
+          ...s,
+          teamMembers: s.teamMembers.some((m) => m.id === member.id)
+            ? s.teamMembers.map((m) => (m.id === member.id ? member : m))
+            : [...s.teamMembers, member],
+        }));
+        if (sb) fire(db.saveTeamMember(sb, member));
+      },
+      deleteTeamMember(id) {
+        setState((s) => ({ ...s, teamMembers: s.teamMembers.filter((m) => m.id !== id) }));
+        if (sb) fire(db.deleteTeamMember(sb, id));
+      },
+      saveBook(book) {
+        setState((s) => ({
+          ...s,
+          books: s.books.some((b) => b.id === book.id)
+            ? s.books.map((b) => (b.id === book.id ? book : b))
+            : [...s.books, book],
+        }));
+        if (sb) fire(db.saveBook(sb, book));
+      },
+      deleteBook(id) {
+        setState((s) => ({ ...s, books: s.books.filter((b) => b.id !== id) }));
+        if (sb) fire(db.deleteBook(sb, id));
+      },
+
       async seedDemoContent() {
         if (!sb || !currentUser?.isAdmin) return;
         for (const t of DEFAULT_TRACKS) await db.addTrack(sb, t);
@@ -962,9 +1246,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         for (const r of seedResources) await db.upsertResource(sb, r);
         for (const sess of seedSessions) await db.saveSession(sb, sess);
         for (const c of seedCoupons) await db.saveCoupon(sb, c);
+        for (const m of seedTeam) await db.saveTeamMember(sb, m);
+        for (const b of seedBooks) await db.saveBook(sb, b);
+        await db.saveSiteContent(sb, DEFAULT_SITE_CONTENT);
         await db.savePricing(sb, state.pricing);
         const data = await db.loadAll(sb);
-        setState((s) => ({ ...s, ...data, pricing: data.pricing ?? s.pricing }));
+        setState((s) => ({
+          ...s,
+          ...data,
+          pricing: data.pricing ?? s.pricing,
+          siteContent: data.siteContent ? { ...DEFAULT_SITE_CONTENT, ...data.siteContent } : s.siteContent,
+        }));
       },
 
       // ── lookups ──

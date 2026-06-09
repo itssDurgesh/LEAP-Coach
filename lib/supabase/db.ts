@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  AppNotification,
+  Book,
   CommunityPost,
   Coupon,
   Course,
@@ -8,11 +10,14 @@ import {
   LeadershipTrack,
   LiveSession,
   Note,
+  PostComment,
   PricingTiers,
   Question,
   RecommendedResource,
   Role,
+  SiteContent,
   Submission,
+  TeamMember,
   User,
   Video,
   VideoProgress,
@@ -26,18 +31,37 @@ const mapTrack = (r: Row): LeadershipTrack => ({ id: r.id, label: r.label });
 const mapTip = (r: Row): DailyTip => ({ id: r.id, text: r.text, author: r.author, targetRole: r.target_role, active: r.active });
 const mapResource = (r: Row): RecommendedResource => ({ id: r.id, title: r.title, type: r.type, author: r.author, blurb: r.blurb, targetRole: r.target_role, accent: r.accent });
 const mapQuestion = (r: Row): Question => ({ id: r.id, type: r.type, prompt: r.prompt, options: r.options ?? [], correctAnswer: r.correct_answer, explanation: r.explanation });
-const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, transcript: r.transcript ?? "", summary: r.summary ?? "", notesPdfName: r.notes_pdf_url ?? undefined, resources: r.resources ?? [] });
+const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, transcript: r.transcript ?? "", summary: r.summary ?? "", notesPdfName: r.notes_pdf_url ?? undefined, notesPdfUrl: r.notes_file_url ?? null, resources: r.resources ?? [] });
 const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.course_id, enrolledAt: r.enrolled_at, completedAt: r.completed_at });
 const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at });
 const mapNote = (r: Row): Note => ({ id: r.id, userId: r.user_id, videoId: r.video_id, text: r.text, createdAt: r.created_at });
 const mapSubmission = (r: Row): Submission => ({ id: r.id, userId: r.user_id, assignmentId: r.assignment_id, courseId: r.course_id, answers: r.answers ?? {}, score: Number(r.score), passed: r.passed, feedback: r.feedback ?? [], attemptNumber: r.attempt_number, submittedAt: r.submitted_at });
 const mapProfile = (r: Row, ownedCourseIds: string[], ownedCategories: Role[] = []): User => ({
-  id: r.id, name: r.name ?? "", email: r.email ?? "", role: r.role ?? null, avatarUrl: r.avatar_url,
+  id: r.id, name: r.name ?? "", username: r.username ?? undefined, email: r.email ?? "", role: r.role ?? null, avatarUrl: r.avatar_url,
   age: r.age ?? undefined, gender: r.gender ?? undefined, phone: r.phone ?? undefined, phoneVerified: r.phone_verified ?? false,
   company: r.company ?? undefined, nationality: r.nationality ?? undefined, region: r.region ?? undefined,
+  headline: r.headline ?? undefined, bio: r.bio ?? undefined,
   learningCredits: r.learning_credits ?? 0, subscriptionPlan: r.subscription_plan ?? "none",
   subscriptionValidUntil: r.subscription_valid_until ?? null, ownedCourseIds, ownedCategories, banned: r.banned ?? false,
-  isAdmin: r.is_admin ?? false, createdAt: r.created_at, lastActiveAt: r.last_active_at,
+  isAdmin: r.is_admin ?? false, permissions: r.permissions ?? null, createdAt: r.created_at, lastActiveAt: r.last_active_at,
+});
+const mapTeamMember = (r: Row): TeamMember => ({
+  id: r.id, name: r.name ?? "", title: r.title ?? "", group: r.member_group ?? "mentor", photoUrl: r.photo_url ?? null,
+  bio: r.bio ?? "", vision: r.vision ?? null, links: r.links ?? {}, featured: r.featured ?? false,
+  order: r.order_index ?? 0, active: r.active ?? true, createdAt: r.created_at,
+});
+const mapBook = (r: Row): Book => ({
+  id: r.id, title: r.title ?? "", author: r.author ?? "", coverUrl: r.cover_url ?? null,
+  blurb: r.blurb ?? "", link: r.link ?? null, order: r.order_index ?? 0, active: r.active ?? true,
+});
+const mapComment = (r: Row, likedBy: string[]): PostComment => ({
+  id: r.id, postId: r.post_id, parentId: r.parent_id ?? null, userId: r.user_id, userName: r.user_name,
+  userRole: r.user_role, text: r.text, mentions: r.mentions ?? [], createdAt: r.created_at,
+  editedAt: r.edited_at ?? undefined, likedBy,
+});
+const mapNotification = (r: Row): AppNotification => ({
+  id: r.id, userId: r.user_id, type: r.type, actorId: r.actor_id, actorName: r.actor_name ?? "",
+  postId: r.post_id, commentId: r.comment_id ?? null, preview: r.preview ?? "", read: r.read ?? false, createdAt: r.created_at,
 });
 const mapSession = (r: Row, attendeeIds: string[]): LiveSession => ({ id: r.id, title: r.title, courseTitle: r.course_title ?? undefined, instructorName: r.instructor_name, startsAt: r.starts_at, durationMins: r.duration_mins, meetLink: r.meet_link, description: r.description ?? "", targetRole: r.target_role, attendeeIds, capacity: r.capacity });
 const mapPost = (r: Row, likedBy: string[]): CommunityPost => ({ id: r.id, userId: r.user_id, userName: r.user_name, userRole: r.user_role, text: r.text, createdAt: r.created_at, editedAt: r.edited_at ?? undefined, likedBy });
@@ -46,10 +70,14 @@ const mapCoupon = (r: Row): Coupon => ({ code: r.code, discountPercent: r.discou
 // ── course → row ──
 const courseRow = (c: Course): Row => ({
   id: c.id, slug: c.slug, title: c.title, description: c.description, category: c.category,
+  categories: c.categories ?? [c.category],
   instructor_name: c.instructorName, instructor_title: c.instructorTitle, instructor_bio: c.instructorBio,
   instructor_initials: c.instructorInitials, hashtags: c.hashtags, tracks: c.tracks, level: c.level,
   rating: c.rating, rating_count: c.ratingCount, enrolled_count: c.enrolledCount, purchase_count: c.purchaseCount,
-  price: c.price, trending: c.trending, published: c.published, accent: c.accent, created_at: c.createdAt,
+  price: c.price, trending: c.trending, published: c.published, accent: c.accent,
+  thumbnail_url: c.thumbnailUrl ?? null, workbook_name: c.workbookName ?? null, workbook_url: c.workbookUrl ?? null,
+  pending_approval: c.pendingApproval ?? false, submitted_by: c.submittedBy ?? null,
+  created_at: c.createdAt,
 });
 
 export interface LoadedData {
@@ -60,12 +88,17 @@ export interface LoadedData {
   sessions: LiveSession[];
   resources: RecommendedResource[];
   community: CommunityPost[];
+  comments: PostComment[];
+  notifications: AppNotification[];
+  teamMembers: TeamMember[];
+  books: Book[];
   enrollments: Enrollment[];
   progress: VideoProgress[];
   submissions: Submission[];
   notes: Note[];
   coupons: Coupon[];
   pricing: PricingTiers | null;
+  siteContent: SiteContent | null;
 }
 
 /** Fetch + assemble the entire app state from Supabase (RLS scopes per-user rows). */
@@ -73,7 +106,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   const [
     profiles, purchases, tracks, courses, videos, assignments, questions,
     tips, resources, sessions, attendees, enrollments, progress, submissions, notes, posts, likes, coupons,
-    categoryPasses, pricingRows,
+    categoryPasses, pricingRows, comments, commentLikes, notifications, teamMembers, books, siteRows,
   ] = await Promise.all([
     rows(sb.from("profiles").select("*")),
     rows(sb.from("course_purchases").select("*")),
@@ -95,6 +128,12 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     rows(sb.from("coupons").select("*")),
     rows(sb.from("category_passes").select("*")),
     rows(sb.from("pricing_tiers").select("*")),
+    rows(sb.from("post_comments").select("*")),
+    rows(sb.from("comment_likes").select("*")),
+    rows(sb.from("notifications").select("*")),
+    rows(sb.from("team_members").select("*")),
+    rows(sb.from("books").select("*")),
+    rows(sb.from("site_content").select("*")),
   ]);
 
   const questionsByAssignment = group(questions, (q) => q.assignment_id);
@@ -104,6 +143,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   const passesByUser = group(categoryPasses, (p) => p.user_id);
   const attendeesBySession = group(attendees, (a) => a.session_id);
   const likesByPost = group(likes, (l) => l.post_id);
+  const likesByComment = group(commentLikes, (l) => l.comment_id);
 
   const assembledCourses: Course[] = courses.map((c) => ({
     id: c.id, slug: c.slug, title: c.title, description: c.description ?? "", category: c.category,
@@ -111,7 +151,11 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     instructorInitials: c.instructor_initials ?? "", hashtags: c.hashtags ?? [], tracks: c.tracks ?? [], level: c.level ?? "Beginner",
     rating: Number(c.rating ?? 0), ratingCount: c.rating_count ?? 0, enrolledCount: c.enrolled_count ?? 0,
     purchaseCount: c.purchase_count ?? 0, price: c.price ?? 0, trending: c.trending ?? false, published: c.published ?? false,
-    accent: c.accent ?? 0, createdAt: c.created_at,
+    accent: c.accent ?? 0,
+    categories: c.categories ?? [c.category],
+    thumbnailUrl: c.thumbnail_url ?? null, workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
+    pendingApproval: c.pending_approval ?? false, submittedBy: c.submitted_by ?? null,
+    createdAt: c.created_at,
     videos: (videosByCourse[c.id] ?? []).map(mapVideo).sort((a, b) => a.order - b.order),
     assignments: (assignmentsByCourse[c.id] ?? []).map((a) => ({
       id: a.id, courseId: a.course_id, afterVideoOrder: a.after_video_order, title: a.title,
@@ -134,14 +178,26 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     sessions: sessions.map((s) => mapSession(s, (attendeesBySession[s.id] ?? []).map((x) => x.user_id))),
     community: posts.map((p) => mapPost(p, (likesByPost[p.id] ?? []).map((x) => x.user_id)))
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    comments: comments
+      .map((c) => mapComment(c, (likesByComment[c.id] ?? []).map((x) => x.user_id)))
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
+    notifications: notifications.map(mapNotification).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    teamMembers: teamMembers.map(mapTeamMember).sort((a, b) => a.order - b.order),
+    books: books.map(mapBook).sort((a, b) => a.order - b.order),
     enrollments: enrollments.map(mapEnrollment),
     progress: progress.map(mapProgress),
     submissions: submissions.map(mapSubmission),
     notes: notes.map(mapNote),
     coupons: coupons.map(mapCoupon),
     pricing: pricingRows[0]
-      ? { cat1: pricingRows[0].cat1, cat2: pricingRows[0].cat2, cat3: pricingRows[0].cat3 }
+      ? {
+          cat1: pricingRows[0].cat1,
+          cat2: pricingRows[0].cat2,
+          cat3: pricingRows[0].cat3,
+          perTopicFrom: pricingRows[0].per_topic_from ?? 999,
+        }
       : null,
+    siteContent: (siteRows[0]?.content as SiteContent) ?? null,
   };
 }
 
@@ -218,7 +274,8 @@ export async function saveCourse(sb: SupabaseClient, c: Course) {
   if (c.videos.length)
     await sb.from("videos").insert(c.videos.map((v) => ({
       id: v.id, course_id: c.id, title: v.title, order_index: v.order, duration_seconds: v.durationSeconds,
-      mux_playback_id: v.muxPlaybackId, transcript: v.transcript, summary: v.summary, notes_pdf_url: v.notesPdfName, resources: v.resources,
+      mux_playback_id: v.muxPlaybackId, transcript: v.transcript, summary: v.summary,
+      notes_pdf_url: v.notesPdfName, notes_file_url: v.notesPdfUrl ?? null, resources: v.resources,
     })));
   await sb.from("assignments").delete().eq("course_id", c.id);
   for (const a of c.assignments) {
@@ -268,4 +325,50 @@ export const grantCategoryPass = (sb: SupabaseClient, userId: string, category: 
   sb.from("category_passes").upsert({ user_id: userId, category }, { onConflict: "user_id,category" });
 
 export const savePricing = (sb: SupabaseClient, t: PricingTiers) =>
-  sb.from("pricing_tiers").upsert({ id: 1, cat1: t.cat1, cat2: t.cat2, cat3: t.cat3 });
+  sb.from("pricing_tiers").upsert({ id: 1, cat1: t.cat1, cat2: t.cat2, cat3: t.cat3, per_topic_from: t.perTopicFrom });
+
+// ── site content (homepage CMS singleton) ──
+export const saveSiteContent = (sb: SupabaseClient, content: SiteContent) =>
+  sb.from("site_content").upsert({ id: 1, content, updated_at: new Date().toISOString() });
+
+// ── team / mentors ──
+export const saveTeamMember = (sb: SupabaseClient, m: TeamMember) =>
+  sb.from("team_members").upsert({
+    id: m.id, name: m.name, title: m.title, member_group: m.group, photo_url: m.photoUrl ?? null, bio: m.bio,
+    vision: m.vision ?? null, links: m.links ?? {}, featured: m.featured, order_index: m.order, active: m.active,
+    created_at: m.createdAt,
+  });
+export const deleteTeamMember = (sb: SupabaseClient, id: string) => sb.from("team_members").delete().eq("id", id);
+
+// ── books ──
+export const saveBook = (sb: SupabaseClient, b: Book) =>
+  sb.from("books").upsert({
+    id: b.id, title: b.title, author: b.author, cover_url: b.coverUrl ?? null, blurb: b.blurb,
+    link: b.link ?? null, order_index: b.order, active: b.active,
+  });
+export const deleteBook = (sb: SupabaseClient, id: string) => sb.from("books").delete().eq("id", id);
+
+// ── discussion comments ──
+export const insertComment = (sb: SupabaseClient, c: PostComment) =>
+  sb.from("post_comments").insert({
+    id: c.id, post_id: c.postId, parent_id: c.parentId, user_id: c.userId, user_name: c.userName,
+    user_role: c.userRole, text: c.text, mentions: c.mentions, created_at: c.createdAt,
+  });
+export const updateComment = (sb: SupabaseClient, id: string, text: string) =>
+  sb.from("post_comments").update({ text, edited_at: new Date().toISOString() }).eq("id", id);
+export const deleteComment = (sb: SupabaseClient, id: string) => sb.from("post_comments").delete().eq("id", id);
+export const setCommentLike = (sb: SupabaseClient, commentId: string, userId: string, liked: boolean) =>
+  liked
+    ? sb.from("comment_likes").upsert({ comment_id: commentId, user_id: userId }, { onConflict: "comment_id,user_id" })
+    : sb.from("comment_likes").delete().eq("comment_id", commentId).eq("user_id", userId);
+
+// ── notifications ──
+export const insertNotification = (sb: SupabaseClient, n: AppNotification) =>
+  sb.from("notifications").insert({
+    id: n.id, user_id: n.userId, type: n.type, actor_id: n.actorId, actor_name: n.actorName,
+    post_id: n.postId, comment_id: n.commentId ?? null, preview: n.preview, read: n.read, created_at: n.createdAt,
+  });
+export const markNotificationRead = (sb: SupabaseClient, id: string) =>
+  sb.from("notifications").update({ read: true }).eq("id", id);
+export const markAllNotificationsRead = (sb: SupabaseClient, userId: string) =>
+  sb.from("notifications").update({ read: true }).eq("user_id", userId);

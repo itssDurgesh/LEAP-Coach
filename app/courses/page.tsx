@@ -7,7 +7,7 @@ import { CourseCard } from "@/components/CourseCard";
 import { Input, Select } from "@/components/ui/Field";
 import { Badge } from "@/components/ui/Badge";
 import { useApp } from "@/lib/store/AppProvider";
-import { Role } from "@/lib/types";
+import { Role, courseCategories } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const categories: { id: "all" | Role; label: string }[] = [
@@ -48,7 +48,7 @@ function CatalogContent() {
   const trending = published.filter((c) => c.trending);
 
   const filtered = published.filter((c) => {
-    if (category !== "all" && c.category !== category) return false;
+    if (category !== "all" && !courseCategories(c).includes(category)) return false;
     if (selectedTracks.length && !selectedTracks.some((t) => c.tracks.includes(t))) return false;
     const dur = c.videos.reduce((s, v) => s + v.durationSeconds, 0) / 3600;
     if (duration === "short" && dur >= 1.5) return false;

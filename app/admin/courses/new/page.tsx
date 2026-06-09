@@ -5,7 +5,7 @@ import { CourseWizard } from "@/components/admin/CourseWizard";
 
 export default function NewCoursePage() {
   return (
-    <AdminShell title="New Coaching Topic" subtitle="Create a topic in 6 guided steps">
+    <AdminShell title="New Coaching Topic" subtitle="Create a topic in 6 guided steps" requires="content">
       <CourseWizard />
     </AdminShell>
   );

@@ -20,7 +20,7 @@ const CATEGORY_LABELS: Record<Coupon["category"], string> = {
 
 export default function CouponsPage() {
   return (
-    <AdminShell title="Plans & Coupons" subtitle="Create discount coupons and control eligibility">
+    <AdminShell title="Plans & Coupons" subtitle="Create discount coupons and control eligibility" requires="owner">
       <Coupons />
     </AdminShell>
   );
@@ -32,9 +32,13 @@ function PricingEditor() {
   const [saved, setSaved] = React.useState(false);
 
   // Keep the form in sync if pricing loads/changes from the server.
-  React.useEffect(() => setForm(pricing), [pricing.cat1, pricing.cat2, pricing.cat3]);
+  React.useEffect(() => setForm(pricing), [pricing.cat1, pricing.cat2, pricing.cat3, pricing.perTopicFrom]);
 
-  const dirty = form.cat1 !== pricing.cat1 || form.cat2 !== pricing.cat2 || form.cat3 !== pricing.cat3;
+  const dirty =
+    form.cat1 !== pricing.cat1 ||
+    form.cat2 !== pricing.cat2 ||
+    form.cat3 !== pricing.cat3 ||
+    form.perTopicFrom !== pricing.perTopicFrom;
   const tiers: { key: "cat1" | "cat2" | "cat3"; label: string; hint: string }[] = [
     { key: "cat1", label: "1 category", hint: "Single-category pass" },
     { key: "cat2", label: "2 categories", hint: "Any two categories" },
@@ -47,7 +51,7 @@ function PricingEditor() {
         <IndianRupee className="h-5 w-5 text-gold-600" /> Plan prices (category bundles)
       </h2>
       <p className="mt-1 text-sm text-muted">
-        Price is by the number of categories a learner picks. Per-topic prices are set on each topic.
+        Bundle price is by the number of categories a learner picks. Individual topic prices are set on each topic.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         {tiers.map((t) => (
@@ -64,12 +68,23 @@ function PricingEditor() {
           </div>
         ))}
       </div>
+      <div className="mt-4 max-w-xs border-t border-hair pt-4">
+        <label className="mb-1 block text-xs font-medium text-muted">
+          Per-topic &ldquo;starting from&rdquo; price <span className="text-faint">· shown on the Pricing page</span>
+        </label>
+        <Input
+          type="number"
+          min={0}
+          value={form.perTopicFrom}
+          onChange={(e) => setForm((f) => ({ ...f, perTopicFrom: Number(e.target.value) }))}
+        />
+      </div>
       <div className="mt-4 flex items-center justify-end gap-3">
         {saved && <span className="text-sm font-medium text-green-600">Saved ✓</span>}
         <Button
           disabled={!dirty}
           onClick={() => {
-            savePricing({ cat1: form.cat1, cat2: form.cat2, cat3: form.cat3 });
+            savePricing({ cat1: form.cat1, cat2: form.cat2, cat3: form.cat3, perTopicFrom: form.perTopicFrom });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
           }}

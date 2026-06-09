@@ -13,7 +13,7 @@ export default function EditCoursePage() {
   const course = getCourse(params.id);
 
   return (
-    <AdminShell title="Edit Coaching Topic" subtitle={course?.title ?? "Topic"}>
+    <AdminShell title="Edit Coaching Topic" subtitle={course?.title ?? "Topic"} requires="content">
       {course ? (
         <CourseWizard initial={course} />
       ) : (

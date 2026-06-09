@@ -16,6 +16,8 @@ import {
   Award,
   Check,
   ArrowRight,
+  FileText,
+  Download,
 } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { CourseThumb } from "@/components/CourseThumb";
@@ -27,6 +29,7 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { useApp } from "@/lib/store/AppProvider";
+import { courseCategories } from "@/lib/types";
 import { cn, formatINR, formatDuration, formatClock } from "@/lib/utils";
 
 export default function CourseDetailPage() {
@@ -88,7 +91,8 @@ function CourseDetail() {
       (c) =>
         c.published &&
         c.id !== course.id &&
-        (c.hashtags.some((h) => course.hashtags.includes(h)) || c.category === course.category),
+        (c.hashtags.some((h) => course.hashtags.includes(h)) ||
+          courseCategories(c).some((x) => courseCategories(course).includes(x))),
     )
     .slice(0, 3);
 
@@ -163,7 +167,7 @@ function CourseDetail() {
         {/* Access / enroll card */}
         <div className="lg:sticky lg:top-24 lg:self-start">
           <div className="overflow-hidden rounded-2xl border border-hair bg-card shadow-card">
-            <CourseThumb accent={course.accent} category={course.category} className="aspect-[16/9]" />
+            <CourseThumb accent={course.accent} category={course.category} src={course.thumbnailUrl} className="aspect-[16/9]" />
             <div className="p-5">
               {enrolled ? (
                 <>
@@ -200,7 +204,7 @@ function CourseDetail() {
                   </Button>
                   <ul className="mt-5 space-y-2.5 text-sm text-muted">
                     {[
-                      `${course.videos.length} avatar-led videos`,
+                      `${course.videos.length} video lessons`,
                       `${course.assignments.length} AI-graded checkpoints`,
                       "LEAP AI tutor on every video",
                       "Class notes, transcripts & resources",
@@ -307,6 +311,35 @@ function CourseDetail() {
               );
             })}
           </div>
+
+          {course.workbookUrl && (
+            <div className="mt-4 flex flex-wrap items-center gap-4 rounded-2xl border border-gold-200 bg-gold-50 p-5 dark:bg-gold-500/10">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gold-100 text-gold-700">
+                <FileText className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-heading font-semibold text-heading">Final workbook</p>
+                <p className="text-sm text-muted">
+                  {access
+                    ? "Download and complete your final workbook (PDF / DOCX)."
+                    : "Enroll to unlock the final workbook."}
+                </p>
+              </div>
+              {access ? (
+                <a
+                  href={course.workbookUrl}
+                  download={course.workbookName ?? "workbook"}
+                  className={buttonClasses({ variant: "primary", size: "sm" })}
+                >
+                  <Download className="h-4 w-4" /> Download
+                </a>
+              ) : (
+                <Badge variant="neutral">
+                  <Lock className="h-3 w-3" /> Locked
+                </Badge>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Instructor bio */}

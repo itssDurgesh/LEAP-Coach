@@ -7,17 +7,9 @@ const columns = [
     title: "Navigate",
     links: [
       { label: "Home", href: "/" },
-      { label: "About", href: "/#about" },
+      { label: "About", href: "/about" },
+      { label: "Team", href: "/team" },
       { label: "Topics", href: "/courses" },
-      { label: "Trainings", href: "/#paths" },
-    ],
-  },
-  {
-    title: "Explore",
-    links: [
-      { label: "Research", href: "#" },
-      { label: "Digital Avatar", href: "/#how" },
-      { label: "Books", href: "#" },
       { label: "Pricing", href: "/pricing" },
     ],
   },
@@ -27,12 +19,12 @@ export function SiteFooter() {
   return (
     <footer className="bg-navy-900 dark:bg-card text-cream-100">
       <div className="mx-auto max-w-7xl px-5 py-14 sm:px-8">
-        <div className="grid gap-10 lg:grid-cols-[1.6fr_1fr_1fr_1.4fr]">
+        <div className="grid gap-10 lg:grid-cols-[1.8fr_1fr_1.4fr]">
           {/* Brand + contact */}
           <div>
             <Logo variant="light" href={null} />
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-cream-100/70">
-              AI-enhanced, avatar-led learning. Scale human wisdom — creating high performance stars.
+              High-quality, evidence-based learning. Scale human wisdom — creating high performance stars.
             </p>
             <div className="mt-5 space-y-2 text-sm text-cream-100/80">
               <p className="flex items-center gap-2.5">
@@ -107,7 +99,7 @@ export function SiteFooter() {
         <div className="mt-12 flex flex-col gap-4 border-t border-white/10 pt-6 text-sm text-cream-100/60 md:flex-row md:items-center md:justify-between">
           <p>© 2026 Prof. Vishal Gupta. All rights reserved.</p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <Link href="/#about" className="hover:text-gold-400">About</Link>
+            <Link href="/about" className="hover:text-gold-400">About</Link>
             <Link href="#" className="hover:text-gold-400">Terms of Service</Link>
             <Link href="#" className="hover:text-gold-400">Privacy</Link>
             <Link href="#" className="hover:text-gold-400">Contact Support</Link>

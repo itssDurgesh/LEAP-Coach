@@ -26,6 +26,8 @@ export default function PricingPage() {
 
   const paid = courses.filter((c) => c.price > 0);
   const minPrice = paid.length ? Math.min(...paid.map((c) => c.price)) : 0;
+  // Admin-set "starting from" price wins; fall back to the cheapest paid topic.
+  const fromPrice = pricing.perTopicFrom || minPrice;
   const isLearner = hydrated && currentUser && !currentUser.isAdmin;
   const allAccess = currentUser?.subscriptionPlan === "all_access";
   const owned = currentUser?.ownedCategories ?? [];
@@ -71,9 +73,9 @@ export default function PricingPage() {
             <p className="mt-1 text-sm text-muted">Pay once, own it for life.</p>
             <p className="mt-5">
               <span className="font-heading text-4xl font-bold text-heading">
-                {minPrice ? `from ${formatINR(minPrice)}` : "Free topics"}
+                {fromPrice ? `from ${formatINR(fromPrice)}` : "Free topics"}
               </span>
-              {minPrice ? <span className="text-sm text-faint"> / topic</span> : null}
+              {fromPrice ? <span className="text-sm text-faint"> / topic</span> : null}
             </p>
             <Link href="/courses" className={buttonClasses({ variant: "outline", size: "lg", className: "mt-6 w-full" })}>
               Browse topics

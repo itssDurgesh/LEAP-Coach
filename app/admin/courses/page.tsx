@@ -21,7 +21,7 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Field";
 import { CourseThumb } from "@/components/CourseThumb";
 import { useApp } from "@/lib/store/AppProvider";
-import { DailyTip, Role } from "@/lib/types";
+import { DailyTip, Role, isOwner } from "@/lib/types";
 import { formatINR } from "@/lib/utils";
 
 export default function ContentStudioPage() {
@@ -29,6 +29,7 @@ export default function ContentStudioPage() {
     <AdminShell
       title="Content Curator's Studio"
       subtitle="Manage coaching topics, daily wisdom, and catalog filters"
+      requires="content"
       actions={
         <Link href="/admin/courses/new" className={buttonClasses({ variant: "primary", size: "sm" })}>
           <Plus className="h-4 w-4" /> New Topic
@@ -41,14 +42,20 @@ export default function ContentStudioPage() {
 }
 
 function Studio() {
-  const { courses, tracks, tips, togglePublish, toggleTrending, deleteCourse, saveTip, deleteTip, addTrack, supabaseMode, seedDemoContent } =
+  const { courses, tracks, tips, togglePublish, toggleTrending, deleteCourse, saveTip, deleteTip, addTrack, supabaseMode, seedDemoContent, currentUser } =
     useApp();
+  const owner = isOwner(currentUser);
 
   const [tipForm, setTipForm] = React.useState({ text: "", author: "", targetRole: "all" });
   const [trackInput, setTrackInput] = React.useState("");
   const [seeding, setSeeding] = React.useState(false);
 
   const ready = courses.filter((c) => c.published).length;
+  const totalVideos = courses.reduce((s, c) => s + c.videos.length, 0);
+  const realVideos = courses.reduce(
+    (s, c) => s + c.videos.filter((v) => v.muxPlaybackId && !v.muxPlaybackId.startsWith("mux_")).length,
+    0,
+  );
 
   function addTip(e: React.FormEvent) {
     e.preventDefault();
@@ -65,7 +72,7 @@ function Studio() {
 
   return (
     <div className="space-y-6">
-      {supabaseMode && (
+      {supabaseMode && owner && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gold-200 bg-gold-50 dark:bg-gold-500/10 p-4">
           <p className="text-sm text-heading">
             <span className="font-semibold">Connected to Supabase.</span> Populate your database with
@@ -86,16 +93,16 @@ function Studio() {
         </div>
       )}
 
-      {/* Video pipeline status (mock) */}
+      {/* Library at a glance (real) */}
       <Card padded>
         <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
-          <Server className="h-5 w-5 text-gold-600" /> Video pipeline status
+          <Server className="h-5 w-5 text-gold-600" /> Library at a glance
         </h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           {[
-            { label: "Mux assets ready", value: courses.reduce((s, c) => s + c.videos.length, 0), tone: "text-green-600" },
-            { label: "Processing", value: 0, tone: "text-orange-500" },
-            { label: "Failed uploads", value: 0, tone: "text-red-500" },
+            { label: "Coaching topics", value: courses.length, tone: "text-navy-600" },
+            { label: "Total videos", value: totalVideos, tone: "text-green-600" },
+            { label: "Real uploads (Mux)", value: realVideos, tone: "text-gold-600" },
           ].map((s) => (
             <div key={s.label} className="rounded-xl border border-hair bg-surface-2 p-4">
               <div className="flex items-center gap-2">
@@ -133,7 +140,7 @@ function Studio() {
                 <tr key={c.id} className="hover:bg-surface-2">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-3">
-                      <CourseThumb accent={c.accent} category={c.category} rounded="rounded-lg" className="h-10 w-16" />
+                      <CourseThumb accent={c.accent} category={c.category} src={c.thumbnailUrl} rounded="rounded-lg" className="h-10 w-16" />
                       <div>
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium text-heading">{c.title}</span>
@@ -147,24 +154,34 @@ function Studio() {
                   <td className="px-5 py-3 text-muted">{c.price === 0 ? "Free" : formatINR(c.price)}</td>
                   <td className="px-5 py-3 text-muted">{c.enrolledCount.toLocaleString("en-IN")}</td>
                   <td className="px-5 py-3">
-                    {c.published ? <Badge variant="success">Published</Badge> : <Badge variant="warning">Draft</Badge>}
+                    {c.pendingApproval ? (
+                      <Badge variant="warning">Pending review</Badge>
+                    ) : c.published ? (
+                      <Badge variant="success">Published</Badge>
+                    ) : (
+                      <Badge variant="neutral">Draft</Badge>
+                    )}
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={() => toggleTrending(c.id)}
-                        title="Toggle trending"
-                        className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-surface-2 ${c.trending ? "text-orange-500" : "text-faint"}`}
-                      >
-                        <Flame className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => togglePublish(c.id)}
-                        title={c.published ? "Unpublish" : "Publish"}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading"
-                      >
-                        {c.published ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                      </button>
+                      {owner && (
+                        <button
+                          onClick={() => toggleTrending(c.id)}
+                          title="Toggle trending"
+                          className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-surface-2 ${c.trending ? "text-orange-500" : "text-faint"}`}
+                        >
+                          <Flame className="h-4 w-4" />
+                        </button>
+                      )}
+                      {owner && (
+                        <button
+                          onClick={() => togglePublish(c.id)}
+                          title={c.published ? "Unpublish" : "Publish"}
+                          className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading"
+                        >
+                          {c.published ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                        </button>
+                      )}
                       <Link
                         href={`/admin/courses/${c.id}/edit`}
                         title="Edit"
@@ -172,15 +189,17 @@ function Studio() {
                       >
                         <Pencil className="h-4 w-4" />
                       </Link>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete "${c.title}"? This cannot be undone.`)) deleteCourse(c.id);
-                        }}
-                        title="Delete"
-                        className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {owner && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete "${c.title}"? This cannot be undone.`)) deleteCourse(c.id);
+                          }}
+                          title="Delete"
+                          className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

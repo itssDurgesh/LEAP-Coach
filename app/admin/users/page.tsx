@@ -13,7 +13,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { Search, Ban, ShieldCheck, Trash2, Eye, MapPin } from "lucide-react";
+import { Search, Ban, ShieldCheck, Shield, Trash2, Eye, MapPin, UserCog } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -23,7 +23,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useApp } from "@/lib/store/AppProvider";
-import { tierForCredits, User } from "@/lib/types";
+import { tierForCredits, isOwner, PERMISSIONS, Permission, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const GOLD = "#D49B1E";
@@ -32,7 +32,7 @@ const COLORS = [NAVY, GOLD, "#2F4D8A", "#E8C056", "#5C77AF"];
 
 export default function UsersPage() {
   return (
-    <AdminShell title="User Management" subtitle="Search, view, and manage your learners">
+    <AdminShell title="Users & Access" subtitle="Manage learners and grant sub-admin access" requires="owner">
       <UsersAdmin />
     </AdminShell>
   );
@@ -47,13 +47,15 @@ function ageGroup(age?: number) {
 }
 
 function UsersAdmin() {
-  const { users, enrollments, courseProgress, setBanned, deleteUser } = useApp();
+  const { users, enrollments, setBanned, deleteUser, setSubAdmin, revokeAdmin } = useApp();
   const learners = users.filter((u) => !u.isAdmin);
+  const admins = users.filter((u) => u.isAdmin);
 
   const [q, setQ] = React.useState("");
   const [role, setRole] = React.useState("all");
   const [status, setStatus] = React.useState("all");
   const [viewing, setViewing] = React.useState<User | null>(null);
+  const [accessFor, setAccessFor] = React.useState<User | null>(null);
 
   const filtered = learners.filter((u) => {
     if (role !== "all" && u.role !== role) return false;
@@ -87,6 +89,61 @@ function UsersAdmin() {
 
   return (
     <div className="space-y-6">
+      {/* Staff access (sub-admins) */}
+      <Card className="overflow-hidden">
+        <div className="flex items-center justify-between border-b border-hair px-5 py-4">
+          <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
+            <UserCog className="h-5 w-5 text-gold-600" /> Staff access · {admins.length}
+          </h2>
+          <span className="text-xs text-muted">Promote a learner below to grant sub-admin access</span>
+        </div>
+        <div className="divide-y divide-hair">
+          {admins.map((a) => {
+            const owner = isOwner(a);
+            return (
+              <div key={a.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
+                <Avatar src={a.avatarUrl} name={a.name} size={36} />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-heading">{a.name}</p>
+                  <p className="text-xs text-faint">{a.email}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {owner ? (
+                    <Badge variant="gold">
+                      <ShieldCheck className="h-3 w-3" /> Owner · full access
+                    </Badge>
+                  ) : (a.permissions ?? []).length ? (
+                    (a.permissions ?? []).map((p) => (
+                      <Badge key={p} variant="neutral">
+                        {PERMISSIONS.find((x) => x.id === p)?.label ?? p}
+                      </Badge>
+                    ))
+                  ) : (
+                    <Badge variant="warning">No permissions</Badge>
+                  )}
+                </div>
+                {!owner && (
+                  <div className="flex items-center gap-1">
+                    <Button size="sm" variant="outline" onClick={() => setAccessFor(a)}>
+                      Edit access
+                    </Button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Revoke sub-admin access for ${a.name}? They become a normal learner.`)) revokeAdmin(a.id);
+                      }}
+                      title="Revoke admin"
+                      className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
       {/* Demographics */}
       <div className="grid gap-6 lg:grid-cols-3">
         <Card padded>
@@ -192,7 +249,7 @@ function UsersAdmin() {
                   <tr key={u.id} className="hover:bg-surface-2">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <Avatar name={u.name} size={36} />
+                        <Avatar src={u.avatarUrl} name={u.name} size={36} />
                         <div>
                           <p className="font-medium text-heading">{u.name}</p>
                           <p className="text-xs text-faint">{u.email}</p>
@@ -212,6 +269,9 @@ function UsersAdmin() {
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => setViewing(u)} title="View" className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading">
                           <Eye className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => setAccessFor(u)} title="Make sub-admin" className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-gold-600">
+                          <Shield className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => setBanned(u.id, !u.banned)}
@@ -244,6 +304,86 @@ function UsersAdmin() {
       <Modal open={!!viewing} onClose={() => setViewing(null)} title="Learner profile">
         {viewing && <UserProfile user={viewing} />}
       </Modal>
+
+      {/* Sub-admin access modal */}
+      <Modal
+        open={!!accessFor}
+        onClose={() => setAccessFor(null)}
+        title={accessFor && accessFor.isAdmin ? "Edit sub-admin access" : "Grant sub-admin access"}
+      >
+        {accessFor && (
+          <SubAdminForm
+            user={accessFor}
+            onSave={(perms) => {
+              setSubAdmin(accessFor.id, perms);
+              setAccessFor(null);
+            }}
+            onCancel={() => setAccessFor(null)}
+          />
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function SubAdminForm({
+  user,
+  onSave,
+  onCancel,
+}: {
+  user: User;
+  onSave: (perms: Permission[]) => void;
+  onCancel: () => void;
+}) {
+  const [perms, setPerms] = React.useState<Permission[]>(user.permissions ?? []);
+  const toggle = (p: Permission) => setPerms((s) => (s.includes(p) ? s.filter((x) => x !== p) : [...s, p]));
+
+  return (
+    <div className="space-y-4 p-6">
+      <div className="flex items-center gap-3">
+        <Avatar src={user.avatarUrl} name={user.name} size={44} />
+        <div>
+          <p className="font-heading font-semibold text-heading">{user.name}</p>
+          <p className="text-xs text-faint">{user.email}</p>
+        </div>
+      </div>
+      <p className="text-sm text-muted">
+        Pick the areas this sub-admin can manage. They can never delete topics, manage users, change pricing, or publish
+        without your approval — those stay owner-only.
+      </p>
+      <div className="space-y-2">
+        {PERMISSIONS.map((p) => {
+          const on = perms.includes(p.id);
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => toggle(p.id)}
+              className={cn(
+                "flex w-full items-start gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors",
+                on ? "border-gold-400 bg-gold-50 dark:bg-gold-500/10" : "border-hair hover:border-faint",
+              )}
+            >
+              <span
+                className={cn(
+                  "mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md border-2",
+                  on ? "border-gold-500 bg-gold-500 text-white" : "border-hair",
+                )}
+              >
+                {on && <ShieldCheck className="h-3 w-3" strokeWidth={3} />}
+              </span>
+              <span>
+                <span className="block text-sm font-semibold text-heading">{p.label}</span>
+                <span className="block text-xs text-muted">{p.hint}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex justify-end gap-2 pt-1">
+        <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button type="button" onClick={() => onSave(perms)}>Save access</Button>
+      </div>
     </div>
   );
 }
@@ -267,7 +407,7 @@ function UserProfile({ user }: { user: User }) {
   return (
     <div className="p-6">
       <div className="flex items-center gap-4">
-        <Avatar name={user.name} size={56} />
+        <Avatar src={user.avatarUrl} name={user.name} size={56} />
         <div>
           <p className="font-heading text-lg font-bold text-heading">{user.name}</p>
           <div className="mt-1 flex items-center gap-2">

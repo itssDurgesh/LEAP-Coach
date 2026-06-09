@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { useApp } from "@/lib/store/AppProvider";
-import { tierForCredits } from "@/lib/types";
+import { tierForCredits, courseCategories } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 
 function SectionHeader({ title, href, cta }: { title: string; href?: string; cta?: string }) {
@@ -81,7 +81,7 @@ function DashboardContent() {
   const passedCount = submissions.filter((s) => s.userId === currentUser.id && s.passed).length;
 
   const recommended = courses
-    .filter((c) => c.published && c.category === role && !isEnrolled(c.id))
+    .filter((c) => c.published && courseCategories(c).includes(role) && !isEnrolled(c.id))
     .sort((a, b) => Number(b.trending) - Number(a.trending) || b.rating - a.rating)
     .slice(0, 3);
 

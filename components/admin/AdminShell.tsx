@@ -6,47 +6,59 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
-  ListChecks,
   BarChart3,
   Users,
   Video,
   MessageSquare,
   Ticket,
+  LayoutTemplate,
+  Contact,
+  ClipboardCheck,
   LogOut,
   ExternalLink,
   Menu,
   X,
   Loader2,
+  Lock,
   LucideIcon,
 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { Avatar } from "@/components/ui/Avatar";
+import { Button } from "@/components/ui/Button";
 import { useApp } from "@/lib/store/AppProvider";
+import { hasPermission, isOwner, Permission } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const nav: { label: string; href: string; icon: LucideIcon }[] = [
+/** `requires` undefined = any admin; a Permission or "owner" gates the section. */
+type Access = Permission | "owner";
+
+const nav: { label: string; href: string; icon: LucideIcon; requires?: Access }[] = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
-  { label: "Content Studio", href: "/admin/courses", icon: BookOpen },
-  { label: "Question Bank", href: "/admin/questions", icon: ListChecks },
-  { label: "Analytics", href: "/admin/analytics", icon: BarChart3 },
-  { label: "Users", href: "/admin/users", icon: Users },
-  { label: "Live Sessions", href: "/admin/sessions", icon: Video },
-  { label: "Community", href: "/admin/community", icon: MessageSquare },
-  { label: "Plans & Coupons", href: "/admin/coupons", icon: Ticket },
+  { label: "Homepage", href: "/admin/homepage", icon: LayoutTemplate, requires: "homepage" },
+  { label: "Team", href: "/admin/team", icon: Contact, requires: "team" },
+  { label: "Content Studio", href: "/admin/courses", icon: BookOpen, requires: "content" },
+  { label: "Approvals", href: "/admin/approvals", icon: ClipboardCheck, requires: "owner" },
+  { label: "Analytics", href: "/admin/analytics", icon: BarChart3, requires: "owner" },
+  { label: "Users & Access", href: "/admin/users", icon: Users, requires: "owner" },
+  { label: "Live Sessions", href: "/admin/sessions", icon: Video, requires: "sessions" },
+  { label: "Discussion Board", href: "/admin/community", icon: MessageSquare, requires: "discussion" },
+  { label: "Plans & Coupons", href: "/admin/coupons", icon: Ticket, requires: "owner" },
 ];
 
 export function AdminShell({
   title,
   subtitle,
   actions,
+  requires,
   children,
 }: {
   title: string;
   subtitle?: string;
   actions?: React.ReactNode;
+  requires?: Access;
   children: React.ReactNode;
 }) {
-  const { currentUser, hydrated, signOut } = useApp();
+  const { currentUser, hydrated, signOut, courses } = useApp();
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
@@ -64,6 +76,12 @@ export function AdminShell({
     );
   }
 
+  const owner = isOwner(currentUser);
+  const can = (a?: Access) => !a || (a === "owner" ? owner : hasPermission(currentUser, a));
+  const allowed = can(requires);
+  const pendingCount = courses.filter((c) => c.pendingApproval).length;
+  const visibleNav = nav.filter((n) => can(n.requires));
+
   const isActive = (href: string) => (href === "/admin" ? pathname === "/admin" : pathname.startsWith(href));
 
   const sidebar = (
@@ -72,7 +90,7 @@ export function AdminShell({
         <Logo variant="light" href="/admin" />
       </div>
       <nav className="flex-1 space-y-1 px-3">
-        {nav.map((n) => (
+        {visibleNav.map((n) => (
           <Link
             key={n.href}
             href={n.href}
@@ -85,7 +103,12 @@ export function AdminShell({
             )}
           >
             <n.icon className="h-4.5 w-4.5" />
-            {n.label}
+            <span className="flex-1">{n.label}</span>
+            {n.href === "/admin/approvals" && pendingCount > 0 && (
+              <span className="grid min-h-[18px] min-w-[18px] place-items-center rounded-full bg-gold-500 px-1 text-[10px] font-bold text-navy-900">
+                {pendingCount}
+              </span>
+            )}
           </Link>
         ))}
       </nav>
@@ -97,10 +120,10 @@ export function AdminShell({
           <ExternalLink className="h-4 w-4" /> View learner site
         </Link>
         <div className="flex items-center gap-2.5 rounded-xl px-3 py-2.5">
-          <Avatar name={currentUser.name} size={34} />
+          <Avatar src={currentUser.avatarUrl} name={currentUser.name} size={34} />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-white">{currentUser.name}</p>
-            <p className="truncate text-xs text-cream-100/50">Administrator</p>
+            <p className="truncate text-xs text-cream-100/50">{owner ? "Owner" : "Sub-admin"}</p>
           </div>
           <button
             onClick={() => {
@@ -145,10 +168,27 @@ export function AdminShell({
               {subtitle && <p className="text-sm text-muted">{subtitle}</p>}
             </div>
           </div>
-          {actions && <div className="flex items-center gap-2">{actions}</div>}
+          {allowed && actions && <div className="flex items-center gap-2">{actions}</div>}
         </header>
 
-        <main className="flex-1 p-5 sm:p-7">{children}</main>
+        <main className="flex-1 p-5 sm:p-7">
+          {allowed ? (
+            children
+          ) : (
+            <div className="mx-auto mt-10 max-w-md text-center">
+              <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-surface-2 text-faint">
+                <Lock className="h-7 w-7" />
+              </span>
+              <h2 className="mt-4 font-heading text-xl font-bold text-heading">No access to this section</h2>
+              <p className="mt-2 text-sm text-muted">
+                Your sub-admin account doesn&apos;t have permission for this area. Ask the owner if you need it.
+              </p>
+              <Link href="/admin" className="mt-5 inline-block">
+                <Button variant="outline">Back to overview</Button>
+              </Link>
+            </div>
+          )}
+        </main>
       </div>
     </div>
   );

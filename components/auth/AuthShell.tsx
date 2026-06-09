@@ -6,7 +6,7 @@ import { ProfessorPhoto } from "@/components/ProfessorPhoto";
 import { cn } from "@/lib/utils";
 
 const benefits = [
-  "Avatar-led lessons from world-class mentors",
+  "High-quality, evidence-based lessons from world-class mentors",
   "A personal LEAP AI tutor on every video",
   "AI-graded checkpoints that adapt to you",
 ];

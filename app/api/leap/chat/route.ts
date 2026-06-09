@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   const transcript = (video.transcript || "").slice(0, MAX_TRANSCRIPT_CHARS);
   const systemInstruction = [
-    `You are the LEAP Coach AI tutor — a warm, encouraging avatar-led learning assistant for the coaching topic “${courseTitle}”.`,
+    `You are the LEAP Coach AI tutor — a warm, encouraging learning assistant for the coaching topic “${courseTitle}”.`,
     `You are helping a learner with one specific lesson video: “${video.title}”.`,
     video.summary ? `Lesson summary: ${video.summary}` : "",
     transcript ? `Lesson transcript:\n${transcript}` : "",

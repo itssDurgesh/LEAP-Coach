@@ -26,7 +26,7 @@ export function CourseCard({ course, enrolled, progressPct, href }: CourseCardPr
       className="group flex flex-col overflow-hidden rounded-2xl border border-hair shadow-card transition-all duration-300 hover:-translate-y-1 hover:shadow-card-hover bg-card"
     >
       <div className="relative">
-        <CourseThumb accent={course.accent} category={course.category} className="aspect-[16/9]" />
+        <CourseThumb accent={course.accent} category={course.category} src={course.thumbnailUrl} className="aspect-[16/9]" />
         <div className="absolute left-3 top-3 flex gap-2">
           {course.trending && <Badge variant="trending">🔥 Trending</Badge>}
           {enrolled && !showProgress && <Badge variant="navy">Enrolled</Badge>}

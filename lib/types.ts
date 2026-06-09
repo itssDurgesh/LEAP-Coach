@@ -7,6 +7,32 @@
 export type Role = "student" | "professional" | "entrepreneur";
 export type Gender = "male" | "female" | "non_binary" | "prefer_not";
 
+// Sub-admin permissions. A user with isAdmin=true and NO `permissions` array is the
+// full owner; a sub-admin has isAdmin=true and is limited to the listed permissions.
+export type Permission = "content" | "team" | "homepage" | "sessions" | "discussion";
+
+export const PERMISSIONS: { id: Permission; label: string; hint: string }[] = [
+  { id: "content", label: "Coaching topics", hint: "Create & edit topics, questions & workbooks (publishing needs owner approval)" },
+  { id: "team", label: "Team", hint: "Manage team members" },
+  { id: "homepage", label: "Homepage", hint: "Edit the public homepage" },
+  { id: "sessions", label: "Live sessions", hint: "Schedule & manage sessions" },
+  { id: "discussion", label: "Discussion board", hint: "Moderate posts" },
+];
+
+type AdminLike = { isAdmin?: boolean; permissions?: Permission[] | null } | null | undefined;
+
+/** The full owner: an admin with no restricted permission set. */
+export function isOwner(u: AdminLike): boolean {
+  return !!u?.isAdmin && u.permissions == null;
+}
+
+/** Whether an admin/sub-admin may perform an action. Owners can do everything. */
+export function hasPermission(u: AdminLike, p: Permission): boolean {
+  if (!u?.isAdmin) return false;
+  if (u.permissions == null) return true; // owner
+  return u.permissions.includes(p);
+}
+
 export const ROLES: { id: Role; label: string; tagline: string; icon: string }[] = [
   { id: "student", label: "Student", tagline: "Academic skill-building, exam prep & career readiness", icon: "GraduationCap" },
   { id: "professional", label: "Professional", tagline: "Leadership, negotiation, strategy & executive skills", icon: "Briefcase" },
@@ -55,9 +81,10 @@ export interface PricingTiers {
   cat1: number; // single-category pass
   cat2: number; // any two categories
   cat3: number; // all three categories (all-access)
+  perTopicFrom: number; // "starting from" price shown on the per-topic plan
 }
 
-export const DEFAULT_PRICING: PricingTiers = { cat1: 6000, cat2: 10000, cat3: 17000 };
+export const DEFAULT_PRICING: PricingTiers = { cat1: 6000, cat2: 10000, cat3: 17000, perTopicFrom: 999 };
 
 /** Price for a bundle given how many categories are selected. */
 export function bundlePrice(tiers: PricingTiers, count: number): number {
@@ -67,6 +94,7 @@ export function bundlePrice(tiers: PricingTiers, count: number): number {
 export interface User {
   id: string;
   name: string;
+  username?: string; // unique handle (@username) used in the discussion board
   email: string;
   role: Role | null; // null until profile selection
   avatarUrl?: string | null;
@@ -77,6 +105,8 @@ export interface User {
   company?: string; // company / college
   nationality?: string;
   region?: string; // for demographics analytics
+  headline?: string; // short tagline shown on the profile
+  bio?: string; // longer "about me" for the public profile
   learningCredits: number;
   subscriptionPlan: SubscriptionPlan;
   subscriptionValidUntil?: string | null;
@@ -84,6 +114,7 @@ export interface User {
   ownedCategories?: Role[]; // category passes — unlock every topic in the category
   banned?: boolean;
   isAdmin?: boolean;
+  permissions?: Permission[] | null; // present => sub-admin limited to these; absent => full owner
   createdAt: string;
   lastActiveAt: string;
 }
@@ -119,7 +150,8 @@ export interface Video {
   muxPlaybackId: string; // mock for now
   transcript: string;
   summary: string; // short summary used for AI context + roadmap
-  notesPdfName?: string; // mock "uploaded PDF"
+  notesPdfName?: string; // notes file name
+  notesPdfUrl?: string | null; // uploaded notes (data URL or storage URL)
   resources: Resource[];
 }
 
@@ -147,7 +179,8 @@ export interface Course {
   slug: string;
   title: string;
   description: string;
-  category: Role;
+  category: Role; // primary category (kept for badges & analytics)
+  categories?: Role[]; // all categories this topic belongs to (multi-select)
   instructorName: string;
   instructorTitle: string;
   instructorBio: string;
@@ -163,9 +196,19 @@ export interface Course {
   trending: boolean;
   published: boolean;
   accent: number; // 0–5, picks a brand gradient for the thumbnail
+  thumbnailUrl?: string | null; // uploaded cover image (overrides the gradient)
+  workbookName?: string | null; // final workbook file name (PDF/DOCX)
+  workbookUrl?: string | null; // final workbook (data URL or storage URL)
+  pendingApproval?: boolean; // a sub-admin submitted this; awaiting owner approval
+  submittedBy?: string | null; // user id of the sub-admin who submitted it
   videos: Video[];
   assignments: Assignment[];
   createdAt: string;
+}
+
+/** All categories a topic belongs to (falls back to its primary category). */
+export function courseCategories(c: Pick<Course, "category" | "categories">): Role[] {
+  return c.categories && c.categories.length ? c.categories : [c.category];
 }
 
 export interface DailyTip {
@@ -262,3 +305,126 @@ export interface CommunityPost {
   editedAt?: string | null;
   likedBy: string[];
 }
+
+// ── Discussion board: threaded comments / replies on a post ──
+export interface PostComment {
+  id: string;
+  postId: string;
+  parentId: string | null; // null = top-level comment; otherwise a reply to that comment
+  userId: string;
+  userName: string;
+  userRole: Role | "admin";
+  text: string;
+  mentions: string[]; // user ids @mentioned in the text
+  createdAt: string;
+  editedAt?: string | null;
+  likedBy: string[];
+}
+
+// ── In-app notifications (reply / @mention on the discussion board) ──
+export type NotificationType = "reply" | "mention";
+export interface AppNotification {
+  id: string;
+  userId: string; // recipient
+  type: NotificationType;
+  actorId: string;
+  actorName: string;
+  postId: string;
+  commentId?: string | null;
+  preview: string; // short snippet of the comment text
+  read: boolean;
+  createdAt: string;
+}
+
+// ── Team / mentors (Team page + homepage mentors strip) ──
+export type TeamGroup = "founder" | "mentor" | "associate" | "intern" | "advisor";
+export const TEAM_GROUPS: { id: TeamGroup; label: string }[] = [
+  { id: "founder", label: "Founder" },
+  { id: "mentor", label: "Mentor" },
+  { id: "associate", label: "Research Associate" },
+  { id: "intern", label: "Intern" },
+  { id: "advisor", label: "Advisor" },
+];
+export interface TeamLinks {
+  linkedin?: string;
+  youtube?: string;
+  instagram?: string;
+  site?: string;
+  email?: string;
+}
+export interface TeamMember {
+  id: string;
+  name: string;
+  title: string; // role line, e.g. "Founder · Professor, IIM Ahmedabad"
+  group: TeamGroup;
+  photoUrl?: string | null;
+  bio: string; // ~150-word write-up
+  vision?: string | null; // optional (shown for the founder)
+  links?: TeamLinks;
+  featured: boolean; // show in the homepage "mentors" strip
+  order: number; // display order
+  active: boolean;
+  createdAt: string;
+}
+
+// ── Book showcase (homepage + About page), admin-managed ──
+export interface Book {
+  id: string;
+  title: string;
+  author: string;
+  coverUrl?: string | null;
+  blurb: string;
+  link?: string | null;
+  order: number;
+  active: boolean;
+}
+
+// ── Editable homepage / site content (admin-managed singleton) ──
+export interface SiteStat {
+  value: string;
+  label: string;
+}
+export interface SiteContent {
+  heroEyebrow: string; // the L·E·A·P typewriter line
+  heroTitle: string;
+  heroHighlights: string[]; // phrases inside heroTitle rendered in gold
+  heroSubtitle: string;
+  heroQuote: string;
+  professorName: string;
+  professorTitle: string;
+  stats: SiteStat[]; // the landing stat bar
+  professorStats: SiteStat[]; // the achievement grid in the "Meet your mentor" section
+  mentorsHeading: string;
+  mentorsSubheading: string;
+  booksHeading: string;
+  booksSubheading: string;
+}
+
+export const DEFAULT_SITE_CONTENT: SiteContent = {
+  heroEyebrow: "Leadership Excellence and Authentic Performance",
+  heroTitle: "Scaling Human Wisdom through High Performance Stars",
+  heroHighlights: ["Human Wisdom", "High Performance Stars"],
+  heroSubtitle:
+    "High-quality, evidence-based coaching for students, professionals, and entrepreneurs — structured topics, a personal AI tutor on every video, and assessments that actually teach.",
+  heroQuote: "Lead from your values, not from fear of judgement.",
+  professorName: "Prof. Vishal Gupta",
+  professorTitle: "Professor, IIM Ahmedabad",
+  stats: [
+    { value: "6+", label: "Expert Mentors" },
+    { value: "40+", label: "Coaching Topics" },
+    { value: "3", label: "Learning Paths" },
+    { value: "AI", label: "Enhanced Learning" },
+  ],
+  professorStats: [
+    { value: "67", label: "Research publications" },
+    { value: "3,500+", label: "Citations" },
+    { value: "4", label: "Books authored" },
+    { value: "250K+", label: "Coursera learners" },
+    { value: "300K+", label: "Professionals trained" },
+    { value: "35+", label: "Organisations engaged" },
+  ],
+  mentorsHeading: "Meet the people behind LEAP",
+  mentorsSubheading: "Mentors, researchers, and coaches dedicated to building high-performance stars.",
+  booksHeading: "Books by our mentors",
+  booksSubheading: "Go deeper with the books that shaped the LEAP philosophy.",
+};

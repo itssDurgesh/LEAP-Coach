@@ -33,7 +33,7 @@ const blank = (): LiveSession => ({
 
 export default function AdminSessionsPage() {
   return (
-    <AdminShell title="Live Sessions" subtitle="Schedule sessions, share Meet links, and track attendance">
+    <AdminShell title="Live Sessions" subtitle="Schedule sessions, share Meet links, and track attendance" requires="sessions">
       <SessionsAdmin />
     </AdminShell>
   );

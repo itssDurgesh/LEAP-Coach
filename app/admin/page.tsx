@@ -48,14 +48,12 @@ function Overview() {
     return { role: r.label, id: r.id, learners: roleUsers.length, avg };
   });
 
-  // ── live "online now" ticker ──
-  const [online, setOnline] = React.useState(() => Math.max(3, Math.round(activeUsers * 0.45)));
-  React.useEffect(() => {
-    const id = setInterval(() => {
-      setOnline((n) => Math.max(2, Math.min(activeUsers, n + (Math.random() > 0.5 ? 1 : -1))));
-    }, 2600);
-    return () => clearInterval(id);
-  }, [activeUsers]);
+  // ── real activity (from lastActiveAt + progress) ──
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const activeThisWeek = learners.filter(
+    (u) => !u.banned && Date.now() - new Date(u.lastActiveAt).getTime() < WEEK,
+  ).length;
+  const lessonsCompleted = progress.filter((p) => p.completed).length;
 
   // ── recent course purchases (real data: who bought which topic) ──
   const purchases = React.useMemo(() => {
@@ -76,10 +74,10 @@ function Overview() {
   }, [learners, courses, enrollments]);
 
   const stats = [
-    { icon: Users, label: "Active users", value: activeUsers, live: `${online} online now`, color: "text-navy-600 bg-navy-50" },
+    { icon: Users, label: "Active users", value: activeUsers, live: `${activeThisWeek} active this week`, color: "text-navy-600 bg-navy-50" },
     { icon: TrendingUp, label: "Avg. completion rate", value: `${completionRate}%`, sub: "across all enrollments", color: "text-green-600 bg-green-50" },
     { icon: ClipboardCheck, label: "Assessments taken", value: submissions.length, sub: "all-time submissions", color: "text-gold-600 bg-gold-50" },
-    { icon: CalendarClock, label: "Avg. completion", value: "21 days", sub: "enrollment → finish", color: "text-orange-600 bg-orange-50" },
+    { icon: CalendarClock, label: "Lessons completed", value: lessonsCompleted, sub: "all-time, all learners", color: "text-orange-600 bg-orange-50" },
   ];
 
   return (

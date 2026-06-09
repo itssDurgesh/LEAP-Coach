@@ -11,9 +11,10 @@ import { useApp } from "@/lib/store/AppProvider";
 import { cn } from "@/lib/utils";
 
 const links = [
-  { label: "Learning Paths", href: "/#paths" },
-  { label: "How it Works", href: "/#how" },
+  { label: "About", href: "/about" },
+  { label: "Team", href: "/team" },
   { label: "Topics", href: "/courses" },
+  { label: "How it Works", href: "/#how" },
   { label: "Pricing", href: "/pricing" },
 ];
 

@@ -10,7 +10,7 @@ const themeScript = `(function(){try{if(localStorage.getItem('leap-theme')==='da
 export const metadata: Metadata = {
   title: "LEAP Coach — Scale Human Wisdom",
   description:
-    "AI-enhanced, avatar-led learning for Students, Professionals, and Entrepreneurs. Leadership Excellence and Authentic Performance.",
+    "High-quality, evidence-based learning for Students, Professionals, and Entrepreneurs. Leadership Excellence and Authentic Performance.",
 };
 
 export default function RootLayout({

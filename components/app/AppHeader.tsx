@@ -6,20 +6,21 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
-  Users,
+  MessageSquare,
   Video,
   Award,
-  Bell,
   Menu,
   X,
   LogOut,
   ChevronDown,
+  Settings,
   User as UserIcon,
 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { NotificationBell } from "@/components/app/NotificationBell";
 import { useApp } from "@/lib/store/AppProvider";
 import { tierForCredits } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -27,7 +28,7 @@ import { cn } from "@/lib/utils";
 const navLinks = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Topics", href: "/courses", icon: BookOpen },
-  { label: "Community", href: "/community", icon: Users },
+  { label: "Discussion", href: "/community", icon: MessageSquare },
   { label: "Live Sessions", href: "/sessions", icon: Video },
 ];
 
@@ -85,10 +86,7 @@ export function AppHeader() {
 
           <ThemeToggle />
 
-          <button className="relative grid h-10 w-10 place-items-center rounded-xl text-heading hover:bg-surface-2">
-            <Bell className="h-5 w-5" />
-            <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-gold-500 ring-2 ring-surface" />
-          </button>
+          <NotificationBell />
 
           {/* Avatar menu */}
           <div className="relative">
@@ -96,7 +94,7 @@ export function AppHeader() {
               onClick={() => setMenuOpen((v) => !v)}
               className="flex items-center gap-1.5 rounded-full p-0.5 pr-1.5 transition-colors hover:bg-surface-2"
             >
-              <Avatar name={currentUser.name} size={34} />
+              <Avatar src={currentUser.avatarUrl} name={currentUser.name} size={34} />
               <ChevronDown className="hidden h-4 w-4 text-muted sm:block" />
             </button>
             {menuOpen && (
@@ -117,7 +115,21 @@ export function AppHeader() {
                       onClick={() => setMenuOpen(false)}
                       className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-heading hover:bg-surface-2"
                     >
-                      <UserIcon className="h-4 w-4" /> My dashboard
+                      <LayoutDashboard className="h-4 w-4" /> My dashboard
+                    </Link>
+                    <Link
+                      href={`/u/${currentUser.username ?? currentUser.id}`}
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-heading hover:bg-surface-2"
+                    >
+                      <UserIcon className="h-4 w-4" /> My profile
+                    </Link>
+                    <Link
+                      href="/account"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-heading hover:bg-surface-2"
+                    >
+                      <Settings className="h-4 w-4" /> Account settings
                     </Link>
                     <button
                       onClick={doSignOut}
