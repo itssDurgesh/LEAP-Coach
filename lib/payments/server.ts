@@ -129,9 +129,12 @@ function base(
   };
 }
 
-/** Increment a coupon's redemption count by one (best-effort, service role). */
+/**
+ * Increment a coupon's redemption count by one, ATOMICALLY (best-effort, service
+ * role). Uses the increment_coupon_redemption RPC so simultaneous redemptions can't
+ * lose updates the way a read-then-write would.
+ */
 export async function incrementCouponRedemption(sb: SupabaseClient, code: string): Promise<void> {
-  const { data } = await sb.from("coupons").select("redemptions").eq("code", code).maybeSingle();
-  if (!data) return;
-  await sb.from("coupons").update({ redemptions: ((data.redemptions as number) ?? 0) + 1 }).eq("code", code);
+  const { error } = await sb.rpc("increment_coupon_redemption", { p_code: code });
+  if (error) console.error("[coupon] increment failed", error);
 }

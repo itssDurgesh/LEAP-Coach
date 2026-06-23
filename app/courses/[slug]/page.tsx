@@ -30,6 +30,8 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { useApp } from "@/lib/store/AppProvider";
 import { courseCategories } from "@/lib/types";
+import { buildTopicReport } from "@/lib/report";
+import { downloadNotesPdf } from "@/lib/pdf";
 import { cn, formatINR, formatDuration, formatClock } from "@/lib/utils";
 
 export default function CourseDetailPage() {
@@ -55,6 +57,10 @@ function CourseDetail() {
     courseProgress,
     assignmentUnlocked,
     assignmentResult,
+    submissions,
+    progress,
+    enrollments,
+    notesForCourse,
   } = useApp();
 
   const [checkout, setCheckout] = React.useState(false);
@@ -76,6 +82,10 @@ function CourseDetail() {
   const prog = courseProgress(course.id);
   const duration = course.videos.reduce((s, v) => s + v.durationSeconds, 0);
   const resumeOrder = course.videos.find((v) => !isVideoCompleted(v.id))?.order ?? 1;
+
+  const enrollment = enrollments.find((e) => e.userId === currentUser?.id && e.courseId === course.id);
+  const report = currentUser ? buildTopicReport(course, currentUser.id, submissions, progress, enrollment) : null;
+  const myNotes = currentUser ? notesForCourse(course.id) : [];
 
   function handleEnroll() {
     if (!currentUser) return;
@@ -221,6 +231,64 @@ function CourseDetail() {
           </div>
         </div>
       </div>
+
+      {/* Performance report — shown once the learner completes the whole topic */}
+      {enrolled && report?.completed && (
+        <section className="rounded-3xl border border-gold-200 bg-gradient-to-br from-gold-50 to-cream-50 p-6 dark:from-gold-500/10 dark:to-transparent sm:p-8">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <Badge variant="success">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Topic completed
+              </Badge>
+              <h2 className="mt-3 font-heading text-2xl font-bold text-heading">Your performance report</h2>
+              <div className="mt-2 flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Star
+                    key={n}
+                    className={cn("h-6 w-6", n <= report.stars ? "fill-gold-500 text-gold-500" : "text-hair")}
+                  />
+                ))}
+                <span className="ml-2 text-sm font-semibold text-heading">{report.stars}.0 / 5</span>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => downloadNotesPdf(course, myNotes, currentUser?.name)}
+              disabled={!myNotes.length}
+            >
+              <Download className="h-4 w-4" /> Download my notes (PDF)
+            </Button>
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {[
+              {
+                label: "Completed in",
+                value:
+                  report.daysToComplete === 0
+                    ? "Same day"
+                    : `${report.daysToComplete} day${report.daysToComplete === 1 ? "" : "s"}`,
+                icon: Clock,
+              },
+              { label: "Average score", value: `${report.avgScore}%`, icon: Award },
+              { label: "Checkpoints passed", value: `${report.checkpointsPassed}/${report.totalCheckpoints}`, icon: ClipboardCheck },
+              {
+                label: "Solved in ≤2 tries",
+                value: report.questionsRated ? `${report.firstTwoTries}/${report.questionsRated}` : "—",
+                icon: CheckCircle2,
+              },
+            ].map((s) => (
+              <div key={s.label} className="rounded-2xl bg-card p-4 ring-1 ring-hair">
+                <s.icon className="h-5 w-5 text-gold-600" />
+                <p className="mt-2 font-heading text-xl font-bold text-heading">{s.value}</p>
+                <p className="text-xs text-muted">{s.label}</p>
+              </div>
+            ))}
+          </div>
+          {!myNotes.length && (
+            <p className="mt-3 text-xs text-faint">Save notes while watching to export them all as a PDF here.</p>
+          )}
+        </section>
+      )}
 
       {/* Syllabus / Roadmap */}
       <section className="grid gap-8 lg:grid-cols-[1.6fr_1fr]">

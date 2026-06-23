@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { GEMINI_MODEL, MAX_TRANSCRIPT_CHARS } from "@/lib/ai/config";
+import { isClerkConfigured } from "@/lib/clerk/config";
 
 export const runtime = "nodejs";
 
@@ -29,6 +31,18 @@ export async function POST(req: NextRequest) {
   const key = process.env.GEMINI_API_KEY;
   // No key configured → tell the client to use its local mock fallback.
   if (!key) return NextResponse.json({ fallback: true });
+
+  // The tutor is only used by signed-in learners on the gated /learn page. Require
+  // a Clerk session in real mode so this isn't an open Gemini proxy. (Mock/dev with
+  // no Clerk keys stays open for local use.)
+  if (isClerkConfigured) {
+    try {
+      const { userId } = await auth();
+      if (!userId) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+    } catch {
+      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+    }
+  }
 
   let body: ChatBody;
   try {

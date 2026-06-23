@@ -6,17 +6,16 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { useApp } from "@/lib/store/AppProvider";
-import { DEFAULT_SITE_CONTENT, TEAM_GROUPS } from "@/lib/types";
-import { seedTeam } from "@/lib/mock/seed";
+import { TEAM_GROUPS } from "@/lib/types";
 
 const groupLabel = (g: string) => TEAM_GROUPS.find((x) => x.id === g)?.label ?? g;
 
 export function HomeMentors() {
   const { teamMembers, siteContent } = useApp();
-  const c = siteContent ?? DEFAULT_SITE_CONTENT;
+  const c = siteContent;
   // The founder gets a dedicated spotlight section below, so the strip shows the
   // rest of the featured team. It stays hidden until mentors are added.
-  const list = (teamMembers.length ? teamMembers : seedTeam)
+  const list = teamMembers
     .filter((m) => m.active && m.featured && m.group !== "founder")
     .sort((a, b) => a.order - b.order);
 

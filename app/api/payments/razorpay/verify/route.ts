@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { auth } from "@clerk/nextjs/server";
 import { createClient } from "@supabase/supabase-js";
-import { incrementCouponRedemption } from "@/lib/payments/server";
+import { processPayment } from "@/lib/payments/grant";
 
 export const runtime = "nodejs";
 
@@ -38,33 +39,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Signature mismatch." }, { status: 400 });
   }
 
-  // 2) Identify the authenticated user from their Supabase access token.
+  // 2) Identify the authenticated user from their Clerk session (cookie supplied
+  //    by clerkMiddleware). The Clerk user id is the profiles primary key.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !anon || !service) {
+  if (!url || !service) {
     return NextResponse.json({ ok: false, error: "Server not configured." }, { status: 500 });
   }
-  const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  const {
-    data: { user },
-  } = await createClient(url, anon).auth.getUser(token);
-  if (!user) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
+  let userId: string | null = null;
+  try {
+    ({ userId } = await auth());
+  } catch {
+    return NextResponse.json({ ok: false, error: "Auth not configured." }, { status: 500 });
+  }
+  if (!userId) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
 
   // 3) Confirm with Razorpay that the payment is real, captured/authorized, and matches the order.
-  const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+  const rzpAuth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
   let plan: string | undefined;
   let courseId: string | undefined;
   let categories: string[] = [];
   let couponCode: string | undefined;
+  let amountInr = 0;
   try {
     const [orderRes, payRes] = await Promise.all([
       fetch(`https://api.razorpay.com/v1/orders/${razorpay_order_id}`, {
-        headers: { Authorization: `Basic ${auth}` },
+        headers: { Authorization: `Basic ${rzpAuth}` },
         cache: "no-store",
       }),
       fetch(`https://api.razorpay.com/v1/payments/${razorpay_payment_id}`, {
-        headers: { Authorization: `Basic ${auth}` },
+        headers: { Authorization: `Basic ${rzpAuth}` },
         cache: "no-store",
       }),
     ]);
@@ -86,54 +90,49 @@ export async function POST(req: NextRequest) {
     courseId = order.notes?.courseId || undefined;
     categories = (order.notes?.categories || "").split(",").filter(Boolean);
     couponCode = order.notes?.couponCode || undefined;
+    amountInr = Math.round((order.amount ?? 0) / 100);
   } catch (e) {
     console.error("[razorpay] confirm error", e);
     return NextResponse.json({ ok: false, error: "Could not confirm payment." }, { status: 502 });
   }
 
-  // 4) Grant access authoritatively with the service role (bypasses RLS).
+  // 4) Record the receipt + fulfil the purchase, idempotently (shared with the webhook).
   const admin = createClient(url, service, { auth: { persistSession: false } });
   try {
-    const setAllAccess = async () => {
-      const validUntil = new Date();
-      validUntil.setFullYear(validUntil.getFullYear() + 1);
-      await admin
-        .from("profiles")
-        .update({ subscription_plan: "all_access", subscription_valid_until: validUntil.toISOString() })
-        .eq("id", user.id);
-    };
-
-    if (plan === "all") {
-      await admin.from("category_passes").upsert(
-        ["student", "professional", "entrepreneur"].map((c) => ({ user_id: user.id, category: c })),
-        { onConflict: "user_id,category" },
-      );
-      await setAllAccess();
-      if (courseId)
-        await admin.from("enrollments").upsert({ user_id: user.id, course_id: courseId }, { onConflict: "user_id,course_id" });
-    } else if (plan === "bundle") {
-      const cats = categories.filter((c) => ["student", "professional", "entrepreneur"].includes(c));
-      if (!cats.length) return NextResponse.json({ ok: false, error: "Nothing to grant." }, { status: 400 });
-      await admin.from("category_passes").upsert(
-        cats.map((c) => ({ user_id: user.id, category: c })),
-        { onConflict: "user_id,category" },
-      );
-      // If the user now owns all three categories, mark all-access.
-      const { data: owned } = await admin.from("category_passes").select("category").eq("user_id", user.id);
-      const set = new Set((owned ?? []).map((r) => r.category as string));
-      if (["student", "professional", "entrepreneur"].every((c) => set.has(c))) await setAllAccess();
-    } else if (courseId) {
-      await admin.from("course_purchases").upsert({ user_id: user.id, course_id: courseId }, { onConflict: "user_id,course_id" });
-      await admin.from("enrollments").upsert({ user_id: user.id, course_id: courseId }, { onConflict: "user_id,course_id" });
-    } else {
-      return NextResponse.json({ ok: false, error: "Nothing to grant." }, { status: 400 });
-    }
-    // Count the coupon redemption now that access is granted (best-effort).
-    if (couponCode) await incrementCouponRedemption(admin, couponCode);
+    const result = await processPayment(admin, {
+      userId,
+      razorpayOrderId: razorpay_order_id,
+      razorpayPaymentId: razorpay_payment_id,
+      amountInr,
+      plan,
+      courseId,
+      categories,
+      couponCode,
+      source: "verify",
+    });
+    // A captured payment whose grant failed is NOT lost — it's recorded with
+    // grant_status='grant_failed' and flagged for admin. Surface the receipt + the
+    // grant outcome so the client shows the right message (don't fake access).
+    return NextResponse.json({
+      ok: true,
+      granted: result.grantStatus === "granted",
+      grantStatus: result.grantStatus,
+      paymentId: result.paymentId,
+      amountInr: result.amountInr,
+      plan,
+      courseId,
+    });
   } catch (e) {
-    console.error("[razorpay] grant error", e);
-    return NextResponse.json({ ok: false, error: "Could not grant access." }, { status: 500 });
+    console.error("[razorpay] process error", e);
+    // Captured at Razorpay but we couldn't record it — the webhook will reconcile.
+    return NextResponse.json({
+      ok: true,
+      granted: false,
+      grantStatus: "pending",
+      paymentId: null,
+      amountInr,
+      plan,
+      courseId,
+    });
   }
-
-  return NextResponse.json({ ok: true, plan, courseId });
 }

@@ -24,9 +24,21 @@ export default function SelectRolePage() {
 
   React.useEffect(() => {
     if (!hydrated) return;
-    if (!currentUser) router.replace("/login");
-    else if (currentUser.isAdmin) router.replace("/admin");
-    else if (currentUser.role) router.replace("/dashboard");
+    if (currentUser?.isAdmin) {
+      router.replace("/admin");
+      return;
+    }
+    if (currentUser?.role) {
+      router.replace("/dashboard");
+      return;
+    }
+    if (currentUser) return; // signed in, no role yet → show the picker below
+    // No profile loaded yet. Either genuinely signed out, or a fresh Google/OAuth
+    // session still attaching after the /sso-callback redirect (Clerk's user id and the
+    // profile load lag a moment, during which currentUser is briefly null). Wait — if a
+    // user loads, this effect re-runs and clears the timer; otherwise treat as signed out.
+    const t = setTimeout(() => router.replace("/login"), 2500);
+    return () => clearTimeout(t);
   }, [hydrated, currentUser, router]);
 
   function choose(role: Role) {

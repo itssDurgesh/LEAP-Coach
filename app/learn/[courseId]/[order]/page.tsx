@@ -26,9 +26,11 @@ import { Textarea } from "@/components/ui/Field";
 import { MockVideoPlayer } from "@/components/learn/MockVideoPlayer";
 import { MuxVideoPlayer } from "@/components/learn/MuxVideoPlayer";
 import { LeapChat } from "@/components/learn/LeapChat";
+import { VideoComments } from "@/components/discussion/VideoComments";
 import { useApp } from "@/lib/store/AppProvider";
 import { useRequireLearner } from "@/components/app/guards";
 import { cn, formatClock, timeAgo } from "@/lib/utils";
+import { downloadNotesPdf } from "@/lib/pdf";
 import { Course, Video } from "@/lib/types";
 
 export default function PlayerPage() {
@@ -72,11 +74,13 @@ export default function PlayerPage() {
 
 function Player({ course, video }: { course: Course; video: Video }) {
   const {
+    currentUser,
     markVideoComplete,
     isVideoCompleted,
     courseProgress,
     assignmentResult,
     notesFor,
+    notesForCourse,
     addNote,
     deleteNote,
   } = useApp();
@@ -84,6 +88,8 @@ function Player({ course, video }: { course: Course; video: Video }) {
   const [bottomTab, setBottomTab] = React.useState<"notes" | "transcript" | "resources">("transcript");
   const [rightTab, setRightTab] = React.useState<"chat" | "notes">("chat");
   const [noteText, setNoteText] = React.useState("");
+
+  const courseNotes = notesForCourse(course.id);
 
   const completed = isVideoCompleted(video.id);
   const prog = courseProgress(course.id);
@@ -340,6 +346,11 @@ function Player({ course, video }: { course: Course; video: Video }) {
                 )}
               </div>
             </Card>
+
+            {/* Per-video discussion (YouTube-style comments + @mentions) */}
+            <Card padded>
+              <VideoComments course={course} video={video} />
+            </Card>
           </div>
 
           {/* Right: chat / notes */}
@@ -388,6 +399,15 @@ function Player({ course, video }: { course: Course; video: Video }) {
                       Save note
                     </Button>
                   </form>
+                  {courseNotes.length > 0 && (
+                    <button
+                      onClick={() => downloadNotesPdf(course, courseNotes, currentUser?.name)}
+                      className="flex items-center justify-center gap-2 border-b border-hair px-3 py-2.5 text-sm font-medium text-gold-700 transition-colors hover:bg-surface-2"
+                      title="Combine every note you've saved across this topic into one PDF"
+                    >
+                      <Download className="h-4 w-4" /> Download all my notes ({courseNotes.length}) · PDF
+                    </button>
+                  )}
                   <div className="scrollbar-thin flex-1 space-y-2.5 overflow-y-auto p-3">
                     {myNotes.length ? (
                       myNotes.map((n) => (

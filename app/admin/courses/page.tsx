@@ -42,13 +42,12 @@ export default function ContentStudioPage() {
 }
 
 function Studio() {
-  const { courses, tracks, tips, togglePublish, toggleTrending, deleteCourse, saveTip, deleteTip, addTrack, supabaseMode, seedDemoContent, currentUser } =
+  const { courses, tracks, tips, togglePublish, toggleTrending, deleteCourse, saveTip, deleteTip, addTrack, currentUser } =
     useApp();
   const owner = isOwner(currentUser);
 
   const [tipForm, setTipForm] = React.useState({ text: "", author: "", targetRole: "all" });
   const [trackInput, setTrackInput] = React.useState("");
-  const [seeding, setSeeding] = React.useState(false);
 
   const ready = courses.filter((c) => c.published).length;
   const totalVideos = courses.reduce((s, c) => s + c.videos.length, 0);
@@ -72,27 +71,6 @@ function Studio() {
 
   return (
     <div className="space-y-6">
-      {supabaseMode && owner && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gold-200 bg-gold-50 dark:bg-gold-500/10 p-4">
-          <p className="text-sm text-heading">
-            <span className="font-semibold">Connected to Supabase.</span> Populate your database with
-            the demo topics, tips, sessions &amp; resources.
-          </p>
-          <Button
-            size="sm"
-            loading={seeding}
-            onClick={async () => {
-              if (!confirm("Seed demo content into your Supabase database?")) return;
-              setSeeding(true);
-              await seedDemoContent();
-              setSeeding(false);
-            }}
-          >
-            Seed demo content
-          </Button>
-        </div>
-      )}
-
       {/* Library at a glance (real) */}
       <Card padded>
         <h2 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">

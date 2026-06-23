@@ -9,7 +9,7 @@ import { ProfessorPhoto } from "@/components/ProfessorPhoto";
 import { PROFESSOR } from "@/lib/professor";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { useApp } from "@/lib/store/AppProvider";
-import { DEFAULT_SITE_CONTENT } from "@/lib/types";
+import { SiteContent } from "@/lib/types";
 
 /** Split the hero title so the configured highlight phrases render in gold. */
 function highlightTitle(title: string, highlights: string[]) {
@@ -30,9 +30,12 @@ function highlightTitle(title: string, highlights: string[]) {
   );
 }
 
-export function HomeHero() {
-  const { siteContent } = useApp();
-  const c = siteContent ?? DEFAULT_SITE_CONTENT;
+export function HomeHero({ initialContent }: { initialContent?: SiteContent | null }) {
+  const { siteContent, hydrated } = useApp();
+  // Before the client store hydrates, use the server-fetched content (so SSR + first
+  // render show the saved hero, no flash). After hydration, use the live store so an
+  // admin's in-session edits reflect immediately.
+  const c = (!hydrated && initialContent) ? initialContent : siteContent;
 
   return (
     <section className="relative overflow-hidden bg-gradient-to-b from-navy-900 via-navy-900 to-navy-950 dark:from-card dark:via-card dark:to-surface">
@@ -44,9 +47,9 @@ export function HomeHero() {
           <p className="font-heading text-sm font-semibold uppercase tracking-[0.16em] sm:text-base">
             <span className="text-cream-100/90">L·E·A·P</span>
             <span className="mx-2 text-gold-400">—</span>
-            <Typewriter text={c.heroEyebrow} className="text-gold-500" />
+            <Typewriter text={c.heroEyebrow} className="text-gold-500" speed={65} />
           </p>
-          <h1 className="mt-4 font-heading text-4xl font-extrabold leading-[1.08] text-balance sm:text-5xl lg:text-[3.4rem]">
+          <h1 className="mt-4 font-heading text-4xl font-extrabold leading-[1.  08] text-balance sm:text-5xl lg:text-[3.4rem]">
             {highlightTitle(c.heroTitle, c.heroHighlights)}
           </h1>
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-cream-100/75">{c.heroSubtitle}</p>

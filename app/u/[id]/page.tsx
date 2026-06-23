@@ -11,7 +11,6 @@ import { Avatar } from "@/components/ui/Avatar";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { useApp } from "@/lib/store/AppProvider";
 import { tierForCredits } from "@/lib/types";
-import { timeAgo } from "@/lib/utils";
 
 export default function PublicProfilePage() {
   return (
@@ -38,7 +37,7 @@ function Stat({ icon: Icon, value, label }: { icon: typeof Award; value: React.R
 function Profile() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const { currentUser, users, community, enrollments, courses } = useApp();
+  const { currentUser, users, enrollments, courses, videoComments } = useApp();
 
   // The route param can be a user id or a @username handle.
   const user = users.find((u) => u.id === id || (u.username && u.username === id));
@@ -48,8 +47,8 @@ function Profile() {
       <div className="mx-auto max-w-2xl py-16 text-center">
         <h1 className="font-heading text-2xl font-bold text-heading">Profile not found</h1>
         <p className="mt-2 text-muted">This user doesn&apos;t exist or is no longer active.</p>
-        <Link href="/community" className={buttonClasses({ variant: "outline", size: "md", className: "mt-5" })}>
-          Back to Discussion Board
+        <Link href="/dashboard" className={buttonClasses({ variant: "outline", size: "md", className: "mt-5" })}>
+          Back to dashboard
         </Link>
       </div>
     );
@@ -64,7 +63,7 @@ function Profile() {
     .filter((e) => e.userId === user.id)
     .map((e) => courses.find((c) => c.id === e.courseId))
     .filter(Boolean) as typeof courses;
-  const posts = community.filter((p) => p.userId === user.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const commentCount = videoComments.filter((c) => c.userId === user.id).length;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -125,7 +124,7 @@ function Profile() {
         <div className="grid gap-4 sm:grid-cols-3">
           <Stat icon={Sparkles} value={user.learningCredits} label="Learning credits" />
           <Stat icon={BookOpen} value={enrolledCourses.length} label="Topics enrolled" />
-          <Stat icon={MessageCircle} value={posts.length} label="Discussion posts" />
+          <Stat icon={MessageCircle} value={commentCount} label="Discussion comments" />
         </div>
       )}
 
@@ -155,24 +154,6 @@ function Profile() {
         </Card>
       )}
 
-      {/* Recent discussion posts */}
-      {posts.length > 0 && (
-        <Card padded>
-          <h2 className="font-heading text-lg font-semibold text-heading">Recent discussion</h2>
-          <div className="mt-3 space-y-3">
-            {posts.slice(0, 5).map((p) => (
-              <Link
-                key={p.id}
-                href="/community"
-                className="block rounded-xl border border-hair bg-surface p-3.5 transition-colors hover:border-gold-200"
-              >
-                <p className="line-clamp-2 text-sm leading-relaxed text-heading">{p.text}</p>
-                <p className="mt-1 text-xs text-faint">{timeAgo(p.createdAt)} · {p.likedBy.length} likes</p>
-              </Link>
-            ))}
-          </div>
-        </Card>
-      )}
     </div>
   );
 }

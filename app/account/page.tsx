@@ -2,15 +2,17 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, Upload, ExternalLink, Award } from "lucide-react";
+import { Check, Upload, ExternalLink, Award, ReceiptText, ChevronDown } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Select, Field } from "@/components/ui/Field";
+import { Receipt, paymentItemLabel } from "@/components/payments/Receipt";
 import { useApp } from "@/lib/store/AppProvider";
 import { Gender, User, tierForCredits } from "@/lib/types";
+import { formatINR } from "@/lib/utils";
 import { isUsernameAvailable, normalizeUsername } from "@/lib/username";
 
 const GENDERS: { v: Gender; l: string }[] = [
@@ -208,6 +210,63 @@ function Account() {
           </div>
         </Card>
       </form>
+
+      <PaymentReceipts />
     </div>
+  );
+}
+
+/** The signed-in learner's payment receipts (RLS scopes them to their own rows). */
+function PaymentReceipts() {
+  const { payments, currentUser, getCourse } = useApp();
+  const mine = payments.filter((p) => p.userId === currentUser?.id);
+  const [openId, setOpenId] = React.useState<string | null>(null);
+
+  return (
+    <Card padded className="space-y-3">
+      <div className="flex items-center gap-2">
+        <ReceiptText className="h-5 w-5 text-gold-600" />
+        <h2 className="font-heading text-lg font-bold text-heading">Payment receipts</h2>
+      </div>
+      {!mine.length ? (
+        <p className="text-sm text-muted">Your receipts will appear here after a purchase.</p>
+      ) : (
+        <ul className="divide-y divide-hair">
+          {mine.map((p) => {
+            const title = p.courseId ? getCourse(p.courseId)?.title : undefined;
+            const open = openId === p.id;
+            return (
+              <li key={p.id} className="py-3">
+                <button
+                  onClick={() => setOpenId(open ? null : p.id)}
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-heading">{paymentItemLabel(p, title)}</span>
+                    <span className="block text-xs text-faint">
+                      {new Date(p.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-3">
+                    <span className="font-heading font-semibold text-heading">{formatINR(p.amountInr)}</span>
+                    <ChevronDown className={`h-4 w-4 text-faint transition-transform ${open ? "rotate-180" : ""}`} />
+                  </span>
+                </button>
+                {open && (
+                  <div className="mt-3">
+                    <Receipt payment={p} courseTitle={title} />
+                    <div className="mt-2 text-right">
+                      <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
+                        Print / Save PDF
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }

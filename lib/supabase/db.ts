@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   AppNotification,
+  Article,
   Book,
   CommunityPost,
   Coupon,
@@ -10,6 +11,7 @@ import {
   LeadershipTrack,
   LiveSession,
   Note,
+  Payment,
   PostComment,
   PricingTiers,
   Question,
@@ -20,6 +22,7 @@ import {
   TeamMember,
   User,
   Video,
+  VideoComment,
   VideoProgress,
 } from "@/lib/types";
 
@@ -50,6 +53,11 @@ const mapTeamMember = (r: Row): TeamMember => ({
   bio: r.bio ?? "", vision: r.vision ?? null, links: r.links ?? {}, featured: r.featured ?? false,
   order: r.order_index ?? 0, active: r.active ?? true, createdAt: r.created_at,
 });
+const mapArticle = (r: Row): Article => ({
+  id: r.id, title: r.title ?? "", excerpt: r.excerpt ?? "", content: r.content ?? "",
+  coverUrl: r.cover_url ?? null, images: r.images ?? [], authorId: r.author_id ?? "", authorName: r.author_name ?? "",
+  published: r.published ?? false, createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at,
+});
 const mapBook = (r: Row): Book => ({
   id: r.id, title: r.title ?? "", author: r.author ?? "", coverUrl: r.cover_url ?? null,
   blurb: r.blurb ?? "", link: r.link ?? null, order: r.order_index ?? 0, active: r.active ?? true,
@@ -61,11 +69,23 @@ const mapComment = (r: Row, likedBy: string[]): PostComment => ({
 });
 const mapNotification = (r: Row): AppNotification => ({
   id: r.id, userId: r.user_id, type: r.type, actorId: r.actor_id, actorName: r.actor_name ?? "",
-  postId: r.post_id, commentId: r.comment_id ?? null, preview: r.preview ?? "", read: r.read ?? false, createdAt: r.created_at,
+  videoId: r.video_id ?? null, courseId: r.course_id ?? null,
+  postId: r.post_id ?? null, commentId: r.comment_id ?? null, preview: r.preview ?? "", read: r.read ?? false, createdAt: r.created_at,
+});
+const mapVideoComment = (r: Row, likedBy: string[]): VideoComment => ({
+  id: r.id, videoId: r.video_id, courseId: r.course_id, parentId: r.parent_id ?? null, userId: r.user_id,
+  userName: r.user_name, userRole: r.user_role, text: r.text, mentions: r.mentions ?? [],
+  createdAt: r.created_at, editedAt: r.edited_at ?? undefined, likedBy,
 });
 const mapSession = (r: Row, attendeeIds: string[]): LiveSession => ({ id: r.id, title: r.title, courseTitle: r.course_title ?? undefined, instructorName: r.instructor_name, startsAt: r.starts_at, durationMins: r.duration_mins, meetLink: r.meet_link, description: r.description ?? "", targetRole: r.target_role, attendeeIds, capacity: r.capacity });
 const mapPost = (r: Row, likedBy: string[]): CommunityPost => ({ id: r.id, userId: r.user_id, userName: r.user_name, userRole: r.user_role, text: r.text, createdAt: r.created_at, editedAt: r.edited_at ?? undefined, likedBy });
 const mapCoupon = (r: Row): Coupon => ({ code: r.code, discountPercent: r.discount_percent, category: r.category, active: r.active, maxRedemptions: r.max_redemptions ?? null, redemptions: r.redemptions ?? 0, expiresAt: r.expires_at ?? null, createdAt: r.created_at });
+const mapPayment = (r: Row): Payment => ({
+  id: r.id, userId: r.user_id ?? "", razorpayOrderId: r.razorpay_order_id ?? null, razorpayPaymentId: r.razorpay_payment_id ?? null,
+  plan: r.plan ?? null, courseId: r.course_id ?? null, categories: (r.categories ?? []) as Role[], couponCode: r.coupon_code ?? null,
+  amountInr: r.amount_inr ?? 0, currency: r.currency ?? "INR", status: r.status ?? "captured", grantStatus: r.grant_status ?? "pending",
+  source: r.source ?? "verify", createdAt: r.created_at, refundedAt: r.refunded_at ?? null,
+});
 
 // ── course → row ──
 const courseRow = (c: Course): Row => ({
@@ -89,14 +109,17 @@ export interface LoadedData {
   resources: RecommendedResource[];
   community: CommunityPost[];
   comments: PostComment[];
+  videoComments: VideoComment[];
   notifications: AppNotification[];
   teamMembers: TeamMember[];
   books: Book[];
+  articles: Article[];
   enrollments: Enrollment[];
   progress: VideoProgress[];
   submissions: Submission[];
   notes: Note[];
   coupons: Coupon[];
+  payments: Payment[];
   pricing: PricingTiers | null;
   siteContent: SiteContent | null;
 }
@@ -106,7 +129,8 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   const [
     profiles, purchases, tracks, courses, videos, assignments, questions,
     tips, resources, sessions, attendees, enrollments, progress, submissions, notes, posts, likes, coupons,
-    categoryPasses, pricingRows, comments, commentLikes, notifications, teamMembers, books, siteRows,
+    categoryPasses, pricingRows, comments, commentLikes, notifications, teamMembers, books, siteRows, articleRows, paymentRows,
+    videoCommentRows, videoCommentLikeRows,
   ] = await Promise.all([
     rows(sb.from("profiles").select("*")),
     rows(sb.from("course_purchases").select("*")),
@@ -134,6 +158,10 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     rows(sb.from("team_members").select("*")),
     rows(sb.from("books").select("*")),
     rows(sb.from("site_content").select("*")),
+    rows(sb.from("articles").select("*")),
+    rows(sb.from("payments").select("*")),
+    rows(sb.from("video_comments").select("*")),
+    rows(sb.from("video_comment_likes").select("*")),
   ]);
 
   const questionsByAssignment = group(questions, (q) => q.assignment_id);
@@ -144,6 +172,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   const attendeesBySession = group(attendees, (a) => a.session_id);
   const likesByPost = group(likes, (l) => l.post_id);
   const likesByComment = group(commentLikes, (l) => l.comment_id);
+  const likesByVideoComment = group(videoCommentLikeRows, (l) => l.comment_id);
 
   const assembledCourses: Course[] = courses.map((c) => ({
     id: c.id, slug: c.slug, title: c.title, description: c.description ?? "", category: c.category,
@@ -181,14 +210,19 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     comments: comments
       .map((c) => mapComment(c, (likesByComment[c.id] ?? []).map((x) => x.user_id)))
       .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
+    videoComments: videoCommentRows
+      .map((c) => mapVideoComment(c, (likesByVideoComment[c.id] ?? []).map((x) => x.user_id)))
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
     notifications: notifications.map(mapNotification).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     teamMembers: teamMembers.map(mapTeamMember).sort((a, b) => a.order - b.order),
     books: books.map(mapBook).sort((a, b) => a.order - b.order),
+    articles: articleRows.map(mapArticle).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     enrollments: enrollments.map(mapEnrollment),
     progress: progress.map(mapProgress),
     submissions: submissions.map(mapSubmission),
     notes: notes.map(mapNote),
     coupons: coupons.map(mapCoupon),
+    payments: paymentRows.map(mapPayment).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     pricing: pricingRows[0]
       ? {
           cat1: pricingRows[0].cat1,
@@ -225,6 +259,11 @@ export async function fetchUser(sb: SupabaseClient, id: string): Promise<User | 
 }
 
 // ─────────────────────────── writes ───────────────────────────
+// Provision a profile row keyed by the Clerk user id on first sign-in (the old
+// auth.users → handle_new_user trigger is gone). No-op if the row already exists.
+export const ensureProfile = (sb: SupabaseClient, id: string, email: string, name: string) =>
+  sb.from("profiles").upsert({ id, email, name }, { onConflict: "id", ignoreDuplicates: true });
+
 export const updateProfile = (sb: SupabaseClient, id: string, patch: Row) =>
   sb.from("profiles").update(patch).eq("id", id);
 
@@ -348,6 +387,15 @@ export const saveBook = (sb: SupabaseClient, b: Book) =>
   });
 export const deleteBook = (sb: SupabaseClient, id: string) => sb.from("books").delete().eq("id", id);
 
+// ── articles ──
+export const saveArticle = (sb: SupabaseClient, a: Article) =>
+  sb.from("articles").upsert({
+    id: a.id, title: a.title, excerpt: a.excerpt, content: a.content, cover_url: a.coverUrl ?? null,
+    images: a.images ?? [], author_id: a.authorId || null, author_name: a.authorName, published: a.published,
+    created_at: a.createdAt, updated_at: a.updatedAt,
+  });
+export const deleteArticle = (sb: SupabaseClient, id: string) => sb.from("articles").delete().eq("id", id);
+
 // ── discussion comments ──
 export const insertComment = (sb: SupabaseClient, c: PostComment) =>
   sb.from("post_comments").insert({
@@ -362,13 +410,39 @@ export const setCommentLike = (sb: SupabaseClient, commentId: string, userId: st
     ? sb.from("comment_likes").upsert({ comment_id: commentId, user_id: userId }, { onConflict: "comment_id,user_id" })
     : sb.from("comment_likes").delete().eq("comment_id", commentId).eq("user_id", userId);
 
+// ── per-video discussion comments ──
+export const insertVideoComment = (sb: SupabaseClient, c: VideoComment) =>
+  sb.from("video_comments").insert({
+    id: c.id, video_id: c.videoId, course_id: c.courseId, parent_id: c.parentId, user_id: c.userId,
+    user_name: c.userName, user_role: c.userRole, text: c.text, mentions: c.mentions, created_at: c.createdAt,
+  });
+export const updateVideoComment = (sb: SupabaseClient, id: string, text: string) =>
+  sb.from("video_comments").update({ text, edited_at: new Date().toISOString() }).eq("id", id);
+export const deleteVideoComment = (sb: SupabaseClient, id: string) => sb.from("video_comments").delete().eq("id", id);
+export const setVideoCommentLike = (sb: SupabaseClient, commentId: string, userId: string, liked: boolean) =>
+  liked
+    ? sb.from("video_comment_likes").upsert({ comment_id: commentId, user_id: userId }, { onConflict: "comment_id,user_id" })
+    : sb.from("video_comment_likes").delete().eq("comment_id", commentId).eq("user_id", userId);
+
 // ── notifications ──
 export const insertNotification = (sb: SupabaseClient, n: AppNotification) =>
   sb.from("notifications").insert({
     id: n.id, user_id: n.userId, type: n.type, actor_id: n.actorId, actor_name: n.actorName,
-    post_id: n.postId, comment_id: n.commentId ?? null, preview: n.preview, read: n.read, created_at: n.createdAt,
+    video_id: n.videoId ?? null, course_id: n.courseId ?? null,
+    post_id: n.postId ?? null, comment_id: n.commentId ?? null, preview: n.preview, read: n.read, created_at: n.createdAt,
   });
 export const markNotificationRead = (sb: SupabaseClient, id: string) =>
   sb.from("notifications").update({ read: true }).eq("id", id);
 export const markAllNotificationsRead = (sb: SupabaseClient, userId: string) =>
   sb.from("notifications").update({ read: true }).eq("user_id", userId);
+
+/** Just the signed-in user's notifications — used by the bell's light polling. */
+export async function fetchNotifications(sb: SupabaseClient, userId: string): Promise<AppNotification[]> {
+  const { data } = await sb
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  return ((data ?? []) as Row[]).map(mapNotification);
+}

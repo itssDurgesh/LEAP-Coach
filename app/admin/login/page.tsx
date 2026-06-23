@@ -3,14 +3,14 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Mail, Lock, AlertCircle, ShieldCheck } from "lucide-react";
+import { Mail, AlertCircle, ShieldCheck } from "lucide-react";
 import { AuthShell } from "@/components/auth/AuthShell";
-import { Field, Input } from "@/components/ui/Field";
+import { Field, Input, PasswordInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { useApp } from "@/lib/store/AppProvider";
 
 export default function AdminLoginPage() {
-  const { adminSignIn } = useApp();
+  const { adminSignIn, supabaseMode } = useApp();
   const router = useRouter();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -57,28 +57,25 @@ export default function AdminLoginPage() {
           </div>
         </Field>
         <Field label="Password" htmlFor="password">
-          <div className="relative">
-            <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="pl-10"
-              required
-            />
-          </div>
+          <PasswordInput
+            id="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            required
+          />
         </Field>
         <Button type="submit" variant="navy" className="w-full">
           <ShieldCheck className="h-4 w-4" /> Enter Control Center
         </Button>
       </form>
 
-      <div className="mt-5 rounded-xl border border-hair bg-surface-2 p-3.5 text-xs text-muted">
-        <span className="font-semibold text-heading">Prototype credentials:</span> admin@leapcoach.com
-        / leap-admin
-      </div>
+      {!supabaseMode && (
+        <div className="mt-5 rounded-xl border border-hair bg-surface-2 p-3.5 text-xs text-muted">
+          <span className="font-semibold text-heading">Prototype credentials:</span> admin@leapcoach.com
+          / leap-admin
+        </div>
+      )}
 
       <p className="mt-6 text-center text-sm text-muted">
         Not an admin?{" "}

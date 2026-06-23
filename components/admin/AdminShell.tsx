@@ -9,11 +9,12 @@ import {
   BarChart3,
   Users,
   Video,
-  MessageSquare,
   Ticket,
+  ReceiptIndianRupee,
   LayoutTemplate,
   Contact,
   ClipboardCheck,
+  Newspaper,
   LogOut,
   ExternalLink,
   Menu,
@@ -25,6 +26,7 @@ import {
 import { Logo } from "@/components/ui/Logo";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { NotificationBell } from "@/components/app/NotificationBell";
 import { useApp } from "@/lib/store/AppProvider";
 import { hasPermission, isOwner, Permission } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -37,12 +39,13 @@ const nav: { label: string; href: string; icon: LucideIcon; requires?: Access }[
   { label: "Homepage", href: "/admin/homepage", icon: LayoutTemplate, requires: "homepage" },
   { label: "Team", href: "/admin/team", icon: Contact, requires: "team" },
   { label: "Content Studio", href: "/admin/courses", icon: BookOpen, requires: "content" },
+  { label: "Articles", href: "/admin/articles", icon: Newspaper, requires: "articles" },
   { label: "Approvals", href: "/admin/approvals", icon: ClipboardCheck, requires: "owner" },
   { label: "Analytics", href: "/admin/analytics", icon: BarChart3, requires: "owner" },
   { label: "Users & Access", href: "/admin/users", icon: Users, requires: "owner" },
   { label: "Live Sessions", href: "/admin/sessions", icon: Video, requires: "sessions" },
-  { label: "Discussion Board", href: "/admin/community", icon: MessageSquare, requires: "discussion" },
   { label: "Plans & Coupons", href: "/admin/coupons", icon: Ticket, requires: "owner" },
+  { label: "Payments", href: "/admin/payments", icon: ReceiptIndianRupee, requires: "payments" },
 ];
 
 export function AdminShell({
@@ -89,7 +92,7 @@ export function AdminShell({
       <div className="px-5 py-5">
         <Logo variant="light" href="/admin" />
       </div>
-      <nav className="flex-1 space-y-1 px-3">
+      <nav className="flex-1 min-h-0 space-y-1 overflow-y-auto px-3">
         {visibleNav.map((n) => (
           <Link
             key={n.href}
@@ -126,8 +129,8 @@ export function AdminShell({
             <p className="truncate text-xs text-cream-100/50">{owner ? "Owner" : "Sub-admin"}</p>
           </div>
           <button
-            onClick={() => {
-              signOut();
+            onClick={async () => {
+              await signOut();
               router.push("/");
             }}
             className="grid h-8 w-8 place-items-center rounded-lg text-cream-100/60 hover:bg-white/10 hover:text-white"
@@ -168,7 +171,10 @@ export function AdminShell({
               {subtitle && <p className="text-sm text-muted">{subtitle}</p>}
             </div>
           </div>
-          {allowed && actions && <div className="flex items-center gap-2">{actions}</div>}
+          <div className="flex items-center gap-2">
+            {allowed && actions}
+            <NotificationBell />
+          </div>
         </header>
 
         <main className="flex-1 p-5 sm:p-7">

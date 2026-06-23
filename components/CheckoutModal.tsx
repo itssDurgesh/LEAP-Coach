@@ -6,7 +6,6 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Course, Role, ROLES, bundlePrice } from "@/lib/types";
 import { useApp } from "@/lib/store/AppProvider";
-import { getSupabase } from "@/lib/supabase/client";
 import { cn, formatINR } from "@/lib/utils";
 import { ALL_ACCESS_PRICE, RAZORPAY_KEY_ID } from "@/lib/payments/config";
 
@@ -49,6 +48,8 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
   const isBundle = !!bundleCategories && bundleCategories.length > 0;
   const [plan, setPlan] = React.useState<"course" | "all">(forcePlan ?? "course");
   const [status, setStatus] = React.useState<"idle" | "processing" | "done">("idle");
+  // Payment captured but access not yet granted (recorded + flagged for admin).
+  const [flagged, setFlagged] = React.useState(false);
   const [couponInput, setCouponInput] = React.useState("");
   const [applying, setApplying] = React.useState(false);
   const [couponError, setCouponError] = React.useState("");
@@ -57,6 +58,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
   React.useEffect(() => {
     if (open) {
       setStatus("idle");
+      setFlagged(false);
       setPlan(forcePlan ?? (course ? "course" : "all"));
       setCouponInput("");
       setApplied(null);
@@ -168,20 +170,30 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
         razorpay_signature: string;
       }) => {
         try {
-          // Send the user's access token so the server can verify + grant authoritatively.
-          const sb = getSupabase();
-          const accessToken = sb ? (await sb.auth.getSession()).data.session?.access_token : undefined;
+          // The Clerk session cookie rides along automatically (same-origin); the
+          // server verifies the signature, identifies the buyer, and grants access.
           const v = await fetch("/api/payments/razorpay/verify", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(resp),
           });
           const vr = await v.json();
-          if (vr.ok) grantAccess(true);
-          else setStatus("idle");
+          if (vr.ok && vr.granted) {
+            // Verified + access granted server-side.
+            grantAccess(true);
+          } else if (vr.ok) {
+            // Payment captured but the grant didn't complete — it's recorded and
+            // flagged for admin (and the webhook will retry). Don't fake access.
+            setFlagged(true);
+            setStatus("done");
+            setTimeout(() => {
+              onComplete?.();
+              onClose();
+            }, 3200);
+          } else {
+            // Verification itself failed — let them retry.
+            setStatus("idle");
+          }
         } catch {
           setStatus("idle");
         }
@@ -205,13 +217,26 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
     <Modal open={open} onClose={onClose} title="Complete your enrollment">
       <div className="p-6">
         {status === "done" ? (
-          <div className="py-8 text-center">
-            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-green-100 text-green-600">
-              <Check className="h-8 w-8" strokeWidth={3} />
+          flagged ? (
+            <div className="py-8 text-center">
+              <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-100 text-amber-600">
+                <ShieldCheck className="h-8 w-8" strokeWidth={2.5} />
+              </div>
+              <p className="mt-4 font-heading text-xl font-bold text-heading">Payment received</p>
+              <p className="mx-auto mt-1 max-w-xs text-sm text-muted">
+                We&apos;re finalizing your access. If it doesn&apos;t appear in a moment, our team has
+                been notified — your receipt is saved under Account. You won&apos;t be charged twice.
+              </p>
             </div>
-            <p className="mt-4 font-heading text-xl font-bold text-heading">Payment successful!</p>
-            <p className="mt-1 text-sm text-muted">You now have access. Redirecting to your topic…</p>
-          </div>
+          ) : (
+            <div className="py-8 text-center">
+              <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-green-100 text-green-600">
+                <Check className="h-8 w-8" strokeWidth={3} />
+              </div>
+              <p className="mt-4 font-heading text-xl font-bold text-heading">Payment successful!</p>
+              <p className="mt-1 text-sm text-muted">You now have access. Your receipt is saved under Account.</p>
+            </div>
+          )
         ) : (
           <>
             <div className="space-y-3">

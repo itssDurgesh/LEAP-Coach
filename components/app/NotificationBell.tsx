@@ -7,10 +7,19 @@ import { useApp } from "@/lib/store/AppProvider";
 import { cn, timeAgo } from "@/lib/utils";
 
 export function NotificationBell() {
-  const { currentUser, notifications, markNotificationRead, markAllNotificationsRead } = useApp();
+  const { currentUser, notifications, markNotificationRead, markAllNotificationsRead, getVideoById } = useApp();
   const [open, setOpen] = React.useState(false);
 
   if (!currentUser) return null;
+
+  // Notifications come from per-video discussions; deep-link to that video's player.
+  const linkFor = (videoId?: string | null) => {
+    if (videoId) {
+      const found = getVideoById(videoId);
+      if (found) return `/learn/${found.course.id}/${found.video.order}`;
+    }
+    return currentUser.isAdmin ? "/admin" : "/dashboard";
+  };
 
   const mine = notifications
     .filter((n) => n.userId === currentUser.id)
@@ -54,7 +63,7 @@ export function NotificationBell() {
               {mine.map((n) => (
                 <Link
                   key={n.id}
-                  href="/community"
+                  href={linkFor(n.videoId)}
                   onClick={() => {
                     markNotificationRead(n.id);
                     setOpen(false);
@@ -70,7 +79,7 @@ export function NotificationBell() {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-heading">
                       <span className="font-semibold">{n.actorName}</span>{" "}
-                      {n.type === "mention" ? "mentioned you" : "replied to your discussion"}
+                      {n.type === "mention" ? "mentioned you in a discussion" : "replied to your comment"}
                     </p>
                     {n.preview && <p className="mt-0.5 line-clamp-2 text-xs text-muted">{n.preview}</p>}
                     <p className="mt-0.5 text-xs text-faint">{timeAgo(n.createdAt)}</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Lock, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const fieldBase =
@@ -13,6 +13,33 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
   ),
 );
 Input.displayName = "Input";
+
+/** Password field: left lock icon + a right show/hide (eye) toggle. */
+export const PasswordInput = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  ({ className, ...props }, ref) => {
+    const [show, setShow] = React.useState(false);
+    return (
+      <div className="relative">
+        <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+        <input
+          ref={ref}
+          type={show ? "text" : "password"}
+          className={cn(fieldBase, "pl-10 pr-10", className)}
+          {...props}
+        />
+        <button
+          type="button"
+          onClick={() => setShow((s) => !s)}
+          aria-label={show ? "Hide password" : "Show password"}
+          className="absolute right-2.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-faint transition-colors hover:text-heading"
+        >
+          {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
+    );
+  },
+);
+PasswordInput.displayName = "PasswordInput";
 
 export const Textarea = React.forwardRef<
   HTMLTextAreaElement,

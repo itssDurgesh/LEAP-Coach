@@ -31,26 +31,50 @@ function HomepageAdmin() {
 
 /* ───────────────────────── hero / stats / headings ───────────────────────── */
 
-function SiteContentForm({ content, onSave }: { content: SiteContent; onSave: (c: SiteContent) => void }) {
+function SiteContentForm({
+  content,
+  onSave,
+}: {
+  content: SiteContent;
+  onSave: (c: SiteContent) => Promise<{ ok: boolean; error?: string }>;
+}) {
   const [form, setForm] = React.useState<SiteContent>(content);
+  const [dirty, setDirty] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
-  // Resync if the loaded content changes (e.g. after Supabase load).
-  React.useEffect(() => setForm(content), [content]);
+  const [error, setError] = React.useState("");
+  // Resync from the store ONLY when there are no unsaved edits, so a background data
+  // refresh (or the initial Supabase load) can never overwrite what the admin is typing.
+  React.useEffect(() => {
+    if (!dirty) setForm(content);
+  }, [content, dirty]);
 
-  const set = (patch: Partial<SiteContent>) => setForm((f) => ({ ...f, ...patch }));
+  // Every edit marks the form dirty (and therefore protected from resync).
+  const update = (fn: (f: SiteContent) => SiteContent) => {
+    setDirty(true);
+    setForm(fn);
+  };
+  const set = (patch: Partial<SiteContent>) => update((f) => ({ ...f, ...patch }));
   const setStat = (i: number, patch: Partial<SiteStat>) =>
-    setForm((f) => ({ ...f, stats: f.stats.map((s, j) => (j === i ? { ...s, ...patch } : s)) }));
-  const addStat = () => setForm((f) => ({ ...f, stats: [...f.stats, { value: "", label: "" }] }));
-  const removeStat = (i: number) => setForm((f) => ({ ...f, stats: f.stats.filter((_, j) => j !== i) }));
+    update((f) => ({ ...f, stats: f.stats.map((s, j) => (j === i ? { ...s, ...patch } : s)) }));
+  const addStat = () => update((f) => ({ ...f, stats: [...f.stats, { value: "", label: "" }] }));
+  const removeStat = (i: number) => update((f) => ({ ...f, stats: f.stats.filter((_, j) => j !== i) }));
   const setPStat = (i: number, patch: Partial<SiteStat>) =>
-    setForm((f) => ({ ...f, professorStats: f.professorStats.map((s, j) => (j === i ? { ...s, ...patch } : s)) }));
-  const addPStat = () => setForm((f) => ({ ...f, professorStats: [...f.professorStats, { value: "", label: "" }] }));
+    update((f) => ({ ...f, professorStats: f.professorStats.map((s, j) => (j === i ? { ...s, ...patch } : s)) }));
+  const addPStat = () => update((f) => ({ ...f, professorStats: [...f.professorStats, { value: "", label: "" }] }));
   const removePStat = (i: number) =>
-    setForm((f) => ({ ...f, professorStats: f.professorStats.filter((_, j) => j !== i) }));
+    update((f) => ({ ...f, professorStats: f.professorStats.filter((_, j) => j !== i) }));
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    onSave(form);
+    setError("");
+    const res = await onSave(form);
+    if (!res.ok) {
+      setError(res.error ?? "Couldn't save — please try again.");
+      return;
+    }
+    // Saved content is now the source of truth → allow resync again, and the full
+    // object overwrites the previous one in state + the DB (site_content row id=1).
+    setDirty(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
@@ -182,6 +206,7 @@ function SiteContentForm({ content, onSave }: { content: SiteContent; onSave: (c
         </div>
 
         <div className="flex items-center justify-end gap-3 border-t border-hair pt-4">
+          {error && <span className="mr-auto text-sm font-medium text-red-600">{error}</span>}
           {saved && (
             <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700">
               <Check className="h-4 w-4" /> Saved

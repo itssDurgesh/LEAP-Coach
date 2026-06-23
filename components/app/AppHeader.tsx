@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
-  MessageSquare,
+  Newspaper,
   Video,
   Award,
   Menu,
@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 const navLinks = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Topics", href: "/courses", icon: BookOpen },
-  { label: "Discussion", href: "/community", icon: MessageSquare },
+  { label: "Articles", href: "/articles", icon: Newspaper },
   { label: "Live Sessions", href: "/sessions", icon: Video },
 ];
 
@@ -42,8 +42,8 @@ export function AppHeader() {
   if (!currentUser) return null;
   const tier = tierForCredits(currentUser.learningCredits);
 
-  function doSignOut() {
-    signOut();
+  async function doSignOut() {
+    await signOut();
     router.push("/");
   }
 

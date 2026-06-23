@@ -11,29 +11,18 @@ function GoogleIcon() {
   );
 }
 
-function LinkedInIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden fill="#0A66C2">
-      <path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29ZM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13ZM7.12 20.45H3.55V9h3.57v11.45ZM22.22 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.73C24 .77 23.2 0 22.22 0Z" />
-    </svg>
-  );
-}
-
 interface OAuthButtonsProps {
-  onSelect: (provider: "google" | "linkedin") => void;
+  onSelect: (provider: "google") => void;
 }
 
 export function OAuthButtons({ onSelect }: OAuthButtonsProps) {
-  const cls =
-    "inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-hair bg-card text-sm font-medium text-heading transition-colors hover:bg-surface-2";
   return (
-    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-      <button type="button" onClick={() => onSelect("google")} className={cls}>
-        <GoogleIcon /> Google
-      </button>
-      <button type="button" onClick={() => onSelect("linkedin")} className={cls}>
-        <LinkedInIcon /> LinkedIn
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={() => onSelect("google")}
+      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-hair bg-card text-sm font-medium text-heading transition-colors hover:bg-surface-2"
+    >
+      <GoogleIcon /> Continue with Google
+    </button>
   );
 }

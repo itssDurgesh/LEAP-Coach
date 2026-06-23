@@ -9,14 +9,22 @@ export type Gender = "male" | "female" | "non_binary" | "prefer_not";
 
 // Sub-admin permissions. A user with isAdmin=true and NO `permissions` array is the
 // full owner; a sub-admin has isAdmin=true and is limited to the listed permissions.
-export type Permission = "content" | "team" | "homepage" | "sessions" | "discussion";
+export type Permission =
+  | "content"
+  | "team"
+  | "homepage"
+  | "sessions"
+  | "discussion" // legacy: the global Discussion board was removed; kept so old sub-admin records still type-check
+  | "articles"
+  | "payments";
 
 export const PERMISSIONS: { id: Permission; label: string; hint: string }[] = [
   { id: "content", label: "Coaching topics", hint: "Create & edit topics, questions & workbooks (publishing needs owner approval)" },
+  { id: "articles", label: "Articles", hint: "Write & publish articles shown to learners" },
   { id: "team", label: "Team", hint: "Manage team members" },
   { id: "homepage", label: "Homepage", hint: "Edit the public homepage" },
   { id: "sessions", label: "Live sessions", hint: "Schedule & manage sessions" },
-  { id: "discussion", label: "Discussion board", hint: "Moderate posts" },
+  { id: "payments", label: "Payments", hint: "View receipts & resolve flagged payments (refunds stay owner-only)" },
 ];
 
 type AdminLike = { isAdmin?: boolean; permissions?: Permission[] | null } | null | undefined;
@@ -131,6 +139,29 @@ export interface Coupon {
   redemptions: number;
   expiresAt: string | null; // ISO date, or null = no expiry
   createdAt: string;
+}
+
+// A recorded Razorpay payment / receipt. Written server-side only (verify route +
+// webhook). grantStatus flags captured-but-not-granted payments for admin follow-up.
+export type PaymentStatus = "captured" | "refunded" | "failed";
+export type GrantStatus = "granted" | "grant_failed" | "pending";
+
+export interface Payment {
+  id: string; // our receipt id, rcpt_…
+  userId: string;
+  razorpayOrderId: string | null;
+  razorpayPaymentId: string | null;
+  plan: string | null; // 'course' | 'bundle' | 'all'
+  courseId: string | null;
+  categories: Role[];
+  couponCode: string | null;
+  amountInr: number;
+  currency: string;
+  status: PaymentStatus;
+  grantStatus: GrantStatus;
+  source: "verify" | "webhook";
+  createdAt: string;
+  refundedAt: string | null;
 }
 
 export interface Resource {
@@ -265,6 +296,9 @@ export interface QuestionFeedback {
   questionId: string;
   correct: boolean;
   explanation: string;
+  // ── interactive checkpoint (hint-and-retry) metrics ──
+  attempts?: number; // tries the learner used on this question (1 = solved first try)
+  solved?: boolean; // got it right within the retry limit (vs. answer revealed after 4 tries)
 }
 
 export interface Submission {
@@ -321,7 +355,24 @@ export interface PostComment {
   likedBy: string[];
 }
 
-// ── In-app notifications (reply / @mention on the discussion board) ──
+// ── Per-video discussion: YouTube-style comments under a topic video ──
+// Threaded one reply level (like the old board), with @mentions + notifications.
+export interface VideoComment {
+  id: string;
+  videoId: string;
+  courseId: string; // so the bell / links can resolve the player URL
+  parentId: string | null; // null = top-level comment; otherwise a reply
+  userId: string;
+  userName: string;
+  userRole: Role | "admin";
+  text: string;
+  mentions: string[]; // user ids @mentioned in the text
+  createdAt: string;
+  editedAt?: string | null;
+  likedBy: string[];
+}
+
+// ── In-app notifications (reply / @mention on a video discussion) ──
 export type NotificationType = "reply" | "mention";
 export interface AppNotification {
   id: string;
@@ -329,11 +380,75 @@ export interface AppNotification {
   type: NotificationType;
   actorId: string;
   actorName: string;
-  postId: string;
+  // Discussion context. videoId/courseId point at the per-video discussion (current);
+  // postId is legacy (the removed global board) and kept optional for old rows.
+  videoId?: string | null;
+  courseId?: string | null;
+  postId?: string | null;
   commentId?: string | null;
   preview: string; // short snippet of the comment text
   read: boolean;
   createdAt: string;
+}
+
+// ── Articles (written by the admin, shown to learners on /articles) ──
+// An inline picture an admin drops into the article body. Referenced from `content`
+// by a short [[image:id]] token so the body text stays readable (the heavy data-URL or
+// external URL lives here, not inline in the editor textarea).
+export interface ArticleImage {
+  id: string;
+  url: string; // uploaded data URL or an external image URL
+  alt?: string; // optional caption / alt text
+}
+
+export interface Article {
+  id: string;
+  title: string;
+  excerpt: string; // short teaser shown on cards (derived from content if empty)
+  content: string; // plain text; blank lines = paragraphs; [[image:id]] = inline image
+  coverUrl?: string | null;
+  images?: ArticleImage[]; // inline images referenced from content via [[image:id]]
+  authorId: string;
+  authorName: string;
+  published: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ArticleBlock =
+  | { kind: "text"; text: string }
+  | { kind: "image"; image: ArticleImage };
+
+/**
+ * Split an article body into ordered render blocks: text paragraphs (separated by
+ * blank lines) and inline images (resolved from `images` via the [[image:id]] token).
+ * Tokens whose image was removed are skipped.
+ */
+export function parseArticleBody(a: Article): ArticleBlock[] {
+  const byId = new Map((a.images ?? []).map((im) => [im.id, im]));
+  const blocks: ArticleBlock[] = [];
+  for (const para of a.content.split(/\n{2,}/)) {
+    const re = /\[\[image:([^\]]+)\]\]/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(para))) {
+      const before = para.slice(last, m.index).trim();
+      if (before) blocks.push({ kind: "text", text: before });
+      const img = byId.get(m[1]);
+      if (img) blocks.push({ kind: "image", image: img });
+      last = m.index + m[0].length;
+    }
+    const rest = para.slice(last).trim();
+    if (rest) blocks.push({ kind: "text", text: rest });
+  }
+  return blocks;
+}
+
+/** Card teaser: the explicit excerpt, or the first ~160 chars of the content (image tokens stripped). */
+export function articleExcerpt(a: Article): string {
+  if (a.excerpt.trim()) return a.excerpt.trim();
+  const flat = a.content.replace(/\[\[image:[^\]]+\]\]/g, " ").replace(/\s+/g, " ").trim();
+  return flat.length > 160 ? `${flat.slice(0, 157)}…` : flat;
 }
 
 // ── Team / mentors (Team page + homepage mentors strip) ──

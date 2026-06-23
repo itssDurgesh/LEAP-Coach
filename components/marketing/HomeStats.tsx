@@ -2,13 +2,14 @@
 
 import { Users, BookOpen, Route, Sparkles, LucideIcon } from "lucide-react";
 import { useApp } from "@/lib/store/AppProvider";
-import { DEFAULT_SITE_CONTENT } from "@/lib/types";
+import { SiteContent } from "@/lib/types";
 
 const icons: LucideIcon[] = [Users, BookOpen, Route, Sparkles];
 
-export function HomeStats() {
-  const { siteContent } = useApp();
-  const stats = (siteContent ?? DEFAULT_SITE_CONTENT).stats;
+export function HomeStats({ initialContent }: { initialContent?: SiteContent | null }) {
+  const { siteContent, hydrated } = useApp();
+  // Server content pre-hydration (no flash), live store after.
+  const stats = ((!hydrated && initialContent) ? initialContent : siteContent).stats;
 
   return (
     <section className="border-y border-hair bg-card">

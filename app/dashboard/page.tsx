@@ -9,19 +9,18 @@ import {
   Quote,
   Sparkles,
   BookMarked,
-  MessageSquare,
-  Heart,
+  Newspaper,
 } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { CourseCard } from "@/components/CourseCard";
 import { SessionCard } from "@/components/SessionCard";
+import { UpgradePlanCard } from "@/components/app/UpgradePlanCard";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { Avatar } from "@/components/ui/Avatar";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { useApp } from "@/lib/store/AppProvider";
-import { tierForCredits, courseCategories } from "@/lib/types";
+import { tierForCredits, courseCategories, articleExcerpt } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 
 function SectionHeader({ title, href, cta }: { title: string; href?: string; cta?: string }) {
@@ -52,7 +51,7 @@ function DashboardContent() {
     sessions,
     tips,
     resources,
-    community,
+    articles,
     enrollments,
     submissions,
     isEnrolled,
@@ -97,7 +96,10 @@ function DashboardContent() {
     .filter((r) => r.targetRole === role || r.targetRole === "all")
     .slice(0, 3);
 
-  const recentPosts = community.slice(0, 3);
+  const latestArticles = articles
+    .filter((a) => a.published)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    .slice(0, 2);
 
   const stats = [
     { icon: BookOpen, label: "Topics enrolled", value: enrolledCourses.length },
@@ -200,6 +202,29 @@ function DashboardContent() {
               ))}
             </div>
           </section>
+
+          {/* Latest articles from the mentors */}
+          {latestArticles.length > 0 && (
+            <section>
+              <SectionHeader title="Latest articles" href="/articles" cta="All articles" />
+              <div className="grid gap-5 sm:grid-cols-2">
+                {latestArticles.map((a) => (
+                  <Link key={a.id} href={`/articles/${a.id}`} className="block">
+                    <Card hover padded className="h-full">
+                      <span className="grid h-10 w-10 place-items-center rounded-xl bg-surface-2 text-gold-600">
+                        <Newspaper className="h-5 w-5" />
+                      </span>
+                      <h3 className="mt-3 font-heading text-lg font-semibold leading-snug text-heading">{a.title}</h3>
+                      <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted">{articleExcerpt(a)}</p>
+                      <p className="mt-3 text-xs text-faint">
+                        {a.authorName} · {timeAgo(a.createdAt)}
+                      </p>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
 
         {/* Sidebar */}
@@ -252,33 +277,8 @@ function DashboardContent() {
             </ul>
           </Card>
 
-          {/* Community preview */}
-          <Card padded>
-            <div className="flex items-center justify-between">
-              <h3 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
-                <MessageSquare className="h-5 w-5 text-gold-600" /> Community
-              </h3>
-              <Link href="/community" className="text-sm font-semibold text-gold-600 hover:text-gold-700">
-                Open
-              </Link>
-            </div>
-            <ul className="mt-4 space-y-4">
-              {recentPosts.map((p) => (
-                <li key={p.id} className="flex gap-3">
-                  <Avatar name={p.userName} size={32} />
-                  <div className="min-w-0">
-                    <p className="text-xs text-faint">
-                      <span className="font-semibold text-heading">{p.userName}</span> · {timeAgo(p.createdAt)}
-                    </p>
-                    <p className="line-clamp-2 text-sm text-muted">{p.text}</p>
-                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-faint">
-                      <Heart className="h-3 w-3" /> {p.likedBy.length}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Card>
+          {/* Upgrade your plan (buy category passes you don't own yet) */}
+          <UpgradePlanCard />
         </aside>
       </div>
     </div>

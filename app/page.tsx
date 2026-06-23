@@ -30,6 +30,12 @@ import { PROFESSOR } from "@/lib/professor";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { ROLES, Role } from "@/lib/types";
+import { fetchSiteContentServer } from "@/lib/supabase/server";
+
+// ISR: regenerate the landing periodically so admin homepage edits appear (within
+// ~30s) for fresh visitors, while staying fast/cached under load. In-session admins
+// see their edits live via the client store.
+export const revalidate = 30;
 
 const roleIconMap: Record<Role, LucideIcon> = {
   student: GraduationCap,
@@ -66,16 +72,20 @@ const steps = [
   { n: "03", title: "Prove it & level up", body: "Pass AI-graded checkpoints, earn credits, and unlock the next stage." },
 ];
 
-export default function Home() {
+export default async function Home() {
+  // Read the admin-edited content on the server so the hero renders it in the initial
+  // HTML (no flash of defaults before the client store hydrates).
+  const initialContent = await fetchSiteContentServer();
+
   return (
     <div className="min-h-screen bg-surface">
       <SiteNav overlay />
 
       {/* ── Hero (admin-editable) ── */}
-      <HomeHero />
+      <HomeHero initialContent={initialContent} />
 
       {/* ── Stats bar (admin-editable) ── */}
-      <HomeStats />
+      <HomeStats initialContent={initialContent} />
 
       {/* ── Learning paths ── */}
       <section id="paths" className="mx-auto max-w-7xl px-5 py-20 sm:px-8">

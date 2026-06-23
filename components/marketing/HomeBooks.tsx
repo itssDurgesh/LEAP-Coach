@@ -3,13 +3,11 @@
 import { BookOpen, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { useApp } from "@/lib/store/AppProvider";
-import { DEFAULT_SITE_CONTENT } from "@/lib/types";
-import { seedBooks } from "@/lib/mock/seed";
 
 export function HomeBooks() {
   const { books, siteContent } = useApp();
-  const c = siteContent ?? DEFAULT_SITE_CONTENT;
-  const list = (books.length ? books : seedBooks)
+  const c = siteContent;
+  const list = books
     .filter((b) => b.active)
     .sort((a, b) => a.order - b.order);
 

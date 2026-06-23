@@ -8,6 +8,40 @@ import { useApp } from "@/lib/store/AppProvider";
 import { resolveTeam } from "@/lib/team";
 import { TEAM_GROUPS, TeamLinks } from "@/lib/types";
 
+/**
+ * Bio text clamped to a preview with a "See more"/"See less" toggle. The clamp is
+ * deterministic (length-based, no effect), so the server renders the SAME truncated
+ * text — the full bio is never flashed before collapsing.
+ */
+function ClampText({ text, limit = 180, className }: { text: string; limit?: number; className?: string }) {
+  const [expanded, setExpanded] = React.useState(false);
+  if (!text) return null;
+  const needsClamp = text.length > limit;
+  let preview = text;
+  if (needsClamp && !expanded) {
+    const slice = text.slice(0, limit);
+    const lastSpace = slice.lastIndexOf(" ");
+    preview = (lastSpace > limit * 0.6 ? slice.slice(0, lastSpace) : slice).trimEnd() + "…";
+  }
+  return (
+    <p className={className}>
+      {expanded ? text : preview}
+      {needsClamp && (
+        <>
+          {" "}
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="font-semibold text-gold-600 hover:text-gold-700"
+          >
+            {expanded ? "See less" : "See more"}
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
+
 function MemberLinks({ links, align = "center" }: { links?: TeamLinks; align?: "center" | "start" }) {
   if (!links) return null;
   const items = (
@@ -67,7 +101,7 @@ export function TeamDirectory() {
             </div>
             <h2 className="relative mt-2 font-heading text-2xl font-bold text-heading sm:text-3xl">{f.name}</h2>
             <p className="relative mt-1 font-medium text-gold-700">{f.title}</p>
-            <p className="relative mx-auto mt-4 max-w-xl leading-relaxed text-muted">{f.bio}</p>
+            <ClampText text={f.bio} limit={260} className="relative mx-auto mt-4 max-w-xl leading-relaxed text-muted" />
             {f.vision && (
               <div className="relative mx-auto mt-5 flex max-w-xl items-start gap-3 rounded-2xl border border-navy-100 bg-navy-50 p-4 text-left dark:border-hair dark:bg-surface-2">
                 <Compass className="mt-0.5 h-5 w-5 shrink-0 text-navy-700 dark:text-gold-500" />
@@ -108,7 +142,7 @@ export function TeamDirectory() {
                   <Avatar src={m.photoUrl} name={m.name} size={96} className="mx-auto" />
                   <h3 className="mt-4 font-heading text-lg font-semibold text-heading">{m.name}</h3>
                   <p className="mt-0.5 text-sm font-medium text-gold-700">{m.title}</p>
-                  <p className="mt-3 text-sm leading-relaxed text-muted">{m.bio}</p>
+                  <ClampText text={m.bio} limit={160} className="mt-3 text-sm leading-relaxed text-muted" />
                   <MemberLinks links={m.links} />
                 </div>
               ))}

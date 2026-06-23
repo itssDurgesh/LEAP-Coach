@@ -7,7 +7,6 @@ import { CourseThumb } from "@/components/CourseThumb";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { useApp } from "@/lib/store/AppProvider";
-import { seedCourses } from "@/lib/mock/seed";
 import { formatINR } from "@/lib/utils";
 import type { Course } from "@/lib/types";
 
@@ -17,13 +16,17 @@ const pickFeatured = (courses: Course[]): Course[] =>
     .sort((a, b) => Number(b.trending) - Number(a.trending) || b.rating - a.rating)
     .slice(0, 3);
 
-// Static fallback so the section always has content (SSR / mock mode / pre-hydration).
-const fallback = pickFeatured(seedCourses);
-
 export function FeaturedCourses() {
   const { courses } = useApp();
-  const live = pickFeatured(courses);
-  const featured = live.length ? live : fallback;
+  const featured = pickFeatured(courses);
+
+  if (!featured.length) {
+    return (
+      <p className="mt-10 rounded-2xl border border-dashed border-hair bg-card/40 px-6 py-12 text-center text-sm text-muted">
+        New coaching topics are on the way — check back soon.
+      </p>
+    );
+  }
 
   return (
     <div className="mt-10 grid gap-6 md:grid-cols-3">

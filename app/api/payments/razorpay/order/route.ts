@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { quotePrice, type Plan } from "@/lib/payments/server";
+import { isClerkConfigured } from "@/lib/clerk/config";
 import type { Role } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -16,6 +18,18 @@ export async function POST(req: NextRequest) {
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
   // Not configured → client uses its mock checkout.
   if (!keyId || !keySecret) return NextResponse.json({ fallback: true });
+
+  // Bind the order to the signed-in user, so the webhook can grant for the right
+  // person even if the browser never reaches /verify.
+  let userId: string | null = null;
+  if (isClerkConfigured) {
+    try {
+      ({ userId } = await auth());
+    } catch {
+      userId = null;
+    }
+    if (!userId) return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
+  }
 
   let body: OrderBody;
   try {
@@ -34,17 +48,18 @@ export async function POST(req: NextRequest) {
   if (!q.ok) return NextResponse.json({ error: q.reason ?? "Invalid order." }, { status: 400 });
   if (q.finalAmountInr <= 0) return NextResponse.json({ error: "Amount must be greater than zero." }, { status: 400 });
 
-  const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+  const rzpAuth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
   try {
     const res = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
+      headers: { "Content-Type": "application/json", Authorization: `Basic ${rzpAuth}` },
       body: JSON.stringify({
         amount: q.finalAmountInr * 100, // Razorpay expects paise
         currency: "INR",
-        // Razorpay caps receipt at 40 chars; details live in `notes` (read by verify).
+        // Razorpay caps receipt at 40 chars; details live in `notes` (read by verify + webhook).
         receipt: `leap_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
         notes: {
+          userId: userId ?? "",
           plan: body.plan,
           courseId: body.courseId ?? "",
           categories: (q.categories ?? []).join(","),

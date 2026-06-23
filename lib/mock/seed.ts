@@ -1,4 +1,5 @@
 import {
+  Article,
   Assignment,
   AppNotification,
   Book,
@@ -17,6 +18,7 @@ import {
   TeamMember,
   User,
   Video,
+  VideoComment,
   VideoProgress,
 } from "@/lib/types";
 import { PROFESSOR } from "@/lib/professor";
@@ -751,16 +753,73 @@ export const seedComments: PostComment[] = [
   },
 ];
 
+// ───────────────────── PER-VIDEO DISCUSSION ─────────────────────
+// YouTube-style comments under a topic video (threaded one reply level, @mentions).
+export const seedVideoComments: VideoComment[] = [
+  {
+    id: "vc1", videoId: "c_authentic_leader_v2", courseId: "c_authentic_leader", parentId: null,
+    userId: "u_pro", userName: "Priya Nair", userRole: "professional",
+    text: "The peak/trough exercise in this video was a revelation — mapped my top 3 values in one sitting.",
+    mentions: [], createdAt: "2026-05-31T19:00:00.000Z", likedBy: ["u6"],
+  },
+  {
+    id: "vc2", videoId: "c_authentic_leader_v2", courseId: "c_authentic_leader", parentId: "vc1",
+    userId: "u_admin", userName: "Prof. Vishal Gupta", userRole: "admin",
+    text: "Beautifully put, @priya. Which value surprised you most?",
+    mentions: ["u_pro"], createdAt: "2026-05-31T19:20:00.000Z", likedBy: ["u_pro"],
+  },
+];
+
 // ─────────────────────── NOTIFICATIONS ───────────────────────
 export const seedNotifications: AppNotification[] = [
   {
-    id: "nt1", userId: "u_pro", type: "reply", actorId: "u_admin", actorName: "Prof. Vishal Gupta",
-    postId: "p1", commentId: "cm1", preview: "Wonderful, Priya! Naming your top three values…", read: false,
-    createdAt: "2026-05-31T19:00:00.000Z",
+    id: "nt1", userId: "u_pro", type: "mention", actorId: "u_admin", actorName: "Prof. Vishal Gupta",
+    videoId: "c_authentic_leader_v2", courseId: "c_authentic_leader", commentId: "vc2",
+    preview: "Beautifully put, @priya. Which value surprised you most?", read: false,
+    createdAt: "2026-05-31T19:20:00.000Z",
+  },
+];
+
+// ─────────────────────────── ARTICLES ───────────────────────────
+export const seedArticles: Article[] = [
+  {
+    id: "ar_lead_from_values",
+    title: "Lead From Your Values, Not From Fear of Judgement",
+    excerpt:
+      "Authentic leadership begins with knowing your three to five non-negotiable values — and using them as the operating system for every hard call.",
+    content: `Most leaders make decisions to avoid criticism. Authentic leaders make decisions from their values.
+
+The difference sounds small, but it compounds. A leader steering away from judgement optimises for safety: the inoffensive call, the delayed decision, the committee answer. A leader steering from values optimises for direction — and people can feel the difference within minutes of joining their team.
+
+Start with the peak-and-trough exercise. Recall your three proudest moments and your three hardest ones. In the proud moments, which values were being honoured? In the hard ones, which were being violated? The values that appear on both lists are your real ones — not the ones on the office poster.
+
+Then narrow to three to five non-negotiables you can name in any room. When the pressure rises — a difficult negotiation, an underperforming friend on the team, an investor pushing a shortcut — you don't have to compute the answer from scratch. You consult the operating system.
+
+That is the work of leadership: not avoiding judgement, but deciding in advance what you stand for, and letting that decide for you.`,
+    coverUrl: null,
+    authorId: "u_admin",
+    authorName: "Prof. Vishal Gupta",
+    published: true,
+    createdAt: "2026-06-05T09:00:00.000Z",
+    updatedAt: "2026-06-05T09:00:00.000Z",
   },
   {
-    id: "nt2", userId: "u6", type: "mention", actorId: "u_pro", actorName: "Priya Nair",
-    postId: "p5", commentId: "cm3", preview: "Re-anchor calmly with justification…", read: false,
-    createdAt: "2026-06-01T07:30:00.000Z",
+    id: "ar_why_behavioural_education",
+    title: "Why Behavioural Education Is the Missing Subject",
+    excerpt:
+      "Schools teach for exams and workplaces coach only the CXOs. The skills that decide careers — communication, resilience, influence — are left to chance.",
+    content: `Look at any school timetable and you will find mathematics, science, languages — and nothing about the skills that will actually decide a student's trajectory: speaking with confidence, handling setbacks, influencing without authority, building character.
+
+The numbers make the gap concrete. The average student-to-counselor ratio in India is around 500:1, and over 1000:1 in publicly funded schools, against a recommended 250:1. Even where counseling exists, seeking it is treated as a taboo rather than as training.
+
+The workplace doesn't fix this. Coaches and one-to-one mentors are reserved for CXOs and "hi-potentials"; everyone else is expected to fend for themselves. And entrepreneurship education teaches term sheets and tactics, but rarely the people skills — leadership, culture-building, character — that decide whether a venture survives its first real crisis.
+
+LEAP exists to close exactly this gap: high-quality, evidence-based behavioural education, drawing on both modern research and timeless Indian wisdom, made available to every student, professional, and entrepreneur — not just the chosen few.`,
+    coverUrl: null,
+    authorId: "u_admin",
+    authorName: "Prof. Vishal Gupta",
+    published: true,
+    createdAt: "2026-06-07T09:00:00.000Z",
+    updatedAt: "2026-06-07T09:00:00.000Z",
   },
 ];

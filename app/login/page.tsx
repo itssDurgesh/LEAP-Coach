@@ -3,10 +3,10 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Mail, Lock, AlertCircle, ArrowRight } from "lucide-react";
+import { Mail, AlertCircle, ArrowRight } from "lucide-react";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { OAuthButtons } from "@/components/auth/OAuthButtons";
-import { Field, Input } from "@/components/ui/Field";
+import { Field, Input, PasswordInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { useApp } from "@/lib/store/AppProvider";
 import { homeFor } from "@/lib/store/routes";
@@ -35,10 +35,13 @@ export default function LoginPage() {
       setError(r.error ?? "Sign in failed.");
       return;
     }
-    router.push(homeFor(r.user));
+    // Real mode (Clerk) resolves the user asynchronously, so route through the
+    // post-auth hub which redirects by role/admin once the profile loads. Mock
+    // mode returns the user immediately.
+    router.push(r.user ? homeFor(r.user) : "/select-role");
   }
 
-  async function onOAuth(provider: "google" | "linkedin") {
+  async function onOAuth(provider: "google") {
     if (supabaseMode) {
       setError("");
       const r = await oauthSignIn(provider);
@@ -90,18 +93,13 @@ export default function LoginPage() {
           htmlFor="password"
           hint={supabaseMode ? undefined : "Prototype: password isn't checked — any value works."}
         >
-          <div className="relative">
-            <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="pl-10"
-              required={supabaseMode}
-            />
-          </div>
+          <PasswordInput
+            id="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            required={supabaseMode}
+          />
         </Field>
         <Button type="submit" className="w-full" loading={busy}>
           Sign in <ArrowRight className="h-4 w-4" />
