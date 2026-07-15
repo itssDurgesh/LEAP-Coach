@@ -22,6 +22,9 @@ yarn-error.log*
 .env
 .env*.local
 
+# large media (host on CDN instead of git)
+public/professor-hero.mp4
+
 # vercel
 .vercel
 
