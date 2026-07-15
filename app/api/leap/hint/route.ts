@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { GEMINI_MODEL } from "@/lib/ai/config";
 import { isClerkConfigured } from "@/lib/clerk/config";
+import { parseJson } from "@/lib/api/validate";
+import { apiError, logError } from "@/lib/api/errors";
+import { enforceRate } from "@/lib/api/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -9,15 +13,19 @@ export const runtime = "nodejs";
 // toward the right reasoning WITHOUT revealing the correct option. On no key / error
 // it returns { fallback: true } so the client can show an explanation-derived hint.
 
-interface HintBody {
-  courseTitle?: string;
-  video?: { title?: string; summary?: string };
-  question: { prompt: string; options?: string[]; type?: string };
-  wrongAnswer?: string;
-  correctAnswer: string;
-  explanation?: string;
-  attempt?: number; // which wrong attempt this is (1-based)
-}
+const HintSchema = z.object({
+  courseTitle: z.string().max(300).optional(),
+  video: z.object({ title: z.string().max(300).optional(), summary: z.string().max(4000).optional() }).optional(),
+  question: z.object({
+    prompt: z.string().min(1).max(2000),
+    options: z.array(z.string().max(500)).max(12).optional(),
+    type: z.string().max(40).optional(),
+  }),
+  wrongAnswer: z.string().max(500).optional(),
+  correctAnswer: z.string().min(1).max(500),
+  explanation: z.string().max(4000).optional(),
+  attempt: z.number().int().min(1).max(10).optional(),
+});
 
 export async function POST(req: NextRequest) {
   const key = process.env.GEMINI_API_KEY;
@@ -25,24 +33,25 @@ export async function POST(req: NextRequest) {
 
   // The checkpoint is on the gated /learn flow — require a Clerk session in real mode
   // so this isn't an open Gemini proxy (mock/dev with no Clerk keys stays open).
+  let userId: string | null = null;
   if (isClerkConfigured) {
     try {
-      const { userId } = await auth();
-      if (!userId) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+      ({ userId } = await auth());
     } catch {
-      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+      userId = null;
     }
+    if (!userId) return apiError(401, "Not authenticated.");
   }
 
-  let body: HintBody;
-  try {
-    body = (await req.json()) as HintBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-  }
-  if (!body.question?.prompt || !body.correctAnswer) {
-    return NextResponse.json({ fallback: true });
-  }
+  // Throttle per user (or per IP) to prevent Gemini abuse / denial-of-wallet.
+  const limited = enforceRate(req, "ai", userId);
+  if (limited) return limited;
+
+  // Lenient by design: the client shows an explanation-derived local hint on any
+  // non-hint response, so invalid input degrades to fallback rather than erroring.
+  const parsed = await parseJson(req, HintSchema);
+  if (!parsed.ok) return NextResponse.json({ fallback: true });
+  const body = parsed.data;
 
   const attempt = Math.max(1, Math.min(4, body.attempt ?? 1));
   const escalation =
@@ -105,7 +114,7 @@ export async function POST(req: NextRequest) {
     if (!hint) return NextResponse.json({ fallback: true });
     return NextResponse.json({ hint });
   } catch (e) {
-    console.error("[gemini hint] request failed", e);
+    logError("leap/hint", e);
     return NextResponse.json({ fallback: true });
   }
 }

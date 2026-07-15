@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Crown, Check, Sparkles } from "lucide-react";
+import { Crown, Check, Sparkles, Info } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { useApp } from "@/lib/store/AppProvider";
-import { ROLES, Role, bundlePrice } from "@/lib/types";
+import { ROLES, Role, upgradePrice, bundlePrice } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
 
 /**
@@ -20,6 +20,7 @@ export function UpgradePlanCard() {
   const { currentUser, pricing } = useApp();
   const [selected, setSelected] = React.useState<Role[]>([]);
   const [checkout, setCheckout] = React.useState(false);
+  const [showInfo, setShowInfo] = React.useState(false);
 
   if (!currentUser) return null;
   const allAccess = currentUser.subscriptionPlan === "all_access";
@@ -32,18 +33,83 @@ export function UpgradePlanCard() {
   const toggle = (r: Role) =>
     setSelected((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
 
-  const price = selected.length ? bundlePrice(pricing, selected.length) : 0;
+  // Pay the difference: only charge for the categories they don't already own.
+  const price = selected.length ? upgradePrice(pricing, owned.size, selected.length) : 0;
   const buyingAll = selected.length === missing.length && selected.length > 0;
+
+  // Admin-toggled "why this price?" explainer (Plans & Coupons → show_upgrade_info).
+  const showExplainer = pricing.showUpgradeInfo !== false;
+  const ownedCount = owned.size;
+  const targetCount = Math.min(3, ownedCount + selected.length);
+  const currentTierPrice = ownedCount > 0 ? bundlePrice(pricing, ownedCount) : 0;
+  const targetTierPrice = bundlePrice(pricing, targetCount);
 
   return (
     <Card padded className="border-gold-200 bg-gradient-to-br from-gold-50 to-cream-50 dark:from-gold-500/10 dark:to-transparent">
-      <h3 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
-        <Crown className="h-5 w-5 text-gold-600" /> Upgrade your plan
-      </h3>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
+          <Crown className="h-5 w-5 text-gold-600" /> Upgrade your plan
+        </h3>
+        {showExplainer && (
+          <button
+            type="button"
+            onClick={() => setShowInfo((v) => !v)}
+            aria-label="Why this price?"
+            aria-expanded={showInfo}
+            title="Why this price?"
+            className={cn(
+              "grid h-7 w-7 shrink-0 place-items-center rounded-full border transition-colors",
+              showInfo
+                ? "border-gold-400 bg-gold-100 text-gold-700 dark:bg-gold-500/20"
+                : "border-hair text-muted hover:text-heading",
+            )}
+          >
+            <Info className="h-4 w-4" />
+          </button>
+        )}
+      </div>
       <p className="mt-1 text-sm text-muted">
         Unlock every topic in another category.{" "}
         {owned.size > 0 ? `You already own ${owned.size} of 3.` : "Pick the categories you want."}
       </p>
+
+      {showExplainer && showInfo && (
+        <div className="mt-3 rounded-xl border border-gold-200 bg-card/70 p-3 text-xs leading-relaxed text-muted">
+          <p className="font-semibold text-heading">Why this price?</p>
+          {selected.length === 0 ? (
+            <p className="mt-1">
+              Upgrades are charged as the <strong>difference</strong> between your current plan and the new
+              one — you never pay again for categories you already own. Pick a category to see the exact math.
+            </p>
+          ) : ownedCount === 0 ? (
+            <p className="mt-1">
+              You&rsquo;re buying {targetCount} categor{targetCount > 1 ? "ies" : "y"} — the{" "}
+              {targetCount}-category bundle price of{" "}
+              <strong className="text-heading">{formatINR(targetTierPrice)}</strong>.
+            </p>
+          ) : (
+            <ul className="mt-1.5 space-y-1">
+              <li className="flex justify-between gap-3">
+                <span>Your plan now ({ownedCount} of 3)</span>
+                <span className="text-heading">{formatINR(currentTierPrice)}</span>
+              </li>
+              <li className="flex justify-between gap-3">
+                <span>After upgrade ({targetCount} of 3)</span>
+                <span className="text-heading">{formatINR(targetTierPrice)}</span>
+              </li>
+              <li className="flex justify-between gap-3 border-t border-hair pt-1 font-semibold text-heading">
+                <span>You pay the difference</span>
+                <span>{formatINR(price)}</span>
+              </li>
+            </ul>
+          )}
+          {buyingAll && (
+            <p className="mt-1.5 font-medium text-gold-700 dark:text-gold-500">
+              This completes all-access — all 3 categories.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 space-y-2">
         {ROLES.map((r) => {

@@ -68,13 +68,14 @@ function Profile() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       {/* Header */}
-      <Card className="overflow-hidden">
-        <div className="h-24 bg-gradient-to-r from-navy-800 to-navy-950 dark:from-surface-2 dark:to-card" />
-        <div className="px-6 pb-6">
-          <div className="-mt-10 flex flex-wrap items-end justify-between gap-4">
-            <div className="flex items-end gap-4">
-              <Avatar src={user.avatarUrl} name={user.name} size={88} className="ring-4 ring-card" />
-              <div className="pb-1">
+      <Card padded className="relative overflow-hidden">
+        {/* Soft warm accent (replaces the old dark-blue banner) */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-br from-gold-100/70 via-cream-100/50 to-transparent dark:from-gold-500/10 dark:via-surface-2/30" />
+        <div className="relative">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <Avatar src={user.avatarUrl} name={user.name} size={96} className="shrink-0 shadow-card ring-4 ring-card" />
+              <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="font-heading text-2xl font-bold text-heading">{user.name}</h1>
                   {isAdmin ? (
@@ -83,8 +84,8 @@ function Profile() {
                     user.role && <Badge variant="navy" className="capitalize">{user.role}</Badge>
                   )}
                 </div>
-                {user.username && <p className="mt-0.5 text-sm font-medium text-gold-700">@{user.username}</p>}
-                {user.headline && <p className="mt-0.5 text-sm text-muted">{user.headline}</p>}
+                {user.username && <p className="mt-0.5 text-sm font-semibold text-gold-700">@{user.username}</p>}
+                {user.headline && <p className="mt-1 text-sm text-muted">{user.headline}</p>}
               </div>
             </div>
             {isMe && (
@@ -94,26 +95,26 @@ function Profile() {
             )}
           </div>
 
-          {/* meta row */}
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-muted">
+          {/* meta chips */}
+          <div className="mt-5 flex flex-wrap gap-2">
             {!isAdmin && (
-              <span className="inline-flex items-center gap-1.5">
-                <Award className="h-4 w-4 text-gold-600" /> {tier.label}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-heading">
+                <Award className="h-3.5 w-3.5 text-gold-600" /> {tier.label}
               </span>
             )}
             {user.company && (
-              <span className="inline-flex items-center gap-1.5">
-                <Briefcase className="h-4 w-4" /> {user.company}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-heading">
+                <Briefcase className="h-3.5 w-3.5 text-muted" /> {user.company}
               </span>
             )}
             {user.region && (
-              <span className="inline-flex items-center gap-1.5">
-                <MapPin className="h-4 w-4" /> {user.region}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-heading">
+                <MapPin className="h-3.5 w-3.5 text-muted" /> {user.region}
                 {user.nationality ? `, ${user.nationality}` : ""}
               </span>
             )}
-            <span className="inline-flex items-center gap-1.5">
-              <CalendarDays className="h-4 w-4" /> Joined {memberSince}
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-heading">
+              <CalendarDays className="h-3.5 w-3.5 text-muted" /> Joined {memberSince}
             </span>
           </div>
         </div>

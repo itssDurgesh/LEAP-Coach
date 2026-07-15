@@ -1,6 +1,7 @@
+import "server-only"; // build error if this (service-role pricing) module is imported into client code
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { applyDiscount, evaluateCoupon, normalizeCode, type CouponTarget } from "@/lib/coupons";
-import { bundlePrice, DEFAULT_PRICING, type Coupon, type PricingTiers, type Role } from "@/lib/types";
+import { bundlePrice, upgradePrice, DEFAULT_PRICING, type Coupon, type PricingTiers, type Role } from "@/lib/types";
 
 const ALL_ROLES: Role[] = ["student", "professional", "entrepreneur"];
 
@@ -37,6 +38,15 @@ function cleanCategories(input?: Role[]): Role[] {
   return Array.from(new Set((input ?? []).filter((c) => ALL_ROLES.includes(c))));
 }
 
+/** The categories a buyer already owns (all-access ⇒ all three). Drives pay-the-difference upgrades. */
+async function ownedCategories(sb: SupabaseClient, userId?: string): Promise<Set<Role>> {
+  if (!userId) return new Set();
+  const { data: prof } = await sb.from("profiles").select("subscription_plan").eq("id", userId).maybeSingle();
+  if (prof?.subscription_plan === "all_access") return new Set(ALL_ROLES);
+  const { data } = await sb.from("category_passes").select("category").eq("user_id", userId);
+  return new Set(((data ?? []) as { category: Role }[]).map((r) => r.category).filter((c) => ALL_ROLES.includes(c)));
+}
+
 function rowToCoupon(r: Record<string, unknown>): Coupon {
   return {
     code: r.code as string,
@@ -60,9 +70,12 @@ export async function quotePrice(input: {
   courseId?: string;
   categories?: Role[];
   couponCode?: string;
+  userId?: string; // buyer — enables pay-the-difference upgrades from what they already own
 }): Promise<PriceQuote> {
   const sb = adminClient();
   const categories = cleanCategories(input.categories);
+  // The categories actually granted/charged (bundle upgrades drop ones already owned).
+  let resultCategories: Role[] = categories;
 
   // 1) Base amount + the coupon target (what's being bought).
   let baseAmountInr: number;
@@ -77,12 +90,20 @@ export async function quotePrice(input: {
   } else if (input.plan === "bundle") {
     if (categories.length < 1) return base(input, 0, "Select at least one category.");
     const tiers = await pricingTiers(sb);
-    baseAmountInr = bundlePrice(tiers, categories.length);
-    target = categories.length >= 3 ? { type: "all" } : { type: "bundle", categories };
+    const owned = await ownedCategories(sb, input.userId);
+    // Only charge for / grant the categories they don't already hold (pay the difference).
+    resultCategories = categories.filter((c) => !owned.has(c));
+    if (resultCategories.length === 0) return base(input, 0, "You already own these categories.");
+    const ownedCount = Math.min(3, owned.size);
+    baseAmountInr = upgradePrice(tiers, ownedCount, resultCategories.length);
+    target = ownedCount + resultCategories.length >= 3 ? { type: "all" } : { type: "bundle", categories: resultCategories };
   } else {
-    // "all" = all three categories
+    // "all" = all three categories (pay the difference if they already own some)
     const tiers = await pricingTiers(sb);
-    baseAmountInr = tiers.cat3;
+    const owned = await ownedCategories(sb, input.userId);
+    const ownedCount = Math.min(3, owned.size);
+    if (ownedCount >= 3) return base(input, 0, "You already have all-access.");
+    baseAmountInr = upgradePrice(tiers, ownedCount, 3 - ownedCount);
     target = { type: "all" };
   }
 
@@ -104,7 +125,7 @@ export async function quotePrice(input: {
     ok: true,
     plan: input.plan,
     courseId: input.courseId,
-    categories: input.plan === "bundle" ? categories : undefined,
+    categories: input.plan === "bundle" ? resultCategories : undefined,
     baseAmountInr,
     finalAmountInr: applyDiscount(baseAmountInr, discountPercent),
     discountPercent,

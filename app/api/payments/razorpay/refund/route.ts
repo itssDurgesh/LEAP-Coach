@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { createClient } from "@supabase/supabase-js";
+import { parseJson } from "@/lib/api/validate";
+import { logError } from "@/lib/api/errors";
+import { enforceRate } from "@/lib/api/rate-limit";
 
 export const runtime = "nodejs";
+
+const PaymentIdSchema = z.object({ paymentId: z.string().min(1).max(100) });
 
 // Owner-only manual refund. Issuing a refund moves money, so it requires the owner
 // (admin with no scoped permissions), is confirmed in the UI, and is idempotent
@@ -23,13 +29,12 @@ export async function POST(req: NextRequest) {
   }
   if (!userId) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
 
-  let body: { paymentId?: string };
-  try {
-    body = (await req.json()) as { paymentId?: string };
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid request body." }, { status: 400 });
-  }
-  if (!body.paymentId) return NextResponse.json({ ok: false, error: "Missing payment id." }, { status: 400 });
+  const limited = enforceRate(req, "admin", userId, { ok: false });
+  if (limited) return limited;
+
+  const parsed = await parseJson(req, PaymentIdSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
+  const body = parsed.data;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
@@ -52,11 +57,11 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({}), // full refund
     });
     if (!res.ok) {
-      console.error("[razorpay refund] failed", res.status, await res.text().catch(() => ""));
+      logError("payments/refund", `razorpay ${res.status}: ${await res.text().catch(() => "")}`);
       return NextResponse.json({ ok: false, error: "Refund failed at Razorpay." }, { status: 502 });
     }
   } catch (e) {
-    console.error("[razorpay refund] error", e);
+    logError("payments/refund", e);
     return NextResponse.json({ ok: false, error: "Refund request failed." }, { status: 502 });
   }
 

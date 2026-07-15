@@ -6,9 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   BookOpen,
+  BookMarked,
   Newspaper,
+  Megaphone,
   Video,
-  Award,
   Menu,
   X,
   LogOut,
@@ -21,15 +22,19 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { NotificationBell } from "@/components/app/NotificationBell";
+import { PlanBadge } from "@/components/app/PlanBadge";
+import { CreditBadge } from "@/components/app/CreditBadge";
 import { useApp } from "@/lib/store/AppProvider";
 import { tierForCredits } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Topics", href: "/courses", icon: BookOpen },
+  { label: "My Topics", href: "/my-topics", icon: BookMarked },
+  { label: "Catalog", href: "/courses", icon: BookOpen },
   { label: "Articles", href: "/articles", icon: Newspaper },
-  { label: "Live Sessions", href: "/sessions", icon: Video },
+  { label: "Announcements", href: "/announcements", icon: Megaphone },
+  { label: "Sessions", href: "/sessions", icon: Video },
 ];
 
 export function AppHeader() {
@@ -52,37 +57,31 @@ export function AppHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-hair bg-surface/90 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
-        <div className="flex items-center gap-7">
+        <div className="flex min-w-0 items-center gap-4 xl:gap-6">
           <Logo href="/dashboard" />
-          <nav className="hidden items-center gap-1 lg:flex">
+          <nav className="hidden items-center gap-0.5 lg:flex">
             {navLinks.map((l) => (
               <Link
                 key={l.href}
                 href={l.href}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-colors",
                   isActive(l.href)
                     ? "bg-navy-800 text-white"
                     : "text-muted hover:bg-surface-2 hover:text-heading",
                 )}
               >
-                <l.icon className="h-4 w-4" />
+                <l.icon className="h-4 w-4 shrink-0" />
                 {l.label}
               </Link>
             ))}
           </nav>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Link
-            href="/dashboard"
-            className="hidden items-center gap-1.5 rounded-full border border-gold-200 bg-gold-50 px-3 py-1.5 text-sm font-semibold text-gold-700 sm:inline-flex"
-            title={`${tier.label} · ${currentUser.learningCredits} credits`}
-          >
-            <Award className="h-4 w-4" />
-            {currentUser.learningCredits}
-            <span className="text-gold-500">cr</span>
-          </Link>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <PlanBadge user={currentUser} withMenu className="hidden sm:inline-flex" />
+
+          <CreditBadge user={currentUser} className="hidden sm:block" />
 
           <ThemeToggle />
 

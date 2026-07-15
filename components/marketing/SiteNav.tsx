@@ -7,6 +7,7 @@ import { Logo } from "@/components/ui/Logo";
 import { Avatar } from "@/components/ui/Avatar";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { PlanBadge } from "@/components/app/PlanBadge";
 import { useApp } from "@/lib/store/AppProvider";
 import { cn } from "@/lib/utils";
 
@@ -46,8 +47,8 @@ export function SiteNav({ overlay = false }: { overlay?: boolean }) {
           : "absolute top-0 border-b border-white/10 bg-transparent",
       )}
     >
-      <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-5 sm:px-8">
-        <Logo size="lg" variant={solid ? "default" : "light"} />
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8">
+        <Logo size="md" variant={solid ? "default" : "light"} />
 
         <nav className="hidden items-center gap-1 lg:flex">
           {links.map((l) => (
@@ -68,11 +69,14 @@ export function SiteNav({ overlay = false }: { overlay?: boolean }) {
 
         <div className="hidden items-center gap-2 md:flex">
           {signedIn ? (
-            <Link href={dashHref} className={buttonClasses({ variant: "primary", size: "md" })}>
-              <LayoutDashboard className="h-4 w-4" />
-              {currentUser?.isAdmin ? "Control Center" : "Dashboard"}
-              <Avatar name={currentUser?.name} size={22} className="ml-1" />
-            </Link>
+            <>
+              {!currentUser?.isAdmin && <PlanBadge user={currentUser} href="/pricing" />}
+              <Link href={dashHref} className={buttonClasses({ variant: "primary", size: "md" })}>
+                <LayoutDashboard className="h-4 w-4" />
+                {currentUser?.isAdmin ? "Control Center" : "Dashboard"}
+                <Avatar name={currentUser?.name} size={22} className="ml-1" />
+              </Link>
+            </>
           ) : (
             <>
               <Link
@@ -129,9 +133,16 @@ export function SiteNav({ overlay = false }: { overlay?: boolean }) {
           </div>
           <div className="mt-2 flex flex-col gap-2">
             {signedIn ? (
-              <Link href={dashHref} className={buttonClasses({ variant: "navy", size: "md" })}>
-                Go to {currentUser?.isAdmin ? "Control Center" : "Dashboard"}
-              </Link>
+              <>
+                {!currentUser?.isAdmin && (
+                  <div className="flex items-center gap-2 px-1 pb-1 text-sm text-muted">
+                    Your plan: <PlanBadge user={currentUser} href="/pricing" />
+                  </div>
+                )}
+                <Link href={dashHref} className={buttonClasses({ variant: "navy", size: "md" })}>
+                  Go to {currentUser?.isAdmin ? "Control Center" : "Dashboard"}
+                </Link>
+              </>
             ) : (
               <>
                 <Link href="/login" className={buttonClasses({ variant: "outline", size: "md" })}>

@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
-import { quotePrice, type Plan } from "@/lib/payments/server";
+import { quotePrice } from "@/lib/payments/server";
 import { isClerkConfigured } from "@/lib/clerk/config";
-import type { Role } from "@/lib/types";
+import { parseJson } from "@/lib/api/validate";
+import { apiError, logError } from "@/lib/api/errors";
+import { enforceRate } from "@/lib/api/rate-limit";
 
 export const runtime = "nodejs";
 
-interface OrderBody {
-  plan: Plan;
-  courseId?: string;
-  categories?: Role[];
-  couponCode?: string;
-}
+const OrderSchema = z.object({
+  plan: z.enum(["course", "bundle", "all"]),
+  courseId: z.string().max(100).optional(),
+  categories: z.array(z.enum(["student", "professional", "entrepreneur"])).max(3).optional(),
+  couponCode: z.string().max(64).optional(),
+});
 
 export async function POST(req: NextRequest) {
   const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
@@ -28,15 +31,16 @@ export async function POST(req: NextRequest) {
     } catch {
       userId = null;
     }
-    if (!userId) return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
+    if (!userId) return apiError(401, "Please sign in to continue.");
   }
 
-  let body: OrderBody;
-  try {
-    body = (await req.json()) as OrderBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-  }
+  // Throttle order creation per user (or per IP) to curb payment-endpoint abuse.
+  const limited = enforceRate(req, "payment", userId);
+  if (limited) return limited;
+
+  const parsed = await parseJson(req, OrderSchema);
+  if (!parsed.ok) return apiError(400, parsed.error);
+  const body = parsed.data;
 
   // Authoritative pricing (base price from DB + optional coupon) — never trust the client.
   const q = await quotePrice({
@@ -44,6 +48,7 @@ export async function POST(req: NextRequest) {
     courseId: body.courseId,
     categories: body.categories,
     couponCode: body.couponCode,
+    userId: userId ?? undefined, // enables pay-the-difference upgrade pricing
   });
   if (!q.ok) return NextResponse.json({ error: q.reason ?? "Invalid order." }, { status: 400 });
   if (q.finalAmountInr <= 0) return NextResponse.json({ error: "Amount must be greater than zero." }, { status: 400 });
@@ -68,7 +73,7 @@ export async function POST(req: NextRequest) {
       }),
     });
     if (!res.ok) {
-      console.error("[razorpay] order failed", res.status, await res.text().catch(() => ""));
+      logError("payments/order", `razorpay ${res.status}: ${await res.text().catch(() => "")}`);
       return NextResponse.json({ error: "Could not create payment order." }, { status: 502 });
     }
     const order = (await res.json()) as { id: string; amount: number; currency: string };
@@ -83,7 +88,7 @@ export async function POST(req: NextRequest) {
       finalAmountInr: q.finalAmountInr,
     });
   } catch (e) {
-    console.error("[razorpay] order request error", e);
+    logError("payments/order", e);
     return NextResponse.json({ error: "Could not create payment order." }, { status: 502 });
   }
 }

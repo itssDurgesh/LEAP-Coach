@@ -23,7 +23,7 @@ function ArticleReader() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const { articles, users } = useApp();
 
-  const article = articles.find((a) => a.id === id && a.published);
+  const article = articles.find((a) => a.id === id && a.published && !a.archived);
 
   if (!article) {
     return (

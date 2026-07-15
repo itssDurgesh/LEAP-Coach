@@ -30,5 +30,9 @@ export interface AuthBridge {
   /** Re-send the sign-up email verification code. */
   resendEmailCode: () => Promise<AuthActionResult>;
   signInOAuth: (provider: "google") => Promise<AuthActionResult>;
+  /** Start a forgot-password flow: emails a 6-digit reset code to the address. */
+  requestPasswordReset: (email: string) => Promise<AuthActionResult>;
+  /** Verify the emailed code and set the new password; signs the user in on success. */
+  resetPassword: (code: string, newPassword: string) => Promise<AuthActionResult>;
   signOut: () => Promise<void>;
 }

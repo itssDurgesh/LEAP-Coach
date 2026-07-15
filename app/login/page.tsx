@@ -101,6 +101,11 @@ export default function LoginPage() {
             required={supabaseMode}
           />
         </Field>
+        <div className="-mt-2 text-right">
+          <Link href="/forgot-password" className="text-xs font-semibold text-gold-600 hover:text-gold-700">
+            Forgot password?
+          </Link>
+        </div>
         <Button type="submit" className="w-full" loading={busy}>
           Sign in <ArrowRight className="h-4 w-4" />
         </Button>

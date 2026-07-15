@@ -1,3 +1,5 @@
+import "server-only"; // reads GEMINI_API_KEY — keep out of the client bundle
+
 // ── Gemini (LEAP AI tutor) config — SERVER ONLY ──
 // The API key is never exposed to the browser; it is read only inside the
 // `/api/leap/*` route handlers. When the key is absent the tutor gracefully

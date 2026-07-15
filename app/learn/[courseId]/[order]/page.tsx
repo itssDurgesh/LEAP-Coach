@@ -17,6 +17,7 @@ import {
   Trash2,
   ClipboardCheck,
   ExternalLink,
+  MessageCircle,
 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
 import { Card } from "@/components/ui/Card";
@@ -83,9 +84,10 @@ function Player({ course, video }: { course: Course; video: Video }) {
     notesForCourse,
     addNote,
     deleteNote,
+    videoCommentsFor,
   } = useApp();
 
-  const [bottomTab, setBottomTab] = React.useState<"notes" | "transcript" | "resources">("transcript");
+  const [bottomTab, setBottomTab] = React.useState<"notes" | "transcript" | "resources" | "discussion">("transcript");
   const [rightTab, setRightTab] = React.useState<"chat" | "notes">("chat");
   const [noteText, setNoteText] = React.useState("");
 
@@ -116,10 +118,16 @@ function Player({ course, video }: { course: Course; video: Video }) {
     URL.revokeObjectURL(url);
   }
 
+  const discussionCount = videoCommentsFor(video.id).length;
   const bottomTabs = [
     { id: "notes" as const, label: "Class Notes", icon: FileText },
     { id: "transcript" as const, label: "Transcript", icon: ScrollText },
     { id: "resources" as const, label: "Resources", icon: Paperclip },
+    {
+      id: "discussion" as const,
+      label: discussionCount > 0 ? `Discussion · ${discussionCount}` : "Discussion",
+      icon: MessageCircle,
+    },
   ];
 
   return (
@@ -312,6 +320,8 @@ function Player({ course, video }: { course: Course; video: Video }) {
                   </div>
                 )}
 
+                {bottomTab === "discussion" && <VideoComments course={course} video={video} hideHeader />}
+
                 {bottomTab === "resources" && (
                   <ul className="space-y-2.5">
                     {video.resources.length ? (
@@ -345,11 +355,6 @@ function Player({ course, video }: { course: Course; video: Video }) {
                   </ul>
                 )}
               </div>
-            </Card>
-
-            {/* Per-video discussion (YouTube-style comments + @mentions) */}
-            <Card padded>
-              <VideoComments course={course} video={video} />
             </Card>
           </div>
 

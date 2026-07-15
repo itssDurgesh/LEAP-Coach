@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Pencil, Trash2, Users, Video, Bell, Calendar, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, Video, Bell, Calendar, Check, AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -40,15 +40,62 @@ export default function AdminSessionsPage() {
 }
 
 function SessionsAdmin() {
-  const { sessions, saveSession, deleteSession } = useApp();
+  const { sessions, users, saveSession, deleteSession, markSessionNotified } = useApp();
   const [editing, setEditing] = React.useState<LiveSession | null>(null);
-  const [toast, setToast] = React.useState("");
+  const [toast, setToast] = React.useState<{ ok: boolean; msg: string } | null>(null);
+  const [sendingId, setSendingId] = React.useState<string | null>(null);
 
   const sorted = [...sessions].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
 
-  function reminder(s: LiveSession) {
-    setToast(`Reminder emails queued for ${s.attendeeIds.length} attendees (1 day before).`);
-    setTimeout(() => setToast(""), 3000);
+  const showToast = (ok: boolean, msg: string) => {
+    setToast({ ok, msg });
+    setTimeout(() => setToast(null), 7000);
+  };
+
+  // Approx audience size (learners in this role, not banned/admin) for the N/M display.
+  const audienceSize = (targetRole: LiveSession["targetRole"]) =>
+    users.filter((u) => !u.isAdmin && !u.banned && (targetRole === "all" || u.role === targetRole)).length;
+
+  // Notify a session's audience by id. By default the server emails only those not yet
+  // reached (retry-safe); resendAll re-invites everyone. It records who was delivered.
+  async function emailInvites(s: LiveSession, resendAll = false) {
+    setSendingId(s.id);
+    try {
+      const res = await fetch("/api/admin/email/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "session", id: s.id, resendAll }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not send invites.");
+      markSessionNotified(s.id, data.notifiedAt ?? null, data.notifiedUserIds ?? []);
+      if (data.nothingToSend) {
+        showToast(true, `Everyone in the audience (${data.totalEligible}) has already been invited.`);
+      } else {
+        const reason = data.failedNow && data.errors?.length ? ` — e.g. ${data.errors[0]}` : "";
+        const remain = data.remaining ? ` · ${data.remaining} still not reached` : "";
+        const failed = data.failedNow ? ` · ${data.failedNow} failed${reason}` : "";
+        showToast(true, `Invited ${data.deliveredNow} of ${data.totalEligible}${failed}${remain}.`);
+      }
+    } catch (e) {
+      showToast(false, e instanceof Error ? e.message : "Could not send invites.");
+    } finally {
+      setSendingId(null);
+    }
+  }
+
+  function onBellClick(s: LiveSession) {
+    const audience = s.targetRole === "all" ? "all learners" : `all ${s.targetRole}s`;
+    const done = s.notifiedUserIds?.length ?? 0;
+    const total = audienceSize(s.targetRole);
+    if (done === 0) {
+      if (confirm(`Email an invite for "${s.title}" to ${audience} (${total})?`)) void emailInvites(s, false);
+    } else if (done < total) {
+      if (confirm(`Retry: invite the ${total - done} learner${total - done === 1 ? "" : "s"} who haven't received "${s.title}" yet?`))
+        void emailInvites(s, false);
+    } else if (confirm(`Everyone (${total}) has already been invited to "${s.title}". Re-send to all again?`)) {
+      void emailInvites(s, true);
+    }
   }
 
   return (
@@ -60,14 +107,23 @@ function SessionsAdmin() {
       </div>
 
       {toast && (
-        <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-medium text-green-700">
-          <Check className="h-4 w-4" /> {toast}
+        <div
+          className={
+            toast.ok
+              ? "flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-medium text-green-700"
+              : "flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700"
+          }
+        >
+          {toast.ok ? <Check className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />} {toast.msg}
         </div>
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {sorted.map((s) => {
           const d = new Date(s.startsAt);
+          const done = s.notifiedUserIds?.length ?? 0;
+          const total = audienceSize(s.targetRole);
+          const allDone = done > 0 && done >= total;
           return (
             <Card key={s.id} padded>
               <div className="flex items-start gap-4">
@@ -78,7 +134,14 @@ function SessionsAdmin() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-heading font-semibold text-heading">{s.title}</h3>
-                    <Badge variant="navy" className="capitalize">{s.targetRole}</Badge>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {done > 0 && (
+                        <Badge variant={allDone ? "success" : "gold"}>
+                          <Check className="h-3 w-3" /> {done}/{total} invited
+                        </Badge>
+                      )}
+                      <Badge variant="navy" className="capitalize">{s.targetRole}</Badge>
+                    </div>
                   </div>
                   <p className="mt-0.5 text-sm text-muted">
                     {s.instructorName}
@@ -97,8 +160,21 @@ function SessionsAdmin() {
                   <span className="font-semibold text-heading">{s.attendeeIds.length}</span>/{s.capacity} voted
                 </span>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => reminder(s)} title="Send reminder" className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-gold-600">
-                    <Bell className="h-4 w-4" />
+                  <button
+                    onClick={() => onBellClick(s)}
+                    disabled={sendingId === s.id}
+                    title={done === 0 ? "Email invite to audience" : allDone ? "All invited — re-send to everyone" : `Retry — ${total - done} not yet reached`}
+                    className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-gold-600 disabled:opacity-50"
+                  >
+                    {sendingId === s.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : done === 0 ? (
+                      <Bell className="h-4 w-4" />
+                    ) : allDone ? (
+                      <Check className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 text-gold-600" />
+                    )}
                   </button>
                   <a href={s.meetLink} target="_blank" rel="noopener noreferrer" title="Open Meet" className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading">
                     <Video className="h-4 w-4" />

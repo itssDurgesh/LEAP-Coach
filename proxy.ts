@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 // Clerk attaches the session to requests so server routes (e.g. the payments
 // verify handler) can read it via auth(). We do NOT protect routes here — the
 // app does its own client-side gating in AppShell/AdminShell. When Clerk isn't
-// configured (mock mode) the middleware is a no-op pass-through so the app still
+// configured (mock mode) the proxy is a no-op pass-through so the app still
 // builds and runs without keys.
 const hasClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 

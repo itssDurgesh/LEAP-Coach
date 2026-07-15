@@ -1,5 +1,7 @@
 import {
+  Announcement,
   Article,
+  Faq,
   Assignment,
   AppNotification,
   Book,
@@ -778,6 +780,42 @@ export const seedNotifications: AppNotification[] = [
     preview: "Beautifully put, @priya. Which value surprised you most?", read: false,
     createdAt: "2026-05-31T19:20:00.000Z",
   },
+];
+
+// ─────────────────────────── ANNOUNCEMENTS ───────────────────────────
+export const seedAnnouncements: Announcement[] = [
+  {
+    id: "an_welcome",
+    title: "Welcome to the new LEAP Coach experience",
+    body: "We've launched per-video discussions, plan upgrades, and downloadable notes. Tag a mentor with @ under any video to ask a question — you'll get notified when they reply.",
+    targetRole: "all",
+    pinned: true,
+    published: true,
+    authorId: "u_admin",
+    authorName: "Prof. Vishal Gupta",
+    createdAt: "2026-06-20T09:00:00.000Z",
+    updatedAt: "2026-06-20T09:00:00.000Z",
+  },
+  {
+    id: "an_office_hours",
+    title: "Founder office hours — this Friday",
+    body: "Entrepreneurs: bring your pitch deck to Friday's live office hours for candid, investor-grade feedback. Reserve your spot from the Live Sessions page.",
+    targetRole: "entrepreneur",
+    pinned: false,
+    published: true,
+    authorId: "u_admin",
+    authorName: "Prof. Vishal Gupta",
+    createdAt: "2026-06-24T09:00:00.000Z",
+    updatedAt: "2026-06-24T09:00:00.000Z",
+  },
+];
+
+// ─────────────────────────── FAQ ───────────────────────────
+export const seedFaqs: Faq[] = [
+  { id: "faq_what", question: "What is LEAP Coach?", answer: "LEAP Coach is an evidence-based leadership coaching platform by Prof. Vishal Gupta (IIM Ahmedabad). It offers structured coaching topics, a personal AI tutor on every lesson, and assessments that teach.", order: 0, published: true, createdAt: "2026-06-20T09:00:00.000Z", updatedAt: "2026-06-20T09:00:00.000Z" },
+  { id: "faq_plans", question: "What plans are available?", answer: "You can unlock catalogs with Free, Pro, Pro+, or Max plans, or buy individual topics. See the Pricing page for current prices; upgrades are pay-the-difference.", order: 1, published: true, createdAt: "2026-06-20T09:00:00.000Z", updatedAt: "2026-06-20T09:00:00.000Z" },
+  { id: "faq_credits", question: "How do learning credits work?", answer: "Each topic you complete is worth up to 100 credits, based on how many of its questions you get right — and how few attempts you need (first-try answers count for the most). Your total credits earn a badge: Aspirant (0–500), Learner (501–1000), Advanced (1001–1999), and Star (2000+).", order: 2, published: true, createdAt: "2026-06-20T09:00:00.000Z", updatedAt: "2026-06-20T09:00:00.000Z" },
+  { id: "faq_support", question: "How do I get support?", answer: "Email us at info.leapcoach@gmail.com and our team will help you.", order: 3, published: true, createdAt: "2026-06-20T09:00:00.000Z", updatedAt: "2026-06-20T09:00:00.000Z" },
 ];
 
 // ─────────────────────────── ARTICLES ───────────────────────────

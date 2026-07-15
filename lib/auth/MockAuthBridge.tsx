@@ -27,6 +27,12 @@ const mockAuth: AuthBridge = {
   async signInOAuth() {
     return { ok: false };
   },
+  async requestPasswordReset() {
+    return { ok: true };
+  },
+  async resetPassword() {
+    return { ok: true };
+  },
   async signOut() {
     /* handled in-state by AppProvider */
   },

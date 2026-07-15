@@ -119,6 +119,41 @@ export function ClerkAuthBridge({ children }: { children: React.ReactNode }) {
           return { ok: false, error: clerkErr(e) };
         }
       },
+      async requestPasswordReset(email) {
+        if (!signInLoaded || !signIn) return { ok: false, error: "Sign-in isn't ready yet. Please retry." };
+        try {
+          await signIn.create({ strategy: "reset_password_email_code", identifier: email.trim() });
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: clerkErr(e) };
+        }
+      },
+      async resetPassword(code, newPassword) {
+        if (!signInLoaded || !signIn) return { ok: false, error: "Sign-in isn't ready yet. Please retry." };
+        try {
+          const res = await signIn.attemptFirstFactor({
+            strategy: "reset_password_email_code",
+            code: code.trim(),
+          });
+          if (res.status === "needs_new_password") {
+            // Code verified — store the new password in Clerk and end other sessions
+            // (standard hygiene after a reset).
+            const done = await signIn.resetPassword({ password: newPassword, signOutOfOtherSessions: true });
+            if (done.status === "complete") {
+              await setActiveSignIn({ session: done.createdSessionId });
+              return { ok: true };
+            }
+            return { ok: false, error: "Couldn't finish resetting the password. Please try again." };
+          }
+          if (res.status === "complete") {
+            await setActiveSignIn({ session: res.createdSessionId });
+            return { ok: true };
+          }
+          return { ok: false, error: "That code didn't verify. Please try again." };
+        } catch (e) {
+          return { ok: false, error: clerkErr(e) };
+        }
+      },
       async signOut() {
         await clerk.signOut({ redirectUrl: "/" });
       },

@@ -18,6 +18,7 @@ import {
   ArrowRight,
   FileText,
   Download,
+  RotateCcw,
 } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { CourseThumb } from "@/components/CourseThumb";
@@ -31,6 +32,7 @@ import { ProgressRing } from "@/components/ui/ProgressRing";
 import { useApp } from "@/lib/store/AppProvider";
 import { courseCategories } from "@/lib/types";
 import { buildTopicReport } from "@/lib/report";
+import { topicCredit, TOPIC_CREDIT_MAX } from "@/lib/credits";
 import { downloadNotesPdf } from "@/lib/pdf";
 import { cn, formatINR, formatDuration, formatClock } from "@/lib/utils";
 
@@ -51,6 +53,8 @@ function CourseDetail() {
     getCourseBySlug,
     isEnrolled,
     hasAccess,
+    courseExpiresAt,
+    renewEnrollment,
     enrollFree,
     isVideoCompleted,
     isVideoUnlocked,
@@ -83,8 +87,19 @@ function CourseDetail() {
   const duration = course.videos.reduce((s, v) => s + v.durationSeconds, 0);
   const resumeOrder = course.videos.find((v) => !isVideoCompleted(v.id))?.order ?? 1;
 
+  // Course auto-expiry: access lapses accessDurationDays after enrolling (applies to everyone).
+  const expiresAt = courseExpiresAt(course.id);
+  const expired = enrolled && !!expiresAt && Date.parse(expiresAt) < Date.now();
+  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  // Free renew = a subscription-type entitlement; à-la-carte buyers must re-purchase.
+  const freeRenew =
+    course.price === 0 ||
+    currentUser?.subscriptionPlan === "all_access" ||
+    courseCategories(course).some((c) => (currentUser?.ownedCategories ?? []).includes(c));
+
   const enrollment = enrollments.find((e) => e.userId === currentUser?.id && e.courseId === course.id);
   const report = currentUser ? buildTopicReport(course, currentUser.id, submissions, progress, enrollment) : null;
+  const earnedCredit = currentUser ? topicCredit(course, currentUser.id, submissions).credit : 0;
   const myNotes = currentUser ? notesForCourse(course.id) : [];
 
   function handleEnroll() {
@@ -179,7 +194,33 @@ function CourseDetail() {
           <div className="overflow-hidden rounded-2xl border border-hair bg-card shadow-card">
             <CourseThumb accent={course.accent} category={course.category} src={course.thumbnailUrl} className="aspect-[16/9]" />
             <div className="p-5">
-              {enrolled ? (
+              {expired ? (
+                <>
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-600">
+                      <Clock className="h-6 w-6" />
+                    </span>
+                    <div>
+                      <p className="font-heading font-semibold text-heading">Access expired</p>
+                      <p className="text-sm text-muted">Your access ended on {fmtDate(expiresAt!)}.</p>
+                    </div>
+                  </div>
+                  {freeRenew ? (
+                    <Button onClick={() => renewEnrollment(course.id)} size="lg" className="mt-4 w-full">
+                      <RotateCcw className="h-4 w-4" /> Renew access
+                    </Button>
+                  ) : (
+                    <Button onClick={() => setCheckout(true)} size="lg" className="mt-4 w-full">
+                      Renew · {formatINR(course.price)}
+                    </Button>
+                  )}
+                  <p className="mt-2 text-center text-xs text-faint">
+                    {freeRenew
+                      ? "Included in your plan — renew to restart your access."
+                      : "Re-purchase to restart your access to this topic."}
+                  </p>
+                </>
+              ) : enrolled ? (
                 <>
                   <div className="flex items-center gap-4">
                     <ProgressRing value={prog.pct} size={72} stroke={7} />
@@ -197,6 +238,9 @@ function CourseDetail() {
                     {prog.completed > 0 ? "Continue learning" : "Start course"}{" "}
                     <ArrowRight className="h-4 w-4" />
                   </Link>
+                  {expiresAt && (
+                    <p className="mt-2 text-center text-xs text-faint">Access valid until {fmtDate(expiresAt)}</p>
+                  )}
                 </>
               ) : (
                 <>
@@ -234,32 +278,36 @@ function CourseDetail() {
 
       {/* Performance report — shown once the learner completes the whole topic */}
       {enrolled && report?.completed && (
-        <section className="rounded-3xl border border-gold-200 bg-gradient-to-br from-gold-50 to-cream-50 p-6 dark:from-gold-500/10 dark:to-transparent sm:p-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
+        <section className="rounded-2xl border border-gold-200 bg-gradient-to-br from-gold-50 to-cream-50 p-4 dark:from-gold-500/10 dark:to-transparent sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Badge variant="success">
                 <CheckCircle2 className="h-3.5 w-3.5" /> Topic completed
               </Badge>
-              <h2 className="mt-3 font-heading text-2xl font-bold text-heading">Your performance report</h2>
-              <div className="mt-2 flex items-center gap-1">
+              <h2 className="font-heading text-lg font-bold text-heading">Your performance report</h2>
+              <div className="flex items-center gap-0.5">
                 {[1, 2, 3, 4, 5].map((n) => (
                   <Star
                     key={n}
-                    className={cn("h-6 w-6", n <= report.stars ? "fill-gold-500 text-gold-500" : "text-hair")}
+                    className={cn("h-4 w-4", n <= report.stars ? "fill-gold-500 text-gold-500" : "text-hair")}
                   />
                 ))}
-                <span className="ml-2 text-sm font-semibold text-heading">{report.stars}.0 / 5</span>
+                <span className="ml-1.5 text-xs font-semibold text-heading">{report.stars}.0 / 5</span>
               </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500 px-2.5 py-1 text-xs font-bold text-navy-900">
+                <Award className="h-3.5 w-3.5" /> {earnedCredit} / {TOPIC_CREDIT_MAX} credits
+              </span>
             </div>
             <Button
               variant="outline"
+              size="sm"
               onClick={() => downloadNotesPdf(course, myNotes, currentUser?.name)}
               disabled={!myNotes.length}
             >
-              <Download className="h-4 w-4" /> Download my notes (PDF)
+              <Download className="h-4 w-4" /> Download notes (PDF)
             </Button>
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             {[
               {
                 label: "Completed in",
@@ -277,9 +325,9 @@ function CourseDetail() {
                 icon: CheckCircle2,
               },
             ].map((s) => (
-              <div key={s.label} className="rounded-2xl bg-card p-4 ring-1 ring-hair">
-                <s.icon className="h-5 w-5 text-gold-600" />
-                <p className="mt-2 font-heading text-xl font-bold text-heading">{s.value}</p>
+              <div key={s.label} className="rounded-xl bg-card p-3 ring-1 ring-hair">
+                <s.icon className="h-4 w-4 text-gold-600" />
+                <p className="mt-1.5 font-heading text-base font-bold text-heading">{s.value}</p>
                 <p className="text-xs text-muted">{s.label}</p>
               </div>
             ))}

@@ -1,18 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { GEMINI_MODEL, MAX_TRANSCRIPT_CHARS } from "@/lib/ai/config";
 import { isClerkConfigured } from "@/lib/clerk/config";
+import { parseJson } from "@/lib/api/validate";
+import { apiError, logError } from "@/lib/api/errors";
+import { enforceRate } from "@/lib/api/rate-limit";
 
 export const runtime = "nodejs";
 
 type Action = "summarize" | "quiz" | "deeper";
 
-interface ChatBody {
-  courseTitle: string;
-  video: { title: string; summary: string; transcript: string };
-  messages: { role: "user" | "assistant"; text: string }[];
-  action?: Action;
-}
+// Bound every user-supplied string so a request can't inflate token cost or carry a
+// prompt-injection-sized payload. The per-message cap is env-tunable (AI_MAX_MESSAGE_CHARS).
+const MAX_MESSAGE_CHARS = Number(process.env.AI_MAX_MESSAGE_CHARS) || 4000;
+
+const ChatSchema = z.object({
+  courseTitle: z.string().max(300).optional().default(""),
+  video: z.object({
+    title: z.string().min(1, "Missing lesson context.").max(300),
+    summary: z.string().max(4000).optional().default(""),
+    transcript: z.string().max(60_000).optional().default(""),
+  }),
+  messages: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(MAX_MESSAGE_CHARS) }))
+    .max(50)
+    .optional()
+    .default([]),
+  action: z.enum(["summarize", "quiz", "deeper"]).optional(),
+});
 
 function actionDirective(action?: Action): string {
   switch (action) {
@@ -35,26 +51,25 @@ export async function POST(req: NextRequest) {
   // The tutor is only used by signed-in learners on the gated /learn page. Require
   // a Clerk session in real mode so this isn't an open Gemini proxy. (Mock/dev with
   // no Clerk keys stays open for local use.)
+  let userId: string | null = null;
   if (isClerkConfigured) {
     try {
-      const { userId } = await auth();
-      if (!userId) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+      ({ userId } = await auth());
     } catch {
-      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+      userId = null;
     }
+    if (!userId) return apiError(401, "Not authenticated.");
   }
 
-  let body: ChatBody;
-  try {
-    body = (await req.json()) as ChatBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-  }
+  // Throttle per user (or per IP) — prevents Gemini abuse, denial-of-wallet, and scraping.
+  const limited = enforceRate(req, "ai", userId);
+  if (limited) return limited;
 
-  const { courseTitle, video, messages = [], action } = body;
-  if (!video?.title) return NextResponse.json({ error: "Missing lesson context." }, { status: 400 });
+  const parsed = await parseJson(req, ChatSchema);
+  if (!parsed.ok) return apiError(400, parsed.error);
+  const { courseTitle, video, messages, action } = parsed.data;
 
-  const transcript = (video.transcript || "").slice(0, MAX_TRANSCRIPT_CHARS);
+  const transcript = video.transcript.slice(0, MAX_TRANSCRIPT_CHARS);
   const systemInstruction = [
     `You are the LEAP Coach AI tutor — a warm, encouraging learning assistant for the coaching topic “${courseTitle}”.`,
     `You are helping a learner with one specific lesson video: “${video.title}”.`,
@@ -113,7 +128,7 @@ export async function POST(req: NextRequest) {
     if (!reply) return NextResponse.json({ fallback: true });
     return NextResponse.json({ reply });
   } catch (e) {
-    console.error("[gemini] request failed", e);
+    logError("leap/chat", e);
     return NextResponse.json({ fallback: true });
   }
 }

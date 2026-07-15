@@ -42,19 +42,22 @@ export function HomeHero({ initialContent }: { initialContent?: SiteContent | nu
       <div className="pointer-events-none absolute -top-24 right-0 h-96 w-96 rounded-full bg-gold-500/20 blur-3xl" />
       <div className="pointer-events-none absolute -left-24 top-44 h-80 w-80 rounded-full bg-navy-600/40 blur-3xl" />
 
-      <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[1.1fr_0.9fr] lg:py-24">
+      <div className="relative mx-auto grid max-w-7xl items-center gap-9 px-5 pb-12 pt-20 sm:gap-12 sm:px-8 sm:pb-16 sm:pt-24 lg:grid-cols-[1.1fr_0.9fr] lg:pb-24 lg:pt-28">
         <div>
-          <p className="font-heading text-sm font-semibold uppercase tracking-[0.16em] sm:text-base">
+          <p className="font-heading text-[11px] font-semibold uppercase leading-relaxed tracking-[0.12em] sm:text-base sm:tracking-[0.16em]">
             <span className="text-cream-100/90">L·E·A·P</span>
-            <span className="mx-2 text-gold-400">—</span>
+            <span className="mx-1.5 text-gold-400 sm:mx-2">—</span>
             <Typewriter text={c.heroEyebrow} className="text-gold-500" speed={65} />
           </p>
-          <h1 className="mt-4 font-heading text-4xl font-extrabold leading-[1.  08] text-balance sm:text-5xl lg:text-[3.4rem]">
+          <h1 className="mt-3 font-heading text-[1.9rem] font-extrabold leading-[1.1] text-balance sm:mt-4 sm:text-5xl sm:leading-[1.08] lg:text-[3.4rem]">
             {highlightTitle(c.heroTitle, c.heroHighlights)}
           </h1>
-          <p className="mt-5 max-w-xl text-lg leading-relaxed text-cream-100/75">{c.heroSubtitle}</p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Link href="/signup" className={buttonClasses({ variant: "primary", size: "lg" })}>
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-cream-100/75 sm:mt-5 sm:text-lg">{c.heroSubtitle}</p>
+          <div className="mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row sm:flex-wrap sm:items-center">
+            <Link
+              href="/signup"
+              className={buttonClasses({ variant: "primary", size: "lg", className: "w-full justify-center sm:w-auto" })}
+            >
               Start Your Journey <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
@@ -62,17 +65,17 @@ export function HomeHero({ initialContent }: { initialContent?: SiteContent | nu
               className={buttonClasses({
                 variant: "outline",
                 size: "lg",
-                className: "border-white/30 bg-transparent text-white hover:bg-card/10",
+                className: "w-full justify-center border-white/30 bg-transparent text-white hover:bg-card/10 sm:w-auto",
               })}
             >
               Explore Topics
             </Link>
           </div>
-          <div className="mt-7 flex flex-wrap gap-2.5">
+          <div className="mt-6 flex flex-wrap gap-2 sm:mt-7 sm:gap-2.5">
             {PROFESSOR.heroStats.map((s) => (
               <span
                 key={s.label}
-                className="inline-flex items-baseline gap-1.5 rounded-full border border-hair bg-[#ffffff] px-3 py-1.5 shadow-sm"
+                className="inline-flex items-baseline gap-1.5 rounded-full border border-hair bg-[#ffffff] px-2.5 py-1 shadow-sm sm:px-3 sm:py-1.5"
               >
                 <span className="font-heading text-sm font-bold text-navy-900">{s.value}</span>
                 <span className="text-xs text-navy-600">{s.label}</span>

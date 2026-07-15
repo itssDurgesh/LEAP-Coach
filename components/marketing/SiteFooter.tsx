@@ -1,6 +1,11 @@
 import Link from "next/link";
-import { Mail, Phone, MapPin, Youtube, Linkedin, Instagram, ArrowRight, Lock } from "lucide-react";
+import { Mail, Phone, MapPin, Youtube, Linkedin, ArrowRight, Lock } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
+
+const socials = [
+  { Icon: Youtube, href: "https://www.youtube.com/@ProfVishalGupta/videos", label: "YouTube" },
+  { Icon: Linkedin, href: "https://www.linkedin.com/in/gvishal/", label: "LinkedIn" },
+];
 
 const columns = [
   {
@@ -11,6 +16,7 @@ const columns = [
       { label: "Team", href: "/team" },
       { label: "Topics", href: "/courses" },
       { label: "Pricing", href: "/pricing" },
+      { label: "FAQ", href: "/faq" },
     ],
   },
 ];
@@ -27,11 +33,32 @@ export function SiteFooter() {
               High-quality, evidence-based learning. Scale human wisdom — creating high performance stars.
             </p>
             <div className="mt-5 space-y-2 text-sm text-cream-100/80">
+              {/* Primary support email — anchors + suppressHydrationWarning so a browser
+                  extension that rewrites email text can't trip React hydration. */}
               <p className="flex items-center gap-2.5">
-                <Mail className="h-4 w-4 text-gold-400" /> vishal@iima.ac.in
+                <Mail className="h-4 w-4 shrink-0 text-gold-400" />
+                <a
+                  href="mailto:info.leapcoach@gmail.com"
+                  suppressHydrationWarning
+                  className="font-medium text-cream-100 hover:text-gold-400"
+                >
+                  info.leapcoach@gmail.com
+                </a>
+                <span className="text-xs text-cream-100/50">(support)</span>
               </p>
               <p className="flex items-center gap-2.5">
-                <Phone className="h-4 w-4 text-gold-400" /> +91-79-7152-4935
+                <Mail className="h-4 w-4 shrink-0 text-gold-400" />
+                <a
+                  href="mailto:vishal@iima.ac.in"
+                  suppressHydrationWarning
+                  className="hover:text-gold-400"
+                >
+                  vishal@iima.ac.in
+                </a>
+              </p>
+              <p className="flex items-center gap-2.5">
+                <Phone className="h-4 w-4 shrink-0 text-gold-400" />
+                <span suppressHydrationWarning>+91-79-7152-4935</span>
               </p>
               <p className="flex items-start gap-2.5">
                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gold-400" />
@@ -67,10 +94,14 @@ export function SiteFooter() {
               Connect
             </h4>
             <div className="mt-4 flex gap-2.5">
-              {[Youtube, Linkedin, Instagram].map((Icon, i) => (
+              {socials.map(({ Icon, href, label }) => (
                 <a
-                  key={i}
-                  href="#"
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={label}
+                  title={label}
                   className="grid h-9 w-9 place-items-center rounded-lg bg-white/10 text-cream-100 transition-colors hover:bg-gold-500 hover:text-navy-900"
                 >
                   <Icon className="h-4 w-4" />
@@ -100,9 +131,9 @@ export function SiteFooter() {
           <p>© 2026 Prof. Vishal Gupta. All rights reserved.</p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <Link href="/about" className="hover:text-gold-400">About</Link>
-            <Link href="#" className="hover:text-gold-400">Terms of Service</Link>
-            <Link href="#" className="hover:text-gold-400">Privacy</Link>
-            <Link href="#" className="hover:text-gold-400">Contact Support</Link>
+            <Link href="/faq" className="hover:text-gold-400">FAQ</Link>
+            <Link href="/privacy" className="hover:text-gold-400">Privacy</Link>
+            <a href="mailto:info.leapcoach@gmail.com" className="hover:text-gold-400">Contact Support</a>
             <Link
               href="/admin/login"
               className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-1 text-cream-100/80 hover:border-gold-400 hover:text-gold-400"

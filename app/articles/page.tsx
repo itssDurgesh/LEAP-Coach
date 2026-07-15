@@ -19,7 +19,7 @@ export default function ArticlesPage() {
 function Articles() {
   const { articles, users } = useApp();
   const published = articles
-    .filter((a) => a.published)
+    .filter((a) => a.published && !a.archived)
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
   return (

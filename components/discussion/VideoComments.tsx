@@ -31,7 +31,7 @@ function RoleTag({ role }: { role: VideoComment["userRole"] }) {
 
 /** YouTube-style comments under a single topic video: threaded one reply level,
  *  @mentions (which notify the tagged person), likes, edit/delete (own + admin). */
-export function VideoComments({ course, video }: { course: Course; video: Video }) {
+export function VideoComments({ course, video, hideHeader }: { course: Course; video: Video; hideHeader?: boolean }) {
   const { currentUser, users, videoCommentsFor, addVideoComment } = useApp();
   const [text, setText] = React.useState("");
 
@@ -51,12 +51,14 @@ export function VideoComments({ course, video }: { course: Course; video: Video 
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-2">
-        <MessageCircle className="h-5 w-5 text-gold-600" />
-        <h3 className="font-heading text-lg font-bold text-heading">
-          Discussion {comments.length > 0 && <span className="text-faint">· {comments.length}</span>}
-        </h3>
-      </div>
+      {!hideHeader && (
+        <div className="mb-4 flex items-center gap-2">
+          <MessageCircle className="h-5 w-5 text-gold-600" />
+          <h3 className="font-heading text-lg font-bold text-heading">
+            Discussion {comments.length > 0 && <span className="text-faint">· {comments.length}</span>}
+          </h3>
+        </div>
+      )}
 
       {/* composer */}
       {currentUser && (

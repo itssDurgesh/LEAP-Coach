@@ -18,9 +18,11 @@ create table if not exists public.profiles (
   nationality               text,
   region                    text,
   learning_credits          int default 0,
+  topic_credits             jsonb default '{}',   -- courseId -> best credit earned for that topic (0–100)
   subscription_plan         text default 'none' check (subscription_plan in ('none','all_access','per_course')),
   subscription_valid_until  timestamptz,
   banned                    boolean default false,
+  email_opt_out             boolean default false,         -- true = excluded from broadcast emails (set via unsubscribe link)
   is_admin                  boolean default false,
   permissions               jsonb,                         -- null = full owner; array = sub-admin scope
   created_at                timestamptz default now(),
@@ -143,6 +145,8 @@ create table if not exists public.live_sessions (
   description     text,
   target_role     text default 'all',
   capacity        int default 100,
+  notified_at     timestamptz,                             -- when this session was first emailed to its audience
+  notified_user_ids jsonb default '[]',                    -- profile ids that have been successfully emailed (retry targets the rest)
   created_at      timestamptz default now()
 );
 
@@ -157,6 +161,7 @@ create table if not exists public.pricing_tiers (
   cat2           int not null,                 -- any two categories
   cat3           int not null,                 -- all three (all-access)
   per_topic_from int default 999,              -- "from ₹X / topic" on the pricing page
+  show_upgrade_info boolean default true,      -- show learners the "why this price?" upgrade explainer
   constraint pricing_tiers_singleton check (id = 1)
 );
 insert into public.pricing_tiers (id, cat1, cat2, cat3)
@@ -394,6 +399,22 @@ create table if not exists public.books (
   active      boolean default true
 );
 
+-- Announcements (admin broadcast → learners read on /announcements).
+create table if not exists public.announcements (
+  id          text primary key,
+  title       text not null,
+  body        text,
+  target_role text default 'all',   -- 'all' | 'student' | 'professional' | 'entrepreneur'
+  pinned      boolean default false,
+  published   boolean default true,
+  author_id   text,
+  author_name text,
+  notified_at timestamptz,                    -- when this announcement was first emailed to its audience
+  notified_user_ids jsonb default '[]',       -- profile ids that have been successfully emailed (retry targets the rest)
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
+);
+
 -- Articles written by the admin, shown to learners.
 create table if not exists public.articles (
   id          text primary key,
@@ -405,6 +426,7 @@ create table if not exists public.articles (
   author_id   text references public.profiles (id) on delete set null,
   author_name text,
   published   boolean default false,
+  archived    boolean default false,          -- hidden from learners/catalog, kept for admin records
   created_at  timestamptz default now(),
   updated_at  timestamptz default now()
 );
@@ -431,17 +453,27 @@ alter table public.profiles      add column if not exists username text;
 alter table public.profiles      add column if not exists headline text;
 alter table public.profiles      add column if not exists bio text;
 alter table public.profiles      add column if not exists permissions jsonb;
+alter table public.profiles      add column if not exists topic_credits jsonb default '{}';
 alter table public.pricing_tiers add column if not exists per_topic_from int default 999;
+alter table public.pricing_tiers add column if not exists show_upgrade_info boolean default true;
 alter table public.courses       add column if not exists categories text[] default '{}';
 alter table public.courses       add column if not exists thumbnail_url text;
 alter table public.courses       add column if not exists workbook_name text;
 alter table public.courses       add column if not exists workbook_url text;
 alter table public.courses       add column if not exists pending_approval boolean default false;
 alter table public.courses       add column if not exists submitted_by text;
+alter table public.courses       add column if not exists access_duration_days int;
 alter table public.videos        add column if not exists notes_file_url text;
 alter table public.articles      add column if not exists images jsonb default '[]';
+alter table public.articles      add column if not exists archived boolean default false;
 alter table public.notifications add column if not exists video_id text;
 alter table public.notifications add column if not exists course_id text;
+-- Notify-all-users: track delivery per item (+ per-recipient retry) + let learners opt out.
+alter table public.announcements  add column if not exists notified_at timestamptz;
+alter table public.live_sessions  add column if not exists notified_at timestamptz;
+alter table public.announcements  add column if not exists notified_user_ids jsonb default '[]';
+alter table public.live_sessions  add column if not exists notified_user_ids jsonb default '[]';
+alter table public.profiles       add column if not exists email_opt_out boolean default false;
 
 -- Backfill @usernames for profiles that don't have one yet (tagging on the
 -- discussion board resolves people by handle). Idempotent: only fills NULLs.
@@ -502,6 +534,7 @@ alter table public.site_content          enable row level security;
 alter table public.team_members          enable row level security;
 alter table public.books                 enable row level security;
 alter table public.articles              enable row level security;
+alter table public.announcements         enable row level security;
 
 -- Profiles: readable by all; users create + edit their own row; admins manage all.
 -- "insert self" replaces the old auth.users trigger — the app provisions the row
@@ -531,12 +564,20 @@ do $$ declare t text; begin
   end loop;
 end $$;
 
--- Articles: learners read only PUBLISHED ones; admins read everything and write.
+-- Articles: learners read only PUBLISHED, non-archived ones; admins read everything and write.
 drop policy if exists "articles read"        on public.articles;
 drop policy if exists "articles admin write" on public.articles;
 create policy "articles read" on public.articles
-  for select using (published or public.is_admin());
+  for select using ((published and not coalesce(archived, false)) or public.is_admin());
 create policy "articles admin write" on public.articles
+  for all using (public.is_admin()) with check (public.is_admin());
+
+-- Announcements: learners read only PUBLISHED ones; admins read everything and write.
+drop policy if exists "announcements read"        on public.announcements;
+drop policy if exists "announcements admin write" on public.announcements;
+create policy "announcements read" on public.announcements
+  for select using (published or public.is_admin());
+create policy "announcements admin write" on public.announcements
   for all using (public.is_admin()) with check (public.is_admin());
 
 -- Pricing: public read; admin write.
@@ -723,7 +764,88 @@ create index if not exists idx_video_comment_likes_comment on public.video_comme
 create index if not exists idx_video_comment_likes_user    on public.video_comment_likes (user_id);
 create index if not exists idx_notifications_actor      on public.notifications (actor_id);
 create index if not exists idx_articles_published       on public.articles (published, created_at desc);
+create index if not exists idx_announcements_published   on public.announcements (published, pinned, created_at desc);
 create index if not exists idx_courses_published        on public.courses (published);
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 11b. TELEGRAM BOT LINKING
+--      Bridges the website and the standalone Telegram bot (see bot/ + docs/
+--      TELEGRAM_BOT.md). Both sides talk to these tables with the service-role key,
+--      so RLS is closed (no anon/authenticated access). Also shipped standalone as
+--      supabase/telegram-bot.sql for running on an already-migrated database.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.telegram_link_tokens (
+  token       text primary key,
+  user_id     text not null references public.profiles (id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  expires_at  timestamptz not null,
+  used_at     timestamptz
+);
+create index if not exists telegram_link_tokens_user_idx    on public.telegram_link_tokens (user_id);
+create index if not exists telegram_link_tokens_expires_idx on public.telegram_link_tokens (expires_at);
+
+create table if not exists public.telegram_links (
+  user_id           text primary key references public.profiles (id) on delete cascade,
+  chat_id           bigint not null unique,
+  telegram_username text,
+  linked_at         timestamptz not null default now(),
+  last_seen_at      timestamptz
+);
+
+alter table public.telegram_link_tokens enable row level security;
+alter table public.telegram_links        enable row level security;
+-- No permissive policies → only the service-role key (website routes + bot) gets access.
+
+-- Realtime: the bot listens for live announcement / course / notification inserts.
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='announcements') then
+      alter publication supabase_realtime add table public.announcements;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='courses') then
+      alter publication supabase_realtime add table public.courses;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='notifications') then
+      alter publication supabase_realtime add table public.notifications;
+    end if;
+  end if;
+end $$;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 11c. FAQ + PRIVACY POLICY  (also shipped standalone as supabase/faq-and-privacy.sql)
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists public.faqs (
+  id          text primary key,
+  question    text not null,
+  answer      text not null,
+  order_index int  not null default 0,
+  published   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index if not exists idx_faqs_published on public.faqs (published, order_index);
+
+create table if not exists public.site_pages (
+  id             int primary key default 1,
+  privacy_policy text,
+  updated_at     timestamptz not null default now(),
+  constraint site_pages_singleton check (id = 1)
+);
+insert into public.site_pages (id, privacy_policy) values (1, null) on conflict (id) do nothing;
+
+alter table public.faqs       enable row level security;
+alter table public.site_pages enable row level security;
+drop policy if exists "faqs read"        on public.faqs;
+drop policy if exists "faqs admin write" on public.faqs;
+create policy "faqs read" on public.faqs for select using (published or public.is_admin());
+create policy "faqs admin write" on public.faqs for all using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "site_pages read"        on public.site_pages;
+drop policy if exists "site_pages admin write" on public.site_pages;
+create policy "site_pages read" on public.site_pages for select using (true);
+create policy "site_pages admin write" on public.site_pages for all using (public.is_admin()) with check (public.is_admin());
 
 
 -- ─────────────────────────────────────────────────────────────────────────────

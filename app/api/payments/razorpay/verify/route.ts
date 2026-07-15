@@ -1,32 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { createClient } from "@supabase/supabase-js";
 import { processPayment } from "@/lib/payments/grant";
+import { parseJson } from "@/lib/api/validate";
+import { logError } from "@/lib/api/errors";
+import { enforceRate } from "@/lib/api/rate-limit";
 
 export const runtime = "nodejs";
 
-interface VerifyBody {
-  razorpay_order_id: string;
-  razorpay_payment_id: string;
-  razorpay_signature: string;
-}
+const VerifySchema = z.object({
+  razorpay_order_id: z.string().min(1).max(100),
+  razorpay_payment_id: z.string().min(1).max(100),
+  razorpay_signature: z.string().min(1).max(256),
+});
 
 export async function POST(req: NextRequest) {
   const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
   if (!keyId || !keySecret) return NextResponse.json({ ok: false, fallback: true });
 
-  let b: VerifyBody;
-  try {
-    b = (await req.json()) as VerifyBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid request body." }, { status: 400 });
-  }
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = b;
-  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-    return NextResponse.json({ ok: false, error: "Missing verification fields." }, { status: 400 });
-  }
+  // Throttle to curb abuse of the signature-verify + Razorpay-fetch path.
+  const limited = enforceRate(req, "payment", null, { ok: false });
+  if (limited) return limited;
+
+  const parsed = await parseJson(req, VerifySchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = parsed.data;
 
   // 1) Verify the Razorpay signature: HMAC-SHA256(order_id|payment_id, key_secret).
   const expected = crypto
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
     couponCode = order.notes?.couponCode || undefined;
     amountInr = Math.round((order.amount ?? 0) / 100);
   } catch (e) {
-    console.error("[razorpay] confirm error", e);
+    logError("payments/verify", e);
     return NextResponse.json({ ok: false, error: "Could not confirm payment." }, { status: 502 });
   }
 
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest) {
       courseId,
     });
   } catch (e) {
-    console.error("[razorpay] process error", e);
+    logError("payments/verify", e);
     // Captured at Razorpay but we couldn't record it — the webhook will reconcile.
     return NextResponse.json({
       ok: true,

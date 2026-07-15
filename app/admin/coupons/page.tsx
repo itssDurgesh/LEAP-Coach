@@ -32,13 +32,14 @@ function PricingEditor() {
   const [saved, setSaved] = React.useState(false);
 
   // Keep the form in sync if pricing loads/changes from the server.
-  React.useEffect(() => setForm(pricing), [pricing.cat1, pricing.cat2, pricing.cat3, pricing.perTopicFrom]);
+  React.useEffect(() => setForm(pricing), [pricing.cat1, pricing.cat2, pricing.cat3, pricing.perTopicFrom, pricing.showUpgradeInfo]);
 
   const dirty =
     form.cat1 !== pricing.cat1 ||
     form.cat2 !== pricing.cat2 ||
     form.cat3 !== pricing.cat3 ||
-    form.perTopicFrom !== pricing.perTopicFrom;
+    form.perTopicFrom !== pricing.perTopicFrom ||
+    (form.showUpgradeInfo ?? true) !== (pricing.showUpgradeInfo ?? true);
   const tiers: { key: "cat1" | "cat2" | "cat3"; label: string; hint: string }[] = [
     { key: "cat1", label: "1 category", hint: "Single-category pass" },
     { key: "cat2", label: "2 categories", hint: "Any two categories" },
@@ -51,7 +52,9 @@ function PricingEditor() {
         <IndianRupee className="h-5 w-5 text-gold-600" /> Plan prices (category bundles)
       </h2>
       <p className="mt-1 text-sm text-muted">
-        Bundle price is by the number of categories a learner picks. Individual topic prices are set on each topic.
+        Bundle price is by the number of categories a learner picks. <strong>Upgrades are charged as the difference</strong>{" "}
+        — e.g. a learner on 1 category (₹{form.cat1.toLocaleString("en-IN")}) who upgrades to all 3 pays only{" "}
+        ₹{Math.max(0, form.cat3 - form.cat1).toLocaleString("en-IN")}. Individual topic prices are set on each topic.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         {tiers.map((t) => (
@@ -79,12 +82,34 @@ function PricingEditor() {
           onChange={(e) => setForm((f) => ({ ...f, perTopicFrom: Number(e.target.value) }))}
         />
       </div>
+      {/* Toggle the learner-facing "why this price?" explainer on the Upgrade card. */}
+      <label className="mt-4 flex cursor-pointer items-start gap-2.5 border-t border-hair pt-4">
+        <input
+          type="checkbox"
+          checked={form.showUpgradeInfo !== false}
+          onChange={(e) => setForm((f) => ({ ...f, showUpgradeInfo: e.target.checked }))}
+          className="mt-0.5 h-4 w-4 accent-gold-500"
+        />
+        <span className="text-sm">
+          <span className="font-medium text-heading">Show learners the &ldquo;why this price?&rdquo; explainer</span>
+          <span className="block text-xs text-muted">
+            Adds an info (ⓘ) toggle to the learner&rsquo;s &ldquo;Upgrade your plan&rdquo; card that explains, in
+            real time, why an upgrade is charged as the difference. Turn off to hide it.
+          </span>
+        </span>
+      </label>
       <div className="mt-4 flex items-center justify-end gap-3">
         {saved && <span className="text-sm font-medium text-green-600">Saved ✓</span>}
         <Button
           disabled={!dirty}
           onClick={() => {
-            savePricing({ cat1: form.cat1, cat2: form.cat2, cat3: form.cat3, perTopicFrom: form.perTopicFrom });
+            savePricing({
+              cat1: form.cat1,
+              cat2: form.cat2,
+              cat3: form.cat3,
+              perTopicFrom: form.perTopicFrom,
+              showUpgradeInfo: form.showUpgradeInfo !== false,
+            });
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
           }}

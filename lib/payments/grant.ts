@@ -1,3 +1,4 @@
+import "server-only"; // payment fulfilment — service-role only, never client
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { incrementCouponRedemption } from "./server";
 
@@ -44,7 +45,9 @@ export async function grantAccess(
       );
       await setAllAccess();
       if (courseId)
-        await admin.from("enrollments").upsert({ user_id: userId, course_id: courseId }, { onConflict: "user_id,course_id" });
+        await admin
+          .from("enrollments")
+          .upsert({ user_id: userId, course_id: courseId, enrolled_at: new Date().toISOString() }, { onConflict: "user_id,course_id" });
     } else if (plan === "bundle") {
       if (!categories.length) return { ok: false, error: "Nothing to grant." };
       await admin.from("category_passes").upsert(
@@ -57,7 +60,10 @@ export async function grantAccess(
       if (CATS.every((c) => set.has(c))) await setAllAccess();
     } else if (courseId) {
       await admin.from("course_purchases").upsert({ user_id: userId, course_id: courseId }, { onConflict: "user_id,course_id" });
-      await admin.from("enrollments").upsert({ user_id: userId, course_id: courseId }, { onConflict: "user_id,course_id" });
+      // (Re)purchase restarts the access timer for time-boxed courses.
+      await admin
+        .from("enrollments")
+        .upsert({ user_id: userId, course_id: courseId, enrolled_at: new Date().toISOString() }, { onConflict: "user_id,course_id" });
     } else {
       return { ok: false, error: "Nothing to grant." };
     }

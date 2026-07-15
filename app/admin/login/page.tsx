@@ -65,6 +65,13 @@ export default function AdminLoginPage() {
             required
           />
         </Field>
+        {supabaseMode && (
+          <div className="-mt-2 text-right">
+            <Link href="/forgot-password" className="text-xs font-semibold text-gold-600 hover:text-gold-700">
+              Forgot password?
+            </Link>
+          </div>
+        )}
         <Button type="submit" variant="navy" className="w-full">
           <ShieldCheck className="h-4 w-4" /> Enter Control Center
         </Button>

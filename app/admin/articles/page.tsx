@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Plus, Pencil, Trash2, Upload, EyeOff, Newspaper, CalendarDays, ImagePlus, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, EyeOff, Newspaper, CalendarDays, ImagePlus, X, Archive, ArchiveRestore } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -37,15 +37,28 @@ function ArticlesAdmin() {
     authorId: currentUser?.id ?? "",
     authorName: currentUser?.name ?? "LEAP Coach",
     published: false,
+    archived: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
 
-  const sorted = [...articles].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  // Active articles first (newest first), then archived ones grouped at the bottom.
+  const sorted = [...articles].sort((a, b) => {
+    if (!!a.archived !== !!b.archived) return a.archived ? 1 : -1;
+    return a.createdAt < b.createdAt ? 1 : -1;
+  });
+  const archivedCount = articles.filter((a) => a.archived).length;
+
+  const toggleArchive = (a: Article) =>
+    saveArticle({ ...a, archived: !a.archived, updatedAt: new Date().toISOString() });
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted">
+          Use the <Archive className="mb-0.5 inline h-3.5 w-3.5" /> archive button to hide an article from learners
+          without deleting it{archivedCount > 0 ? ` · ${archivedCount} archived` : ""}.
+        </p>
         <Button onClick={() => setEditing(blank())}>
           <Plus className="h-4 w-4" /> Write article
         </Button>
@@ -62,7 +75,7 @@ function ArticlesAdmin() {
 
       <div className="space-y-4">
         {sorted.map((a) => (
-          <Card key={a.id} padded>
+          <Card key={a.id} padded className={a.archived ? "opacity-60" : undefined}>
             <div className="flex items-start gap-4">
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-surface-2 text-gold-600">
                 <Newspaper className="h-5 w-5" />
@@ -70,7 +83,11 @@ function ArticlesAdmin() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-heading font-semibold text-heading">{a.title || "Untitled"}</h3>
-                  {a.published ? (
+                  {a.archived ? (
+                    <Badge variant="neutral">
+                      <Archive className="h-3 w-3" /> Archived
+                    </Badge>
+                  ) : a.published ? (
                     <Badge variant="success">Published</Badge>
                   ) : (
                     <Badge variant="neutral">
@@ -91,6 +108,13 @@ function ArticlesAdmin() {
                   className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading"
                 >
                   <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => toggleArchive(a)}
+                  title={a.archived ? "Unarchive (show to learners again)" : "Archive (hide from learners)"}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-heading"
+                >
+                  {a.archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
                 </button>
                 <button
                   onClick={() => {

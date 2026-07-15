@@ -60,6 +60,7 @@ interface Draft {
   instructorBio: string;
   level: Course["level"];
   price: number;
+  accessDurationDays: number; // 0 = lifetime
   accent: number;
   thumbnailUrl: string | null;
   workbookName: string | null;
@@ -95,6 +96,7 @@ function blankDraft(): Draft {
     instructorBio: "",
     level: "Beginner",
     price: 0,
+    accessDurationDays: 0,
     accent: 0,
     thumbnailUrl: null,
     workbookName: null,
@@ -118,6 +120,7 @@ function toDraft(c: Course): Draft {
     instructorBio: c.instructorBio,
     level: c.level,
     price: c.price,
+    accessDurationDays: c.accessDurationDays ?? 0,
     accent: c.accent,
     thumbnailUrl: c.thumbnailUrl ?? null,
     workbookName: c.workbookName ?? null,
@@ -220,6 +223,7 @@ function toCourse(d: Draft, existing?: Course): Course {
     trending: existing?.trending ?? false,
     published: d.published,
     accent: d.accent,
+    accessDurationDays: d.accessDurationDays && d.accessDurationDays > 0 ? d.accessDurationDays : null,
     thumbnailUrl: d.thumbnailUrl,
     workbookName: d.workbookName,
     workbookUrl: d.workbookUrl,
@@ -370,7 +374,6 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                 <Field label="Level">
                   <Select value={draft.level} onChange={(e) => set({ level: e.target.value as Course["level"] })}>
                     <option>Beginner</option>
-                    <option>Intermediate</option>
                     <option>Advanced</option>
                   </Select>
                 </Field>
@@ -393,9 +396,20 @@ export function CourseWizard({ initial }: { initial?: Course }) {
               <Field label="Instructor bio">
                 <Textarea value={draft.instructorBio} onChange={(e) => set({ instructorBio: e.target.value })} className="min-h-[72px]" />
               </Field>
-              <Field label="Price (INR, 0 = free)">
-                <Input type="number" min={0} value={draft.price} onChange={(e) => set({ price: Number(e.target.value) })} />
-              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Price (INR, 0 = free)">
+                  <Input type="number" min={0} value={draft.price} onChange={(e) => set({ price: Number(e.target.value) })} />
+                </Field>
+                <Field label="Access duration (days)" hint="Access expires this many days after a learner enrols. 0 = lifetime. Applies to everyone, including subscribers.">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={draft.accessDurationDays}
+                    onChange={(e) => set({ accessDurationDays: Math.max(0, Number(e.target.value)) })}
+                    placeholder="0"
+                  />
+                </Field>
+              </div>
               <Field label="Hashtags (4)" hint="Shown on the topic card and power recommendations.">
                 <div className="grid grid-cols-2 gap-2">
                   {draft.hashtags.map((h, i) => (
@@ -562,6 +576,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                   <li>• {draft.videos.length} sessions ({draft.videos.reduce((s, v) => s + (v.durationMins || 0), 0)} mins)</li>
                   <li>• {draft.assignments.filter((a) => a.questions.some((q) => q.prompt.trim())).length} checkpoints</li>
                   <li>• Workbook: {draft.workbookName ?? "none"}</li>
+                  <li>• Access: {draft.accessDurationDays > 0 ? `${draft.accessDurationDays} days after enrolling` : "lifetime"}</li>
                   <li>• Instructor: {draft.instructorName || "—"}</li>
                 </ul>
               </div>

@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Check, Crown, BookOpen, ShieldCheck, Loader2, Smartphone, CreditCard, Ticket, X, Layers } from "lucide-react";
+import Link from "next/link";
+import { Check, Crown, BookOpen, ShieldCheck, Smartphone, CreditCard, Ticket, X, Layers, ClipboardList, ArrowRight } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
-import { Course, Role, ROLES, bundlePrice } from "@/lib/types";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { Course, Role, ROLES, bundlePrice, upgradePrice, planFor, isProfileComplete, missingProfileFields } from "@/lib/types";
 import { useApp } from "@/lib/store/AppProvider";
 import { cn, formatINR } from "@/lib/utils";
 import { ALL_ACCESS_PRICE, RAZORPAY_KEY_ID } from "@/lib/payments/config";
@@ -44,7 +45,9 @@ interface CheckoutModalProps {
 }
 
 export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bundleCategories }: CheckoutModalProps) {
-  const { purchaseCourse, subscribeAllAccess, enrollFree, purchaseBundle, pricing } = useApp();
+  const { currentUser, purchaseCourse, subscribeAllAccess, enrollFree, purchaseBundle, pricing } = useApp();
+  const profileComplete = isProfileComplete(currentUser);
+  const ownedCount = planFor(currentUser).categories;
   const isBundle = !!bundleCategories && bundleCategories.length > 0;
   const [plan, setPlan] = React.useState<"course" | "all">(forcePlan ?? "course");
   const [status, setStatus] = React.useState<"idle" | "processing" | "done">("idle");
@@ -119,12 +122,46 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
     }, 1300);
   }
 
-  // Mock fallback (no real payment) — used when Razorpay isn't configured.
-  function mockPay() {
-    setTimeout(() => grantAccess(false), 1000);
+  // Fallback when Razorpay can't run (no keys, or the order/script failed). In real mode
+  // a browser grant can't persist (the purchase tables are server-write-only under RLS),
+  // so persist it through the demo-grant server route (service role, test/dev only). When
+  // there's no server (pure local mock) we grant locally and localStorage keeps it.
+  async function mockPay() {
+    try {
+      const res = await fetch("/api/payments/demo-grant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan: isBundle ? "bundle" : plan,
+          courseId: course?.id,
+          categories: isBundle ? bundleCategories : undefined,
+          couponCode: applied?.code,
+        }),
+      });
+      const r = await res.json().catch(() => null);
+      if (r?.ok && r.granted) {
+        grantAccess(true); // persisted server-side → just sync local state
+        return;
+      }
+      if (r?.ok) {
+        // Recorded but grant pending/failed — flagged for admin; don't fake access.
+        setFlagged(true);
+        setStatus("done");
+        setTimeout(() => {
+          onComplete?.();
+          onClose();
+        }, 2800);
+        return;
+      }
+      // No server (pure mock) or route refused (live mode) → local-only grant.
+      grantAccess(false);
+    } catch {
+      grantAccess(false);
+    }
   }
 
   async function pay() {
+    if (!profileComplete) return; // gate below blocks this, but guard anyway
     setStatus("processing");
 
     if (!RAZORPAY_LIVE) return mockPay();
@@ -204,10 +241,11 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
     rzp.open();
   }
 
+  // Pay-the-difference: bundle/all upgrades only charge for what the buyer doesn't own yet.
   const baseAmount = isBundle
-    ? bundlePrice(pricing, bundleCategories!.length)
+    ? upgradePrice(pricing, ownedCount, bundleCategories!.length)
     : plan === "all"
-      ? pricing.cat3
+      ? upgradePrice(pricing, ownedCount, Math.max(1, 3 - ownedCount))
       : course?.price ?? 0;
   const amount = applied ? applied.finalAmountInr : baseAmount;
   // Free topics need no coupon entry.
@@ -216,7 +254,27 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
   return (
     <Modal open={open} onClose={onClose} title="Complete your enrollment">
       <div className="p-6">
-        {status === "done" ? (
+        {!profileComplete ? (
+          <div className="py-6 text-center">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gold-100 text-gold-600">
+              <ClipboardList className="h-8 w-8" />
+            </div>
+            <p className="mt-4 font-heading text-xl font-bold text-heading">Complete your profile first</p>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
+              Please add a few details before your first purchase, so we can issue a valid receipt and personalise your coaching.
+            </p>
+            <ul className="mt-3 flex flex-wrap justify-center gap-1.5">
+              {missingProfileFields(currentUser).map((m) => (
+                <li key={m} className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-heading">
+                  {m}
+                </li>
+              ))}
+            </ul>
+            <Link href="/account" onClick={onClose} className={buttonClasses({ variant: "primary", size: "md", className: "mt-5" })}>
+              Complete profile <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        ) : status === "done" ? (
           flagged ? (
             <div className="py-8 text-center">
               <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-100 text-amber-600">

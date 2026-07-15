@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { createClient } from "@supabase/supabase-js";
 import { grantAccess } from "@/lib/payments/grant";
+import { parseJson } from "@/lib/api/validate";
+import { enforceRate } from "@/lib/api/rate-limit";
 
 export const runtime = "nodejs";
+
+const PaymentIdSchema = z.object({ paymentId: z.string().min(1).max(100) });
 
 // Admin resolution for a flagged (grant_failed) payment: re-run the grant so the
 // buyer gets what they paid for. Any admin (owner or sub-admin) may do this — it only
@@ -21,13 +26,12 @@ export async function POST(req: NextRequest) {
   }
   if (!userId) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
 
-  let body: { paymentId?: string };
-  try {
-    body = (await req.json()) as { paymentId?: string };
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid request body." }, { status: 400 });
-  }
-  if (!body.paymentId) return NextResponse.json({ ok: false, error: "Missing payment id." }, { status: 400 });
+  const limited = enforceRate(req, "admin", userId, { ok: false });
+  if (limited) return limited;
+
+  const parsed = await parseJson(req, PaymentIdSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
+  const body = parsed.data;
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 

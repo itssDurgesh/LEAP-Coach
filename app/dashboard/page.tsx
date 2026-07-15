@@ -10,6 +10,8 @@ import {
   Sparkles,
   BookMarked,
   Newspaper,
+  Megaphone,
+  ClipboardList,
 } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { CourseCard } from "@/components/CourseCard";
@@ -20,7 +22,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { useApp } from "@/lib/store/AppProvider";
-import { tierForCredits, courseCategories, articleExcerpt } from "@/lib/types";
+import { tierForCredits, courseCategories, articleExcerpt, isProfileComplete, missingProfileFields } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 
 function SectionHeader({ title, href, cta }: { title: string; href?: string; cta?: string }) {
@@ -52,6 +54,7 @@ function DashboardContent() {
     tips,
     resources,
     articles,
+    announcements,
     enrollments,
     submissions,
     isEnrolled,
@@ -60,7 +63,8 @@ function DashboardContent() {
 
   if (!currentUser) return null;
   const role = currentUser.role!;
-  const firstName = currentUser.name.split(" ")[0];
+  const rawFirst = currentUser.name.trim().split(" ")[0] ?? "";
+  const firstName = rawFirst ? rawFirst[0].toUpperCase() + rawFirst.slice(1) : rawFirst;
   const tier = tierForCredits(currentUser.learningCredits);
 
   const enrolledCourses = courses.filter((c) => isEnrolled(c.id));
@@ -97,9 +101,15 @@ function DashboardContent() {
     .slice(0, 3);
 
   const latestArticles = articles
-    .filter((a) => a.published)
+    .filter((a) => a.published && !a.archived)
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
     .slice(0, 2);
+
+  const latestAnnouncement = announcements
+    .filter((a) => a.published && (a.targetRole === "all" || a.targetRole === role))
+    .sort((a, b) => (a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : a.createdAt < b.createdAt ? 1 : -1))[0];
+
+  const profileMissing = missingProfileFields(currentUser);
 
   const stats = [
     { icon: BookOpen, label: "Topics enrolled", value: enrolledCourses.length },
@@ -157,6 +167,25 @@ function DashboardContent() {
         </div>
       </section>
 
+      {/* Complete-your-profile nudge (required before any purchase/upgrade) */}
+      {!isProfileComplete(currentUser) && (
+        <Link
+          href="/account"
+          className="flex items-center gap-3 rounded-2xl border border-gold-200 bg-gold-50 p-4 transition-colors hover:bg-gold-100/60 dark:bg-gold-500/10"
+        >
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gold-100 text-gold-700">
+            <ClipboardList className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-heading font-semibold text-heading">Complete your profile</p>
+            <p className="text-sm text-muted">
+              Add {profileMissing.join(", ")} to unlock purchases and a tailored experience.
+            </p>
+          </div>
+          <ArrowRight className="h-5 w-5 shrink-0 text-gold-600" />
+        </Link>
+      )}
+
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         {stats.map((s) => (
@@ -179,7 +208,7 @@ function DashboardContent() {
         {/* Main column */}
         <div className="space-y-8 lg:col-span-2">
           <section>
-            <SectionHeader title="Continue learning" href="/courses" cta="My topics" />
+            <SectionHeader title="Continue learning" href="/my-topics" cta="My topics" />
             {withProgress.length ? (
               <div className="grid gap-5 sm:grid-cols-2">
                 {withProgress.slice(0, 4).map(({ course, pct }) => (
@@ -229,6 +258,23 @@ function DashboardContent() {
 
         {/* Sidebar */}
         <aside className="space-y-6">
+          {/* Latest announcement */}
+          {latestAnnouncement && (
+            <Card padded className="border-gold-200">
+              <div className="flex items-center justify-between">
+                <h3 className="flex items-center gap-2 font-heading text-base font-semibold text-heading">
+                  <Megaphone className="h-5 w-5 text-gold-600" /> Announcement
+                </h3>
+                <Link href="/announcements" className="text-sm font-semibold text-gold-600 hover:text-gold-700">
+                  All
+                </Link>
+              </div>
+              <p className="mt-2 font-medium text-heading">{latestAnnouncement.title}</p>
+              <p className="mt-1 line-clamp-3 text-sm text-muted">{latestAnnouncement.body}</p>
+              <p className="mt-2 text-xs text-faint">{timeAgo(latestAnnouncement.createdAt)}</p>
+            </Card>
+          )}
+
           {/* Next session */}
           <section>
             <SectionHeader title="Next live session" href="/sessions" />

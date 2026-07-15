@@ -192,3 +192,37 @@ grant path.
 If you ever suspect a charge with no receipt: open the Razorpay dashboard, find the payment,
 copy its `order_id`, confirm `status = captured`, and either redeliver the webhook from the
 dashboard or have an admin grant access manually and (optionally) insert the receipt.
+
+---
+
+## 12. Plan tiers, upgrades & profile gate (added)
+
+**Plan tiers (by catalogs/categories owned):** Free (0) · Pro (1) · Pro+ (2) · Max (all 3 = all-access).
+Shown as a badge in the header and dashboard. Computed by `planFor()` in `lib/types.ts`.
+
+**Upgrades = pay the difference.** The admin sets only the three catalog prices in
+**Admin → Plans & Coupons** (`cat1`/`cat2`/`cat3`). An upgrade costs
+`tierPrice(newTotal) − tierPrice(currentlyOwned)` — e.g. own 1 (₹6,000) → go Max (₹17,000) → pay ₹11,000.
+Computed **server-side** in `quotePrice()` from the buyer's real `category_passes` (via their Clerk id),
+so it can't be faked. The dashboard **Upgrade your plan** card and `CheckoutModal` show the same
+difference; the order route grants only the *new* categories and auto-promotes to all-access at 3/3.
+
+**Profile gate.** A learner must complete their profile (age, gender, phone, company, country)
+before any purchase/upgrade. `CheckoutModal` blocks payment and links to `/account` until
+`isProfileComplete()` passes; the dashboard also shows a "complete your profile" nudge.
+
+## 13. Course auto-expiry
+
+Each course can carry an **access duration (days)** set in the Course Wizard (blank/0 = lifetime).
+Access lapses at `enrollment.enrolledAt + accessDurationDays` **for everyone, including
+subscribers** (`hasAccess()` enforces it). On the topic page an expired learner sees:
+- **Renew access** (free) if they hold a subscription-type entitlement (all-access / category pass / free), or
+- **Re-purchase** (à-la-carte) — which restarts the timer (verify + `grantAccess` reset `enrolled_at`).
+
+## 14. Admin payments & subscriptions dashboard
+
+`/admin/payments` (owner, or a sub-admin granted the **Payments** permission). Live: auto-refreshes
+every 25s (`refreshPayments()`) + on focus. Shows captured revenue, active subscriptions, refunded
+count, a **Needs attention** list of `grant_failed` payments (Retry grant / owner Refund), a
+searchable/filterable payments table, and a **Subscriptions** tab (plan, catalogs, topics, validity).
+Refunds, pricing, coupons and sub-admin management stay **owner-only**.

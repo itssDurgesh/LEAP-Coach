@@ -13,8 +13,10 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
+import Link from "next/link";
 import { Search, Ban, ShieldCheck, Shield, Trash2, Eye, MapPin, UserCog } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { SubAdminForm } from "@/components/admin/SubAdminForm";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
@@ -23,7 +25,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useApp } from "@/lib/store/AppProvider";
-import { tierForCredits, isOwner, PERMISSIONS, Permission, User } from "@/lib/types";
+import { tierForCredits, isOwner, planFor, PERMISSIONS, User } from "@/lib/types";
+import { searchRanked } from "@/lib/search";
 import { cn } from "@/lib/utils";
 
 const GOLD = "#D49B1E";
@@ -54,19 +57,26 @@ function UsersAdmin() {
   const [q, setQ] = React.useState("");
   const [role, setRole] = React.useState("all");
   const [status, setStatus] = React.useState("all");
+  const [sort, setSort] = React.useState("relevance");
   const [viewing, setViewing] = React.useState<User | null>(null);
   const [accessFor, setAccessFor] = React.useState<User | null>(null);
 
-  const filtered = learners.filter((u) => {
+  const enrollCount = (id: string) => enrollments.filter((e) => e.userId === id).length;
+
+  const preFiltered = learners.filter((u) => {
     if (role !== "all" && u.role !== role) return false;
     if (status === "active" && u.banned) return false;
     if (status === "banned" && !u.banned) return false;
-    if (q.trim()) {
-      const hay = `${u.name} ${u.email} ${u.company ?? ""} ${u.region ?? ""}`.toLowerCase();
-      if (!hay.includes(q.toLowerCase())) return false;
-    }
     return true;
   });
+  // Ranked search by name / username / email relevance (see lib/search.ts).
+  const searched = searchRanked(preFiltered, q);
+  const filtered =
+    sort === "courses"
+      ? [...searched].sort((a, b) => enrollCount(b.id) - enrollCount(a.id))
+      : sort === "active"
+        ? [...searched].sort((a, b) => (b.lastActiveAt ?? "").localeCompare(a.lastActiveAt ?? ""))
+        : searched;
 
   // demographics
   const byGender = ["male", "female", "non_binary", "prefer_not"]
@@ -128,8 +138,10 @@ function UsersAdmin() {
                       Edit access
                     </Button>
                     <button
-                      onClick={() => {
-                        if (confirm(`Revoke sub-admin access for ${a.name}? They become a normal learner.`)) revokeAdmin(a.id);
+                      onClick={async () => {
+                        if (!confirm(`Revoke sub-admin access for ${a.name}? They become a normal learner.`)) return;
+                        const r = await revokeAdmin(a.id);
+                        if (!r.ok) alert(r.error ?? "Couldn't revoke access.");
                       }}
                       title="Revoke admin"
                       className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600"
@@ -210,8 +222,13 @@ function UsersAdmin() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name, email, company, region…" className="pl-10" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name, username, or email…" className="pl-10" />
           </div>
+          <Select value={sort} onChange={(e) => setSort(e.target.value)} className="sm:w-52">
+            <option value="relevance">Sort: Best match</option>
+            <option value="courses">Most courses bought</option>
+            <option value="active">Most active</option>
+          </Select>
           <Select value={role} onChange={(e) => setRole(e.target.value)} className="sm:w-44">
             <option value="all">All roles</option>
             <option value="student">Student</option>
@@ -248,13 +265,13 @@ function UsersAdmin() {
                 return (
                   <tr key={u.id} className="hover:bg-surface-2">
                     <td className="px-5 py-3">
-                      <div className="flex items-center gap-3">
+                      <Link href={`/admin/users/${encodeURIComponent(u.id)}`} className="group flex items-center gap-3">
                         <Avatar src={u.avatarUrl} name={u.name} size={36} />
                         <div>
-                          <p className="font-medium text-heading">{u.name}</p>
+                          <p className="font-medium text-heading underline-offset-2 group-hover:text-gold-600 group-hover:underline">{u.name}</p>
                           <p className="text-xs text-faint">{u.email}</p>
                         </div>
-                      </div>
+                      </Link>
                     </td>
                     <td className="px-5 py-3 capitalize text-muted">{u.role}</td>
                     <td className="px-5 py-3">
@@ -274,15 +291,20 @@ function UsersAdmin() {
                           <Shield className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={() => setBanned(u.id, !u.banned)}
+                          onClick={async () => {
+                            const r = await setBanned(u.id, !u.banned);
+                            if (!r.ok) alert(r.error ?? "Couldn't update this account.");
+                          }}
                           title={u.banned ? "Unban" : "Ban"}
                           className={cn("grid h-8 w-8 place-items-center rounded-lg hover:bg-surface-2", u.banned ? "text-green-600" : "text-faint hover:text-orange-600")}
                         >
                           {u.banned ? <ShieldCheck className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
                         </button>
                         <button
-                          onClick={() => {
-                            if (confirm(`Delete ${u.name}? This cannot be undone.`)) deleteUser(u.id);
+                          onClick={async () => {
+                            if (!confirm(`Delete ${u.name}? This cannot be undone.`)) return;
+                            const r = await deleteUser(u.id);
+                            if (!r.ok) alert(r.error ?? "Couldn't delete this account.");
                           }}
                           title="Delete"
                           className="grid h-8 w-8 place-items-center rounded-lg text-faint hover:bg-red-50 hover:text-red-600"
@@ -314,76 +336,16 @@ function UsersAdmin() {
         {accessFor && (
           <SubAdminForm
             user={accessFor}
-            onSave={(perms) => {
-              setSubAdmin(accessFor.id, perms);
+            onSave={async (perms) => {
+              const target = accessFor;
               setAccessFor(null);
+              const r = await setSubAdmin(target.id, perms);
+              if (!r.ok) alert(r.error ?? "Couldn't save access.");
             }}
             onCancel={() => setAccessFor(null)}
           />
         )}
       </Modal>
-    </div>
-  );
-}
-
-function SubAdminForm({
-  user,
-  onSave,
-  onCancel,
-}: {
-  user: User;
-  onSave: (perms: Permission[]) => void;
-  onCancel: () => void;
-}) {
-  const [perms, setPerms] = React.useState<Permission[]>(user.permissions ?? []);
-  const toggle = (p: Permission) => setPerms((s) => (s.includes(p) ? s.filter((x) => x !== p) : [...s, p]));
-
-  return (
-    <div className="space-y-4 p-6">
-      <div className="flex items-center gap-3">
-        <Avatar src={user.avatarUrl} name={user.name} size={44} />
-        <div>
-          <p className="font-heading font-semibold text-heading">{user.name}</p>
-          <p className="text-xs text-faint">{user.email}</p>
-        </div>
-      </div>
-      <p className="text-sm text-muted">
-        Pick the areas this sub-admin can manage. They can never delete topics, manage users, change pricing, or publish
-        without your approval — those stay owner-only.
-      </p>
-      <div className="space-y-2">
-        {PERMISSIONS.map((p) => {
-          const on = perms.includes(p.id);
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => toggle(p.id)}
-              className={cn(
-                "flex w-full items-start gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors",
-                on ? "border-gold-400 bg-gold-50 dark:bg-gold-500/10" : "border-hair hover:border-faint",
-              )}
-            >
-              <span
-                className={cn(
-                  "mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md border-2",
-                  on ? "border-gold-500 bg-gold-500 text-white" : "border-hair",
-                )}
-              >
-                {on && <ShieldCheck className="h-3 w-3" strokeWidth={3} />}
-              </span>
-              <span>
-                <span className="block text-sm font-semibold text-heading">{p.label}</span>
-                <span className="block text-xs text-muted">{p.hint}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex justify-end gap-2 pt-1">
-        <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button type="button" onClick={() => onSave(perms)}>Save access</Button>
-      </div>
     </div>
   );
 }
@@ -422,10 +384,32 @@ function UserProfile({ user }: { user: User }) {
         {facts.map(([k, v]) => (
           <div key={k}>
             <dt className="text-xs uppercase tracking-wide text-faint">{k}</dt>
-            <dd className="capitalize text-heading">{v}</dd>
+            <dd className={k === "Email" ? "break-words text-heading" : "capitalize text-heading"}>{v}</dd>
           </div>
         ))}
       </dl>
+
+      {!user.isAdmin && (
+        <div className="mt-5 rounded-xl border border-hair bg-surface-2/50 p-4">
+          <h3 className="font-heading text-sm font-semibold text-heading">Subscription</h3>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            <Badge variant="navy">{planFor(user).label} plan</Badge>
+            <span className="text-muted">
+              Model: <span className="capitalize text-heading">{user.subscriptionPlan.replace(/_/g, " ")}</span>
+            </span>
+            {user.subscriptionValidUntil && (
+              <span className="text-muted">
+                · Valid until {new Date(user.subscriptionValidUntil).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+              </span>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted">
+            <span>Category passes: <span className="font-medium text-heading">{user.ownedCategories?.length ?? 0}</span></span>
+            <span>Topics purchased: <span className="font-medium text-heading">{user.ownedCourseIds.length}</span></span>
+            <span>Topics enrolled: <span className="font-medium text-heading">{myEnrollments.length}</span></span>
+          </div>
+        </div>
+      )}
 
       <h3 className="mt-6 font-heading text-sm font-semibold text-heading">Topic progress</h3>
       <div className="mt-3 space-y-3">

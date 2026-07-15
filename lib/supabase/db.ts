@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  Announcement,
   AppNotification,
   Article,
   Book,
@@ -8,6 +9,7 @@ import {
   Course,
   DailyTip,
   Enrollment,
+  Faq,
   LeadershipTrack,
   LiveSession,
   Note,
@@ -44,7 +46,7 @@ const mapProfile = (r: Row, ownedCourseIds: string[], ownedCategories: Role[] = 
   age: r.age ?? undefined, gender: r.gender ?? undefined, phone: r.phone ?? undefined, phoneVerified: r.phone_verified ?? false,
   company: r.company ?? undefined, nationality: r.nationality ?? undefined, region: r.region ?? undefined,
   headline: r.headline ?? undefined, bio: r.bio ?? undefined,
-  learningCredits: r.learning_credits ?? 0, subscriptionPlan: r.subscription_plan ?? "none",
+  learningCredits: r.learning_credits ?? 0, topicCredits: r.topic_credits ?? {}, subscriptionPlan: r.subscription_plan ?? "none",
   subscriptionValidUntil: r.subscription_valid_until ?? null, ownedCourseIds, ownedCategories, banned: r.banned ?? false,
   isAdmin: r.is_admin ?? false, permissions: r.permissions ?? null, createdAt: r.created_at, lastActiveAt: r.last_active_at,
 });
@@ -56,7 +58,17 @@ const mapTeamMember = (r: Row): TeamMember => ({
 const mapArticle = (r: Row): Article => ({
   id: r.id, title: r.title ?? "", excerpt: r.excerpt ?? "", content: r.content ?? "",
   coverUrl: r.cover_url ?? null, images: r.images ?? [], authorId: r.author_id ?? "", authorName: r.author_name ?? "",
-  published: r.published ?? false, createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at,
+  published: r.published ?? false, archived: r.archived ?? false, createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at,
+});
+const mapAnnouncement = (r: Row): Announcement => ({
+  id: r.id, title: r.title ?? "", body: r.body ?? "", targetRole: r.target_role ?? "all",
+  pinned: r.pinned ?? false, published: r.published ?? true, authorId: r.author_id ?? "",
+  authorName: r.author_name ?? "", createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at,
+  notifiedAt: r.notified_at ?? null, notifiedUserIds: r.notified_user_ids ?? [],
+});
+const mapFaq = (r: Row): Faq => ({
+  id: r.id, question: r.question ?? "", answer: r.answer ?? "", order: r.order_index ?? 0,
+  published: r.published ?? true, createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at,
 });
 const mapBook = (r: Row): Book => ({
   id: r.id, title: r.title ?? "", author: r.author ?? "", coverUrl: r.cover_url ?? null,
@@ -77,7 +89,7 @@ const mapVideoComment = (r: Row, likedBy: string[]): VideoComment => ({
   userName: r.user_name, userRole: r.user_role, text: r.text, mentions: r.mentions ?? [],
   createdAt: r.created_at, editedAt: r.edited_at ?? undefined, likedBy,
 });
-const mapSession = (r: Row, attendeeIds: string[]): LiveSession => ({ id: r.id, title: r.title, courseTitle: r.course_title ?? undefined, instructorName: r.instructor_name, startsAt: r.starts_at, durationMins: r.duration_mins, meetLink: r.meet_link, description: r.description ?? "", targetRole: r.target_role, attendeeIds, capacity: r.capacity });
+const mapSession = (r: Row, attendeeIds: string[]): LiveSession => ({ id: r.id, title: r.title, courseTitle: r.course_title ?? undefined, instructorName: r.instructor_name, startsAt: r.starts_at, durationMins: r.duration_mins, meetLink: r.meet_link, description: r.description ?? "", targetRole: r.target_role, attendeeIds, capacity: r.capacity, notifiedAt: r.notified_at ?? null, notifiedUserIds: r.notified_user_ids ?? [] });
 const mapPost = (r: Row, likedBy: string[]): CommunityPost => ({ id: r.id, userId: r.user_id, userName: r.user_name, userRole: r.user_role, text: r.text, createdAt: r.created_at, editedAt: r.edited_at ?? undefined, likedBy });
 const mapCoupon = (r: Row): Coupon => ({ code: r.code, discountPercent: r.discount_percent, category: r.category, active: r.active, maxRedemptions: r.max_redemptions ?? null, redemptions: r.redemptions ?? 0, expiresAt: r.expires_at ?? null, createdAt: r.created_at });
 const mapPayment = (r: Row): Payment => ({
@@ -96,6 +108,7 @@ const courseRow = (c: Course): Row => ({
   rating: c.rating, rating_count: c.ratingCount, enrolled_count: c.enrolledCount, purchase_count: c.purchaseCount,
   price: c.price, trending: c.trending, published: c.published, accent: c.accent,
   thumbnail_url: c.thumbnailUrl ?? null, workbook_name: c.workbookName ?? null, workbook_url: c.workbookUrl ?? null,
+  access_duration_days: c.accessDurationDays ?? null,
   pending_approval: c.pendingApproval ?? false, submitted_by: c.submittedBy ?? null,
   created_at: c.createdAt,
 });
@@ -114,6 +127,9 @@ export interface LoadedData {
   teamMembers: TeamMember[];
   books: Book[];
   articles: Article[];
+  announcements: Announcement[];
+  faqs: Faq[];
+  privacyPolicy: string | null;
   enrollments: Enrollment[];
   progress: VideoProgress[];
   submissions: Submission[];
@@ -127,18 +143,22 @@ export interface LoadedData {
 /** Fetch + assemble the entire app state from Supabase (RLS scopes per-user rows). */
 export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   const [
-    profiles, purchases, tracks, courses, videos, assignments, questions,
+    // videos/assignments/questions are embedded in `courses` now → their slots are empty.
+    profiles, purchases, tracks, courses, , , ,
     tips, resources, sessions, attendees, enrollments, progress, submissions, notes, posts, likes, coupons,
     categoryPasses, pricingRows, comments, commentLikes, notifications, teamMembers, books, siteRows, articleRows, paymentRows,
-    videoCommentRows, videoCommentLikeRows,
+    videoCommentRows, videoCommentLikeRows, announcementRows, faqRows, sitePageRows,
   ] = await Promise.all([
     rows(sb.from("profiles").select("*")),
     rows(sb.from("course_purchases").select("*")),
     rows(sb.from("leadership_tracks").select("*")),
-    rows(sb.from("courses").select("*")),
-    rows(sb.from("videos").select("*")),
-    rows(sb.from("assignments").select("*")),
-    rows(sb.from("questions").select("*")),
+    // Whole course tree in ONE query via PostgREST embedding (was 4 separate fetches:
+    // courses + videos + assignments + questions). videos/assignments/questions below
+    // are kept as empty placeholders so the positional destructure stays aligned.
+    rows(sb.from("courses").select("*, videos(*), assignments(*, questions(*))")),
+    Promise.resolve([] as Row[]),
+    Promise.resolve([] as Row[]),
+    Promise.resolve([] as Row[]),
     rows(sb.from("daily_tips").select("*")),
     rows(sb.from("recommended_resources").select("*")),
     rows(sb.from("live_sessions").select("*")),
@@ -147,13 +167,15 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     rows(sb.from("video_progress").select("*")),
     rows(sb.from("submissions").select("*")),
     rows(sb.from("user_notes").select("*")),
-    rows(sb.from("community_posts").select("*")),
-    rows(sb.from("post_likes").select("*")),
+    // Global Discussion board was removed — skip these reads (saves round-trips + payload).
+    Promise.resolve([] as Row[]),
+    Promise.resolve([] as Row[]),
     rows(sb.from("coupons").select("*")),
     rows(sb.from("category_passes").select("*")),
     rows(sb.from("pricing_tiers").select("*")),
-    rows(sb.from("post_comments").select("*")),
-    rows(sb.from("comment_likes").select("*")),
+    // Global Discussion board removed — skip post_comments + comment_likes reads too.
+    Promise.resolve([] as Row[]),
+    Promise.resolve([] as Row[]),
     rows(sb.from("notifications").select("*")),
     rows(sb.from("team_members").select("*")),
     rows(sb.from("books").select("*")),
@@ -162,11 +184,11 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     rows(sb.from("payments").select("*")),
     rows(sb.from("video_comments").select("*")),
     rows(sb.from("video_comment_likes").select("*")),
+    rows(sb.from("announcements").select("*")),
+    rows(sb.from("faqs").select("*")),
+    rows(sb.from("site_pages").select("*")),
   ]);
 
-  const questionsByAssignment = group(questions, (q) => q.assignment_id);
-  const videosByCourse = group(videos, (v) => v.course_id);
-  const assignmentsByCourse = group(assignments, (a) => a.course_id);
   const purchasesByUser = group(purchases, (p) => p.user_id);
   const passesByUser = group(categoryPasses, (p) => p.user_id);
   const attendeesBySession = group(attendees, (a) => a.session_id);
@@ -183,12 +205,13 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     accent: c.accent ?? 0,
     categories: c.categories ?? [c.category],
     thumbnailUrl: c.thumbnail_url ?? null, workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
+    accessDurationDays: c.access_duration_days ?? null,
     pendingApproval: c.pending_approval ?? false, submittedBy: c.submitted_by ?? null,
     createdAt: c.created_at,
-    videos: (videosByCourse[c.id] ?? []).map(mapVideo).sort((a, b) => a.order - b.order),
-    assignments: (assignmentsByCourse[c.id] ?? []).map((a) => ({
+    videos: ((c.videos ?? []) as Row[]).map(mapVideo).sort((a, b) => a.order - b.order),
+    assignments: ((c.assignments ?? []) as Row[]).map((a) => ({
       id: a.id, courseId: a.course_id, afterVideoOrder: a.after_video_order, title: a.title,
-      questions: (questionsByAssignment[a.id] ?? []).map(mapQuestion),
+      questions: ((a.questions ?? []) as Row[]).map(mapQuestion),
     })).sort((a, b) => a.afterVideoOrder - b.afterVideoOrder),
   }));
 
@@ -217,6 +240,9 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     teamMembers: teamMembers.map(mapTeamMember).sort((a, b) => a.order - b.order),
     books: books.map(mapBook).sort((a, b) => a.order - b.order),
     articles: articleRows.map(mapArticle).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    announcements: announcementRows.map(mapAnnouncement).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    faqs: faqRows.map(mapFaq).sort((a, b) => (a.order !== b.order ? a.order - b.order : a.createdAt < b.createdAt ? -1 : 1)),
+    privacyPolicy: (sitePageRows[0]?.privacy_policy as string) ?? null,
     enrollments: enrollments.map(mapEnrollment),
     progress: progress.map(mapProgress),
     submissions: submissions.map(mapSubmission),
@@ -229,6 +255,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
           cat2: pricingRows[0].cat2,
           cat3: pricingRows[0].cat3,
           perTopicFrom: pricingRows[0].per_topic_from ?? 999,
+          showUpgradeInfo: pricingRows[0].show_upgrade_info ?? true,
         }
       : null,
     siteContent: (siteRows[0]?.content as SiteContent) ?? null,
@@ -366,6 +393,11 @@ export const grantCategoryPass = (sb: SupabaseClient, userId: string, category: 
 export const savePricing = (sb: SupabaseClient, t: PricingTiers) =>
   sb.from("pricing_tiers").upsert({ id: 1, cat1: t.cat1, cat2: t.cat2, cat3: t.cat3, per_topic_from: t.perTopicFrom });
 
+// Written SEPARATELY (best-effort) so this optional cosmetic flag can never block the
+// core price save when the show_upgrade_info column hasn't been migrated yet.
+export const saveUpgradeInfoFlag = (sb: SupabaseClient, show: boolean) =>
+  sb.from("pricing_tiers").update({ show_upgrade_info: show }).eq("id", 1);
+
 // ── site content (homepage CMS singleton) ──
 export const saveSiteContent = (sb: SupabaseClient, content: SiteContent) =>
   sb.from("site_content").upsert({ id: 1, content, updated_at: new Date().toISOString() });
@@ -394,7 +426,45 @@ export const saveArticle = (sb: SupabaseClient, a: Article) =>
     images: a.images ?? [], author_id: a.authorId || null, author_name: a.authorName, published: a.published,
     created_at: a.createdAt, updated_at: a.updatedAt,
   });
+
+// Written SEPARATELY (best-effort) so a not-yet-migrated `archived` column can't block article saves.
+export const setArticleArchived = (sb: SupabaseClient, id: string, archived: boolean) =>
+  sb.from("articles").update({ archived }).eq("id", id);
 export const deleteArticle = (sb: SupabaseClient, id: string) => sb.from("articles").delete().eq("id", id);
+
+// ── announcements ──
+export const saveAnnouncement = (sb: SupabaseClient, a: Announcement) =>
+  sb.from("announcements").upsert({
+    id: a.id, title: a.title, body: a.body, target_role: a.targetRole, pinned: a.pinned,
+    published: a.published, author_id: a.authorId || null, author_name: a.authorName,
+    created_at: a.createdAt, updated_at: a.updatedAt,
+  });
+export const deleteAnnouncement = (sb: SupabaseClient, id: string) => sb.from("announcements").delete().eq("id", id);
+
+// ── faqs ──
+export const saveFaq = (sb: SupabaseClient, f: Faq) =>
+  sb.from("faqs").upsert({
+    id: f.id, question: f.question, answer: f.answer, order_index: f.order,
+    published: f.published, created_at: f.createdAt, updated_at: f.updatedAt,
+  });
+export const deleteFaq = (sb: SupabaseClient, id: string) => sb.from("faqs").delete().eq("id", id);
+
+// ── privacy policy (site_pages singleton, id = 1) ──
+export const savePrivacyPolicy = (sb: SupabaseClient, text: string) =>
+  sb.from("site_pages").upsert({ id: 1, privacy_policy: text, updated_at: new Date().toISOString() });
+
+// ── enrollment renew: reset the access timer (course auto-expiry) ──
+export const reEnroll = (sb: SupabaseClient, userId: string, courseId: string) =>
+  sb.from("enrollments").upsert(
+    { user_id: userId, course_id: courseId, enrolled_at: new Date().toISOString() },
+    { onConflict: "user_id,course_id" },
+  );
+
+/** All payments (admins read every row via RLS). Used by the live payments dashboard. */
+export async function fetchPayments(sb: SupabaseClient): Promise<Payment[]> {
+  const { data } = await sb.from("payments").select("*").order("created_at", { ascending: false });
+  return ((data ?? []) as Row[]).map(mapPayment);
+}
 
 // ── discussion comments ──
 export const insertComment = (sb: SupabaseClient, c: PostComment) =>

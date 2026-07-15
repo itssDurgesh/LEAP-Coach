@@ -16,15 +16,17 @@ export type Permission =
   | "sessions"
   | "discussion" // legacy: the global Discussion board was removed; kept so old sub-admin records still type-check
   | "articles"
+  | "announcements"
   | "payments";
 
 export const PERMISSIONS: { id: Permission; label: string; hint: string }[] = [
   { id: "content", label: "Coaching topics", hint: "Create & edit topics, questions & workbooks (publishing needs owner approval)" },
   { id: "articles", label: "Articles", hint: "Write & publish articles shown to learners" },
+  { id: "announcements", label: "Announcements", hint: "Post announcements broadcast to all learners" },
   { id: "team", label: "Team", hint: "Manage team members" },
   { id: "homepage", label: "Homepage", hint: "Edit the public homepage" },
   { id: "sessions", label: "Live sessions", hint: "Schedule & manage sessions" },
-  { id: "payments", label: "Payments", hint: "View receipts & resolve flagged payments (refunds stay owner-only)" },
+  { id: "payments", label: "Payments & subscriptions", hint: "View payments, revenue & subscriptions; retry failed grants (refunds & pricing stay owner-only)" },
 ];
 
 type AdminLike = { isAdmin?: boolean; permissions?: Permission[] | null } | null | undefined;
@@ -69,12 +71,13 @@ export interface CreditTier {
   color: "neutral" | "navy" | "gold" | "success";
 }
 
+// Badge tiers by total learning credits (each completed topic is worth up to 100).
+//   Aspirant 0–500 · Learner 501–1000 · Advanced 1001–1999 · Star ≥ 2000
 export const CREDIT_TIERS: CreditTier[] = [
   { min: 0, label: "Aspirant", color: "neutral" },
-  { min: 150, label: "Achiever", color: "navy" },
-  { min: 400, label: "High Performer", color: "gold" },
-  { min: 800, label: "Rising Star", color: "gold" },
-  { min: 1500, label: "Leap Star", color: "success" },
+  { min: 501, label: "Learner", color: "navy" },
+  { min: 1001, label: "Advanced", color: "gold" },
+  { min: 2000, label: "Star", color: "success" },
 ];
 
 export function tierForCredits(credits: number): CreditTier {
@@ -90,13 +93,26 @@ export interface PricingTiers {
   cat2: number; // any two categories
   cat3: number; // all three categories (all-access)
   perTopicFrom: number; // "starting from" price shown on the per-topic plan
+  showUpgradeInfo?: boolean; // admin: show learners the "why this price?" explainer on the upgrade card
 }
 
-export const DEFAULT_PRICING: PricingTiers = { cat1: 6000, cat2: 10000, cat3: 17000, perTopicFrom: 999 };
+export const DEFAULT_PRICING: PricingTiers = { cat1: 6000, cat2: 10000, cat3: 17000, perTopicFrom: 999, showUpgradeInfo: true };
 
 /** Price for a bundle given how many categories are selected. */
 export function bundlePrice(tiers: PricingTiers, count: number): number {
   return count >= 3 ? tiers.cat3 : count === 2 ? tiers.cat2 : tiers.cat1;
+}
+
+/**
+ * Upgrade price = pay the difference. Adding `addCount` categories to the `ownedCount`
+ * already held costs the resulting tier minus what the current tier already cost.
+ * A fresh buyer (ownedCount 0) just pays the full bundle for what they pick.
+ * e.g. own 1 (cat1=6k) → go Max (cat3=17k) → pay 11k. Never below 0.
+ */
+export function upgradePrice(tiers: PricingTiers, ownedCount: number, addCount: number): number {
+  const target = Math.min(3, ownedCount + addCount);
+  const current = ownedCount > 0 ? bundlePrice(tiers, ownedCount) : 0;
+  return Math.max(0, bundlePrice(tiers, target) - current);
 }
 
 export interface User {
@@ -115,7 +131,8 @@ export interface User {
   region?: string; // for demographics analytics
   headline?: string; // short tagline shown on the profile
   bio?: string; // longer "about me" for the public profile
-  learningCredits: number;
+  learningCredits: number; // total = sum of topicCredits (kept in sync when a topic is finalized)
+  topicCredits?: Record<string, number>; // courseId -> best credit earned for that topic (0–100)
   subscriptionPlan: SubscriptionPlan;
   subscriptionValidUntil?: string | null;
   ownedCourseIds: string[]; // per-course lifetime purchases
@@ -125,6 +142,39 @@ export interface User {
   permissions?: Permission[] | null; // present => sub-admin limited to these; absent => full owner
   createdAt: string;
   lastActiveAt: string;
+}
+
+// ── Plan tier shown to the user (by how many catalogs/categories they own) ──
+// Free = none · Pro = 1 catalog · Pro+ = 2 · Max = all 3 (all-access).
+export type PlanTier = "free" | "pro" | "proPlus" | "max";
+export interface PlanInfo {
+  tier: PlanTier;
+  label: string; // "Free" | "Pro" | "Pro+" | "Max"
+  categories: number; // 0–3 catalogs unlocked
+}
+
+export function planFor(u: Pick<User, "subscriptionPlan" | "ownedCategories"> | null | undefined): PlanInfo {
+  const count = u?.subscriptionPlan === "all_access" ? 3 : new Set(u?.ownedCategories ?? []).size;
+  if (count >= 3) return { tier: "max", label: "Max", categories: 3 };
+  if (count === 2) return { tier: "proPlus", label: "Pro+", categories: 2 };
+  if (count === 1) return { tier: "pro", label: "Pro", categories: 1 };
+  return { tier: "free", label: "Free", categories: 0 };
+}
+
+// ── Profile completion (required before any purchase/upgrade) ──
+// name & email are captured at signup; these are the extra fields a learner must add.
+type ProfileFields = Pick<User, "age" | "gender" | "phone" | "company" | "nationality">;
+export function missingProfileFields(u: ProfileFields | null | undefined): string[] {
+  const missing: string[] = [];
+  if (!u?.age) missing.push("Age");
+  if (!u?.gender) missing.push("Gender");
+  if (!u?.phone?.trim()) missing.push("Phone number");
+  if (!u?.company?.trim()) missing.push("Company / college");
+  if (!u?.nationality?.trim()) missing.push("Country / nationality");
+  return missing;
+}
+export function isProfileComplete(u: ProfileFields | null | undefined): boolean {
+  return missingProfileFields(u).length === 0;
 }
 
 // Discount coupon. `category` scopes eligibility: a Role limits it to that
@@ -230,6 +280,7 @@ export interface Course {
   thumbnailUrl?: string | null; // uploaded cover image (overrides the gradient)
   workbookName?: string | null; // final workbook file name (PDF/DOCX)
   workbookUrl?: string | null; // final workbook (data URL or storage URL)
+  accessDurationDays?: number | null; // access expires this many days after a learner enrolls; null/0 = lifetime
   pendingApproval?: boolean; // a sub-admin submitted this; awaiting owner approval
   submittedBy?: string | null; // user id of the sub-admin who submitted it
   videos: Video[];
@@ -262,6 +313,8 @@ export interface LiveSession {
   targetRole: Role | "all";
   attendeeIds: string[]; // users who voted to attend
   capacity: number;
+  notifiedAt?: string | null; // when this session was first emailed to its audience (null = never)
+  notifiedUserIds?: string[]; // profile ids already emailed — retry only targets the rest
 }
 
 export interface RecommendedResource {
@@ -411,6 +464,7 @@ export interface Article {
   authorId: string;
   authorName: string;
   published: boolean;
+  archived?: boolean; // hidden from learners & the catalog, kept for the admin's records
   createdAt: string;
   updatedAt: string;
 }
@@ -450,6 +504,51 @@ export function articleExcerpt(a: Article): string {
   const flat = a.content.replace(/\[\[image:[^\]]+\]\]/g, " ").replace(/\s+/g, " ").trim();
   return flat.length > 160 ? `${flat.slice(0, 157)}…` : flat;
 }
+
+// ── Announcements (admin broadcast → learners read on /announcements) ──
+export interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  targetRole: Role | "all"; // who sees it
+  pinned: boolean; // pinned ones sort to the top
+  published: boolean; // drafts are admin-only
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+  updatedAt: string;
+  notifiedAt?: string | null; // when this announcement was first emailed to its audience (null = never)
+  notifiedUserIds?: string[]; // profile ids already emailed — retry only targets the rest
+}
+
+// ── FAQ (admin-managed Q&A shown on the public /faq page) ──
+export interface Faq {
+  id: string;
+  question: string;
+  answer: string;
+  order: number; // display order (lower first)
+  published: boolean; // drafts are admin-only
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Privacy policy (single admin-editable page shown at /privacy) ──
+export const DEFAULT_PRIVACY_POLICY = `Your privacy matters to us at LEAP Coach.
+
+What we collect
+We collect the information you provide when you create an account (such as your name, email, and profile details) and data about your learning activity (topics enrolled, progress, and assessment results) so we can personalise your coaching experience.
+
+How we use it
+We use your information to run the platform, track your learning progress, process payments, send you announcements and updates you have opted into, and improve our content and services.
+
+Sharing
+We do not sell your personal data. We share information only with the service providers that help us operate the platform (for example, payment and hosting providers) and where required by law.
+
+Your choices
+You can view and edit your profile at any time, and contact us to request access to or deletion of your data.
+
+Contact
+For any privacy questions, email us at info.leapcoach@gmail.com.`;
 
 // ── Team / mentors (Team page + homepage mentors strip) ──
 export type TeamGroup = "founder" | "mentor" | "associate" | "intern" | "advisor";

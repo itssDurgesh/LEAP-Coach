@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  Announcement,
   AppNotification,
   Article,
   Assignment,
@@ -11,6 +12,7 @@ import {
   Course,
   DailyTip,
   Enrollment,
+  Faq,
   Gender,
   LeadershipTrack,
   LiveSession,
@@ -31,7 +33,7 @@ import {
   VideoComment,
   VideoProgress,
 } from "@/lib/types";
-import { DEFAULT_TRACKS, DEFAULT_PRICING, DEFAULT_SITE_CONTENT, courseCategories, isOwner, hasPermission } from "@/lib/types";
+import { DEFAULT_TRACKS, DEFAULT_PRICING, DEFAULT_SITE_CONTENT, DEFAULT_PRIVACY_POLICY, courseCategories, isOwner, hasPermission } from "@/lib/types";
 import {
   ADMIN_PASSWORD,
   seedArticles,
@@ -51,12 +53,15 @@ import {
   seedTips,
   seedUsers,
   seedVideoComments,
+  seedAnnouncements,
+  seedFaqs,
 } from "@/lib/mock/seed";
 import { getSupabase, setSupabaseTokenGetter } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isClerkConfigured } from "@/lib/clerk/config";
 import * as db from "@/lib/supabase/db";
 import { normalizeCode } from "@/lib/coupons";
+import { topicCredit, topicComplete } from "@/lib/credits";
 import { baseUsername, uniqueUsername } from "@/lib/username";
 import type { AuthBridge } from "@/lib/auth/types";
 
@@ -72,10 +77,35 @@ const SB_CACHE_PREFIX = "leap-sb-cache-v1:";
 // URL-sniffing race machinery is gone.
 const realMode = isClerkConfigured && isSupabaseConfigured;
 
-const CREDITS_PER_VIDEO = 15;
-const CREDITS_PER_ASSIGNMENT = 60;
 const PASS_MARK = 60;
 const MAX_ATTEMPTS = 10;
+
+// Learning credits are earned per TOPIC (max 100 each), finalized once the learner
+// completes the topic and keeping the best result. Total learningCredits = the sum
+// of every topic's best credit. Pure so the local state update and the Supabase
+// write both derive from the exact same computation.
+function applyTopicCredit(
+  users: User[],
+  courses: Course[],
+  courseId: string,
+  userId: string,
+  submissions: Submission[],
+  progress: VideoProgress[],
+): { users: User[]; patch: { learning_credits: number; topic_credits: Record<string, number> } | null } {
+  const course = courses.find((c) => c.id === courseId);
+  if (!course || !topicComplete(course, userId, submissions, progress)) return { users, patch: null };
+  const user = users.find((u) => u.id === userId);
+  if (!user) return { users, patch: null };
+  const prev = user.topicCredits?.[courseId] ?? 0;
+  const credit = topicCredit(course, userId, submissions).credit;
+  if (credit <= prev) return { users, patch: null }; // no improvement (or a question-less topic) → nothing to record
+  const topicCredits = { ...(user.topicCredits ?? {}), [courseId]: credit };
+  const learningCredits = Object.values(topicCredits).reduce((sum, v) => sum + v, 0);
+  const nextUsers = users.map((u) =>
+    u.id === userId ? { ...u, topicCredits, learningCredits, lastActiveAt: new Date().toISOString() } : u,
+  );
+  return { users: nextUsers, patch: { learning_credits: learningCredits, topic_credits: topicCredits } };
+}
 
 interface AppState {
   users: User[];
@@ -91,6 +121,9 @@ interface AppState {
   teamMembers: TeamMember[];
   books: Book[];
   articles: Article[];
+  announcements: Announcement[];
+  faqs: Faq[];
+  privacyPolicy: string;
   siteContent: SiteContent;
   enrollments: Enrollment[];
   progress: VideoProgress[];
@@ -117,6 +150,9 @@ function seedState(): AppState {
     teamMembers: seedTeam,
     books: seedBooks,
     articles: seedArticles,
+    announcements: seedAnnouncements,
+    faqs: seedFaqs,
+    privacyPolicy: DEFAULT_PRIVACY_POLICY,
     siteContent: DEFAULT_SITE_CONTENT,
     enrollments: seedEnrollments,
     progress: seedProgress,
@@ -133,8 +169,23 @@ function emptyState(): AppState {
   return {
     users: [], courses: [], tracks: DEFAULT_TRACKS, tips: [], sessions: [], resources: [],
     community: [], comments: [], videoComments: [], notifications: [], teamMembers: [], books: [], articles: [],
+    announcements: [], faqs: [], privacyPolicy: DEFAULT_PRIVACY_POLICY,
     siteContent: DEFAULT_SITE_CONTENT, enrollments: [], progress: [], submissions: [], notes: [], coupons: [],
     payments: [], pricing: DEFAULT_PRICING, currentUserId: null,
+  };
+}
+
+// A lighter copy of the state for the localStorage paint-cache: drop heavy video
+// transcripts (they're refetched by loadAll) so JSON.stringify stays fast and we don't
+// blow the ~5MB localStorage quota. Used for the Supabase-mode snapshot only.
+function cacheSnapshot(state: AppState): AppState {
+  return {
+    ...state,
+    courses: state.courses.map((c) =>
+      c.videos.some((v) => v.transcript)
+        ? { ...c, videos: c.videos.map((v) => (v.transcript ? { ...v, transcript: "" } : v)) }
+        : c,
+    ),
   };
 }
 
@@ -165,11 +216,21 @@ interface AppContextValue extends AppState {
   resendEmailCode(): Promise<{ ok: boolean; error?: string }>;
   adminSignIn(email: string, password: string): Promise<AuthResult>;
   oauthSignIn(provider: "google"): Promise<{ ok: boolean; error?: string }>;
+  /** Forgot password: email a 6-digit reset code to the account's address. */
+  requestPasswordReset(email: string): Promise<{ ok: boolean; error?: string }>;
+  /** Verify the emailed code + save the new password (kept in Clerk); signs in on success. */
+  resetPassword(code: string, newPassword: string): Promise<AuthResult>;
   signOut(): Promise<void>;
   setRole(role: Role): void;
   // access / enrollment
   isEnrolled(courseId: string, userId?: string): boolean;
   hasAccess(courseId: string, userId?: string): boolean;
+  // entitlement to a course IGNORING time-expiry (owns it / subscription / category / free)
+  hasGrant(courseId: string, userId?: string): boolean;
+  // when the user's access to this course lapses (enrolledAt + accessDurationDays); null = lifetime/not enrolled
+  courseExpiresAt(courseId: string, userId?: string): string | null;
+  // restart the access timer — allowed for subscription/category/free entitlements (à-la-carte must re-buy)
+  renewEnrollment(courseId: string): void;
   enrollFree(courseId: string): void;
   // skipPersist: the grant was already written server-side (after verified payment),
   // so only update in-memory state — don't fire a client Supabase write.
@@ -240,10 +301,11 @@ interface AppContextValue extends AppState {
   addTrack(label: string): string;
   saveSession(s: LiveSession): void;
   deleteSession(id: string): void;
-  setBanned(userId: string, banned: boolean): void;
-  deleteUser(userId: string): void;
-  setSubAdmin(userId: string, permissions: Permission[]): void;
-  revokeAdmin(userId: string): void;
+  markSessionNotified(id: string, notifiedAt: string | null, notifiedUserIds: string[]): void;
+  setBanned(userId: string, banned: boolean): Promise<{ ok: boolean; error?: string }>;
+  deleteUser(userId: string): Promise<{ ok: boolean; error?: string }>;
+  setSubAdmin(userId: string, permissions: Permission[]): Promise<{ ok: boolean; error?: string }>;
+  revokeAdmin(userId: string): Promise<{ ok: boolean; error?: string }>;
   // admin — coupons
   saveCoupon(coupon: Coupon): void;
   deleteCoupon(code: string): void;
@@ -251,6 +313,8 @@ interface AppContextValue extends AppState {
   // payments — owner refund + admin retry of a flagged (grant_failed) payment
   refundPayment(paymentId: string): Promise<{ ok: boolean; error?: string }>;
   retryGrant(paymentId: string): Promise<{ ok: boolean; error?: string }>;
+  // live refresh of the payments list (for the admin payments/subscriptions dashboard)
+  refreshPayments(): Promise<void>;
   // admin — homepage CMS / team / books
   saveSiteContent(content: SiteContent): Promise<{ ok: boolean; error?: string }>;
   saveTeamMember(member: TeamMember): void;
@@ -258,6 +322,14 @@ interface AppContextValue extends AppState {
   saveBook(book: Book): void;
   saveArticle(article: Article): void;
   deleteArticle(id: string): void;
+  // admin — announcements
+  saveAnnouncement(a: Announcement): void;
+  deleteAnnouncement(id: string): void;
+  markAnnouncementNotified(id: string, notifiedAt: string | null, notifiedUserIds: string[]): void;
+  // admin — FAQ + privacy
+  saveFaq(f: Faq): void;
+  deleteFaq(id: string): void;
+  savePrivacyPolicy(text: string): void;
   deleteBook(id: string): void;
   // lookups
   getCourse(id: string): Course | undefined;
@@ -398,6 +470,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         users,
         pricing: data.pricing ?? s.pricing,
         siteContent: data.siteContent ? { ...DEFAULT_SITE_CONTENT, ...data.siteContent } : s.siteContent,
+        privacyPolicy: data.privacyPolicy ?? DEFAULT_PRIVACY_POLICY,
         currentUserId: userId,
       }));
       setHydrated(true);
@@ -409,24 +482,32 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.isLoaded, auth.userId]);
 
-  // ── Persist to localStorage (mock mode only) ──
+  // ── Persist to localStorage, DEBOUNCED (mock mode only) ──
+  // Serializing the whole app state on every state change is wasteful; debounce so a
+  // burst of changes (or a background poll) writes at most once per ~500ms.
   React.useEffect(() => {
     if (!hydrated || realMode) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      /* ignore quota errors */
-    }
+    const id = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch {
+        /* ignore quota errors */
+      }
+    }, 500);
+    return () => clearTimeout(id);
   }, [state, hydrated]);
 
-  // ── Cache the per-user snapshot (Supabase mode) for instant reloads ──
+  // ── Cache the per-user snapshot (Supabase mode) for instant reloads — DEBOUNCED + slimmed ──
   React.useEffect(() => {
     if (!hydrated || !realMode || !state.currentUserId) return;
-    try {
-      localStorage.setItem(SB_CACHE_PREFIX + state.currentUserId, JSON.stringify(state));
-    } catch {
-      /* ignore quota errors — falls back to a full load next time */
-    }
+    const id = setTimeout(() => {
+      try {
+        localStorage.setItem(SB_CACHE_PREFIX + state.currentUserId, JSON.stringify(cacheSnapshot(state)));
+      } catch {
+        /* ignore quota errors — falls back to a full load next time */
+      }
+    }, 500);
+    return () => clearTimeout(id);
   }, [state, hydrated]);
 
   // ── Ensure the signed-in user has a unique @username (tagging resolves by handle).
@@ -491,7 +572,8 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const isEnrolled = (courseId: string, userId?: string) =>
       state.enrollments.some((e) => e.userId === who(userId) && e.courseId === courseId);
 
-    const hasAccess = (courseId: string, userId?: string) => {
+    // Entitlement to a course, IGNORING time-expiry (owns it / all-access / category pass / free).
+    const hasGrant = (courseId: string, userId?: string) => {
       const course = getCourse(courseId);
       if (!course) return false;
       if (course.price === 0) return true;
@@ -501,6 +583,35 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       if (courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c))) return true; // category pass
       return u.ownedCourseIds.includes(courseId);
     };
+
+    // A subscription-type entitlement (free / all-access / category pass). À-la-carte
+    // ownership does NOT count — those buyers must re-purchase to restart expired access.
+    const subEntitled = (courseId: string, userId?: string) => {
+      const course = getCourse(courseId);
+      if (!course) return false;
+      if (course.price === 0) return true;
+      const u = state.users.find((x) => x.id === who(userId));
+      if (!u) return false;
+      if (u.subscriptionPlan === "all_access") return true;
+      return courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c));
+    };
+
+    // When access lapses for this user: enrolledAt + accessDurationDays. null = lifetime / not enrolled.
+    const courseExpiresAt = (courseId: string, userId?: string) => {
+      const course = getCourse(courseId);
+      if (!course || !course.accessDurationDays || course.accessDurationDays <= 0) return null;
+      const e = state.enrollments.find((x) => x.userId === who(userId) && x.courseId === courseId);
+      if (!e) return null;
+      return new Date(new Date(e.enrolledAt).getTime() + course.accessDurationDays * 86_400_000).toISOString();
+    };
+    const courseExpired = (courseId: string, userId?: string) => {
+      const exp = courseExpiresAt(courseId, userId);
+      return !!exp && Date.parse(exp) < Date.now();
+    };
+
+    // Access = a valid entitlement AND the per-course timer hasn't lapsed (applies to everyone).
+    const hasAccess = (courseId: string, userId?: string) =>
+      hasGrant(courseId, userId) && !courseExpired(courseId, userId);
 
     const isVideoCompleted = (videoId: string, userId?: string) =>
       state.progress.some((p) => p.userId === who(userId) && p.videoId === videoId && p.completed);
@@ -554,6 +665,29 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
 
     const fire = (p: PromiseLike<unknown> | undefined) => {
       if (p) Promise.resolve(p).then(undefined, (e) => console.error("[supabase]", e));
+    };
+
+    // Owner-only user mutations (grant/revoke/ban/delete) go through a service-role
+    // route: profiles.is_admin/permissions/banned are pinned by the DB trigger for
+    // browser writes, so a direct client update silently no-ops. See app/api/admin/users.
+    const adminUserAction = async (payload: {
+      action: "grant" | "revoke" | "ban" | "delete";
+      userId: string;
+      permissions?: Permission[];
+      banned?: boolean;
+    }): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const res = await fetch("/api/admin/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return { ok: false, error: data.error || "The change couldn't be saved." };
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "Network error — the change couldn't be saved." };
+      }
     };
 
     return {
@@ -659,6 +793,25 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         // Clerk redirects the browser to the provider; control returns via /sso-callback.
         return auth.signInOAuth(provider);
       },
+      async requestPasswordReset(email) {
+        if (realMode) return auth.requestPasswordReset(email);
+        // Mock mode: just confirm the account exists — no email is actually sent.
+        const u = state.users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
+        if (!u) return { ok: false, error: "No account found for that email." };
+        return { ok: true };
+      },
+      async resetPassword(code, newPassword) {
+        if (realMode) {
+          const r = await auth.resetPassword(code, newPassword);
+          if (!r.ok) return { ok: false, error: r.error };
+          // Clerk activated the new session; show the loader until the profile loads.
+          setHydrated(false);
+          return { ok: true };
+        }
+        // Mock mode stores no passwords (any password signs in), so there's nothing
+        // to update — accept and let the UI route back to sign-in.
+        return { ok: true };
+      },
       async signOut() {
         if (realMode) {
           // Clerk clears the session and redirects to "/" (afterSignOutUrl). Don't
@@ -678,6 +831,8 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       // ── access / enroll ──
       isEnrolled,
       hasAccess,
+      hasGrant,
+      courseExpiresAt,
       enrollFree(courseId) {
         if (!currentUser || isEnrolled(courseId)) return;
         setState((s) => ({
@@ -692,9 +847,28 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         }));
         if (sb) fire(db.enroll(sb, currentUser.id, courseId));
       },
+      renewEnrollment(courseId) {
+        // Restart the access timer for a subscription/category/free entitlement.
+        // À-la-carte buyers aren't eligible here — they re-purchase (which resets it).
+        if (!currentUser || !subEntitled(courseId)) return;
+        const at = new Date().toISOString();
+        setState((s) => {
+          const exists = s.enrollments.some((e) => e.userId === currentUser.id && e.courseId === courseId);
+          return {
+            ...s,
+            enrollments: exists
+              ? s.enrollments.map((e) =>
+                  e.userId === currentUser.id && e.courseId === courseId ? { ...e, enrolledAt: at, completedAt: null } : e,
+                )
+              : [...s.enrollments, { userId: currentUser.id, courseId, enrolledAt: at }],
+          };
+        });
+        if (sb) fire(db.reEnroll(sb, currentUser.id, courseId));
+      },
       purchaseCourse(courseId, skipPersist) {
         if (!currentUser) return;
         const wasEnrolled = isEnrolled(courseId);
+        const at = new Date().toISOString();
         patchUser(currentUser.id, (u) => ({
           ...u,
           ownedCourseIds: u.ownedCourseIds.includes(courseId)
@@ -708,13 +882,16 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
               ? { ...c, purchaseCount: c.purchaseCount + 1, enrolledCount: c.enrolledCount + (wasEnrolled ? 0 : 1) }
               : c,
           ),
+          // (Re)purchase restarts the access timer (matters for time-boxed à-la-carte courses).
           enrollments: wasEnrolled
-            ? s.enrollments
-            : [...s.enrollments, { userId: currentUser.id, courseId, enrolledAt: new Date().toISOString() }],
+            ? s.enrollments.map((e) =>
+                e.userId === currentUser.id && e.courseId === courseId ? { ...e, enrolledAt: at, completedAt: null } : e,
+              )
+            : [...s.enrollments, { userId: currentUser.id, courseId, enrolledAt: at }],
         }));
         if (sb && !skipPersist) {
           fire(db.purchase(sb, currentUser.id, courseId));
-          if (!wasEnrolled) fire(db.enroll(sb, currentUser.id, courseId));
+          fire(db.reEnroll(sb, currentUser.id, courseId));
         }
       },
       subscribeAllAccess(skipPersist) {
@@ -762,46 +939,34 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       courseProgress,
       markVideoComplete(videoId) {
         if (!currentUser) return;
-        const already = isVideoCompleted(videoId);
+        const user = currentUser;
         const found = getVideoById(videoId);
         const dur = found?.video.durationSeconds ?? 0;
-        setState((s) => {
-          const existing = s.progress.find(
-            (p) => p.userId === currentUser.id && p.videoId === videoId,
-          );
-          const progress = existing
-            ? s.progress.map((p) =>
+        const courseId = found?.course.id ?? "";
+        // Mark this video complete on top of an arbitrary progress list.
+        const withVideoDone = (base: VideoProgress[]): VideoProgress[] => {
+          const existing = base.find((p) => p.userId === user.id && p.videoId === videoId);
+          return existing
+            ? base.map((p) =>
                 p === existing
                   ? { ...p, completed: true, watchSeconds: dur, completedAt: new Date().toISOString() }
                   : p,
               )
             : [
-                ...s.progress,
-                {
-                  userId: currentUser.id,
-                  videoId,
-                  courseId: found?.course.id ?? "",
-                  completed: true,
-                  watchSeconds: dur,
-                  completedAt: new Date().toISOString(),
-                },
+                ...base,
+                { userId: user.id, videoId, courseId, completed: true, watchSeconds: dur, completedAt: new Date().toISOString() },
               ];
-          return {
-            ...s,
-            progress,
-            users: already
-              ? s.users
-              : s.users.map((u) =>
-                  u.id === currentUser.id
-                    ? { ...u, learningCredits: u.learningCredits + CREDITS_PER_VIDEO, lastActiveAt: new Date().toISOString() }
-                    : u,
-                ),
-          };
+        };
+        setState((s) => {
+          const progress = withVideoDone(s.progress);
+          // Completing the last video can finalize the topic → (re)compute its credit.
+          const { users } = applyTopicCredit(s.users, s.courses, courseId, user.id, s.submissions, progress);
+          return { ...s, progress, users };
         });
         if (sb) {
-          fire(db.completeVideo(sb, { userId: currentUser.id, videoId, courseId: found?.course.id ?? "", watchSeconds: dur }));
-          if (!already)
-            fire(db.updateProfile(sb, currentUser.id, { learning_credits: currentUser.learningCredits + CREDITS_PER_VIDEO }));
+          fire(db.completeVideo(sb, { userId: user.id, videoId, courseId, watchSeconds: dur }));
+          const { patch } = applyTopicCredit(state.users, state.courses, courseId, user.id, state.submissions, withVideoDone(state.progress));
+          if (patch) fire(db.updateProfile(sb, user.id, patch));
         }
       },
 
@@ -850,22 +1015,16 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           attemptNumber: prior.attempts + 1,
           submittedAt: new Date().toISOString(),
         };
-        const awardCredits = passed && !prior.passed;
-        setState((s) => ({
-          ...s,
-          submissions: [...s.submissions, submission],
-          users: awardCredits
-            ? s.users.map((u) =>
-                u.id === userId
-                  ? { ...u, learningCredits: u.learningCredits + CREDITS_PER_ASSIGNMENT, lastActiveAt: new Date().toISOString() }
-                  : u,
-              )
-            : s.users,
-        }));
+        setState((s) => {
+          const newSubs = [...s.submissions, submission];
+          // Answering a checkpoint can finalize the topic → (re)compute its credit (best kept).
+          const { users } = applyTopicCredit(s.users, s.courses, courseId, userId, newSubs, s.progress);
+          return { ...s, submissions: newSubs, users };
+        });
         if (sb) {
           fire(db.insertSubmission(sb, submission));
-          if (awardCredits && currentUser)
-            fire(db.updateProfile(sb, userId, { learning_credits: currentUser.learningCredits + CREDITS_PER_ASSIGNMENT }));
+          const { patch } = applyTopicCredit(state.users, state.courses, courseId, userId, [...state.submissions, submission], state.progress);
+          if (patch) fire(db.updateProfile(sb, userId, patch));
         }
         return submission;
       },
@@ -1332,25 +1491,48 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         setState((s) => ({ ...s, sessions: s.sessions.filter((x) => x.id !== id) }));
         if (sb) fire(db.deleteSession(sb, id));
       },
-      setBanned(userId, banned) {
-        if (!isOwner(currentUser)) return;
+      // Local-only sync after the broadcast route recorded delivery server-side.
+      markSessionNotified(id, notifiedAt, notifiedUserIds) {
+        setState((s) => ({
+          ...s,
+          sessions: s.sessions.map((x) => (x.id === id ? { ...x, notifiedAt, notifiedUserIds } : x)),
+        }));
+      },
+      async setBanned(userId, banned) {
+        if (!isOwner(currentUser)) return { ok: false, error: "Only the owner can do that." };
+        const prev = state.users.find((u) => u.id === userId);
         patchUser(userId, (u) => ({ ...u, banned }));
-        if (sb) fire(db.setBanned(sb, userId, banned));
+        if (!realMode) return { ok: true };
+        const r = await adminUserAction({ action: "ban", userId, banned });
+        if (!r.ok && prev) patchUser(userId, () => prev); // roll back on server failure
+        return r;
       },
-      deleteUser(userId) {
-        if (!isOwner(currentUser)) return;
+      async deleteUser(userId) {
+        if (!isOwner(currentUser)) return { ok: false, error: "Only the owner can do that." };
+        const prev = state.users.find((u) => u.id === userId);
         setState((s) => ({ ...s, users: s.users.filter((u) => u.id !== userId) }));
-        if (sb) fire(db.deleteUserProfile(sb, userId));
+        if (!realMode) return { ok: true };
+        const r = await adminUserAction({ action: "delete", userId });
+        if (!r.ok && prev) setState((s) => (s.users.some((u) => u.id === userId) ? s : { ...s, users: [...s.users, prev] }));
+        return r;
       },
-      setSubAdmin(userId, permissions) {
-        if (!isOwner(currentUser)) return;
+      async setSubAdmin(userId, permissions) {
+        if (!isOwner(currentUser)) return { ok: false, error: "Only the owner can do that." };
+        const prev = state.users.find((u) => u.id === userId);
         patchUser(userId, (u) => ({ ...u, isAdmin: true, permissions }));
-        if (sb) fire(db.updateProfile(sb, userId, { is_admin: true, permissions }));
+        if (!realMode) return { ok: true };
+        const r = await adminUserAction({ action: "grant", userId, permissions });
+        if (!r.ok && prev) patchUser(userId, () => prev);
+        return r;
       },
-      revokeAdmin(userId) {
-        if (!isOwner(currentUser)) return;
+      async revokeAdmin(userId) {
+        if (!isOwner(currentUser)) return { ok: false, error: "Only the owner can do that." };
+        const prev = state.users.find((u) => u.id === userId);
         patchUser(userId, (u) => ({ ...u, isAdmin: false, permissions: null }));
-        if (sb) fire(db.updateProfile(sb, userId, { is_admin: false, permissions: null }));
+        if (!realMode) return { ok: true };
+        const r = await adminUserAction({ action: "revoke", userId });
+        if (!r.ok && prev) patchUser(userId, () => prev);
+        return r;
       },
 
       // ── admin: coupons ──
@@ -1417,10 +1599,22 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           return { ok: false, error: "Retry request failed." };
         }
       },
+      async refreshPayments() {
+        if (!currentUser?.isAdmin || !sb) return;
+        try {
+          const payments = await db.fetchPayments(sb);
+          setState((s) => ({ ...s, payments }));
+        } catch (e) {
+          console.error("[supabase] refreshPayments", e);
+        }
+      },
       savePricing(tiers) {
         if (!isOwner(currentUser)) return;
         setState((s) => ({ ...s, pricing: tiers }));
-        if (sb) fire(db.savePricing(sb, tiers));
+        if (sb) {
+          fire(db.savePricing(sb, tiers));
+          fire(db.saveUpgradeInfoFlag(sb, tiers.showUpgradeInfo !== false));
+        }
       },
 
       // ── admin: homepage CMS / team / books ──
@@ -1477,12 +1671,62 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
             ? s.articles.map((a) => (a.id === article.id ? article : a))
             : [article, ...s.articles],
         }));
-        if (sb) fire(db.saveArticle(sb, article));
+        if (sb) {
+          fire(db.saveArticle(sb, article));
+          fire(db.setArticleArchived(sb, article.id, article.archived ?? false));
+        }
       },
       deleteArticle(id) {
         if (!hasPermission(currentUser, "articles")) return;
         setState((s) => ({ ...s, articles: s.articles.filter((a) => a.id !== id) }));
         if (sb) fire(db.deleteArticle(sb, id));
+      },
+
+      // ── admin: announcements ──
+      saveAnnouncement(a) {
+        if (!hasPermission(currentUser, "announcements")) return;
+        setState((s) => ({
+          ...s,
+          announcements: s.announcements.some((x) => x.id === a.id)
+            ? s.announcements.map((x) => (x.id === a.id ? a : x))
+            : [a, ...s.announcements],
+        }));
+        if (sb) fire(db.saveAnnouncement(sb, a));
+      },
+      deleteAnnouncement(id) {
+        if (!hasPermission(currentUser, "announcements")) return;
+        setState((s) => ({ ...s, announcements: s.announcements.filter((a) => a.id !== id) }));
+        if (sb) fire(db.deleteAnnouncement(sb, id));
+      },
+      // Local-only sync after the broadcast route recorded delivery server-side.
+      markAnnouncementNotified(id, notifiedAt, notifiedUserIds) {
+        setState((s) => ({
+          ...s,
+          announcements: s.announcements.map((a) => (a.id === id ? { ...a, notifiedAt, notifiedUserIds } : a)),
+        }));
+      },
+
+      // ── admin: FAQ + privacy (gated under the "homepage" site-content permission) ──
+      saveFaq(f) {
+        if (!hasPermission(currentUser, "homepage")) return;
+        setState((s) => ({
+          ...s,
+          faqs: (s.faqs.some((x) => x.id === f.id)
+            ? s.faqs.map((x) => (x.id === f.id ? f : x))
+            : [...s.faqs, f]
+          ).sort((a, b) => (a.order !== b.order ? a.order - b.order : a.createdAt < b.createdAt ? -1 : 1)),
+        }));
+        if (sb) fire(db.saveFaq(sb, f));
+      },
+      deleteFaq(id) {
+        if (!hasPermission(currentUser, "homepage")) return;
+        setState((s) => ({ ...s, faqs: s.faqs.filter((f) => f.id !== id) }));
+        if (sb) fire(db.deleteFaq(sb, id));
+      },
+      savePrivacyPolicy(text) {
+        if (!hasPermission(currentUser, "homepage")) return;
+        setState((s) => ({ ...s, privacyPolicy: text }));
+        if (sb) fire(db.savePrivacyPolicy(sb, text));
       },
 
       // ── lookups ──
