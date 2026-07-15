@@ -34,6 +34,7 @@ import {
   VideoProgress,
 } from "@/lib/types";
 import { DEFAULT_TRACKS, DEFAULT_PRICING, DEFAULT_SITE_CONTENT, DEFAULT_PRIVACY_POLICY, courseCategories, isOwner, hasPermission } from "@/lib/types";
+import { courseAccessExpiry, isCourseAccessExpired } from "@/lib/access";
 import {
   ADMIN_PASSWORD,
   seedArticles,
@@ -227,9 +228,9 @@ interface AppContextValue extends AppState {
   hasAccess(courseId: string, userId?: string): boolean;
   // entitlement to a course IGNORING time-expiry (owns it / subscription / category / free)
   hasGrant(courseId: string, userId?: string): boolean;
-  // when the user's access to this course lapses (enrolledAt + accessDurationDays); null = lifetime/not enrolled
+  // when the user's access to this topic lapses = latest 1-year window across their entitlements; null = never (free/lifetime)
   courseExpiresAt(courseId: string, userId?: string): string | null;
-  // restart the access timer — allowed for subscription/category/free entitlements (à-la-carte must re-buy)
+  // restart a free topic's enrollment timestamp (paid access is time-boxed and must be re-purchased to renew)
   renewEnrollment(courseId: string): void;
   enrollFree(courseId: string): void;
   // skipPersist: the grant was already written server-side (after verified payment),
@@ -596,18 +597,13 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       return courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c));
     };
 
-    // When access lapses for this user: enrolledAt + accessDurationDays. null = lifetime / not enrolled.
-    const courseExpiresAt = (courseId: string, userId?: string) => {
-      const course = getCourse(courseId);
-      if (!course || !course.accessDurationDays || course.accessDurationDays <= 0) return null;
-      const e = state.enrollments.find((x) => x.userId === who(userId) && x.courseId === courseId);
-      if (!e) return null;
-      return new Date(new Date(e.enrolledAt).getTime() + course.accessDurationDays * 86_400_000).toISOString();
-    };
-    const courseExpired = (courseId: string, userId?: string) => {
-      const exp = courseExpiresAt(courseId, userId);
-      return !!exp && Date.parse(exp) < Date.now();
-    };
+    // When this user's access to the topic lapses = the LATEST one-year window
+    // across every entitlement that grants it (à-la-carte purchase, catalog pass,
+    // all-access). null = never expires (free topic / undated legacy entitlement).
+    const courseExpiresAt = (courseId: string, userId?: string) =>
+      courseAccessExpiry(state.users.find((x) => x.id === who(userId)), getCourse(courseId));
+    const courseExpired = (courseId: string, userId?: string) =>
+      isCourseAccessExpired(state.users.find((x) => x.id === who(userId)), getCourse(courseId));
 
     // Access = a valid entitlement AND the per-course timer hasn't lapsed (applies to everyone).
     const hasAccess = (courseId: string, userId?: string) =>
@@ -874,6 +870,8 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           ownedCourseIds: u.ownedCourseIds.includes(courseId)
             ? u.ownedCourseIds
             : [...u.ownedCourseIds, courseId],
+          // (Re)purchase restarts this topic's 1-year access window.
+          coursePurchasedAt: { ...(u.coursePurchasedAt ?? {}), [courseId]: at },
         }));
         setState((s) => ({
           ...s,
@@ -914,11 +912,15 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         const merged = Array.from(new Set([...(currentUser.ownedCategories ?? []), ...categories]));
         const ALL: Role[] = ["student", "professional", "entrepreneur"];
         const allThree = ALL.every((r) => merged.includes(r));
+        const now = new Date().toISOString();
         const validUntil = new Date();
         validUntil.setFullYear(validUntil.getFullYear() + 1);
+        // Each purchased catalog (re)starts its own 1-year window from now.
+        const passStamps = Object.fromEntries(categories.map((c) => [c, now]));
         patchUser(currentUser.id, (u) => ({
           ...u,
           ownedCategories: merged,
+          categoryPassAt: { ...(u.categoryPassAt ?? {}), ...passStamps },
           ...(allThree
             ? { subscriptionPlan: "all_access" as const, subscriptionValidUntil: validUntil.toISOString() }
             : {}),

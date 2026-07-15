@@ -53,15 +53,14 @@ Subsystem-specific setup lives in:
 
 ## Database setup (Supabase)
 
-Run the SQL files against your Supabase project (SQL editor), in this order:
+Run **one file** against your Supabase project (SQL editor):
 
-1. [`supabase/database.sql`](supabase/database.sql) — full schema, RLS, triggers (idempotent; safe to re-run)
-2. [`supabase/faq-and-privacy.sql`](supabase/faq-and-privacy.sql) — FAQ + privacy tables
-3. [`supabase/seed-pricing-and-announcements.sql`](supabase/seed-pricing-and-announcements.sql) — default pricing tiers
-4. [`supabase/telegram-bot.sql`](supabase/telegram-bot.sql) — Telegram linking tables (only if using the bot)
+- [`supabase/database.sql`](supabase/database.sql) — the complete schema: every table
+  (including FAQ/privacy and the Telegram linking tables), all RLS policies, triggers,
+  and performance indexes. Idempotent and **seed-free** — it creates no demo content;
+  add real content in the app (Admin → Content Studio).
 
-`database.sql` is written to be re-runnable — re-run it after pulling changes to
-pick up new columns.
+Re-run it after pulling changes to pick up new columns — it's always safe to re-run.
 
 ## Deploying to Vercel
 

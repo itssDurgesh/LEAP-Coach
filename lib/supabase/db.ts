@@ -41,13 +41,24 @@ const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.
 const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at });
 const mapNote = (r: Row): Note => ({ id: r.id, userId: r.user_id, videoId: r.video_id, text: r.text, createdAt: r.created_at });
 const mapSubmission = (r: Row): Submission => ({ id: r.id, userId: r.user_id, assignmentId: r.assignment_id, courseId: r.course_id, answers: r.answers ?? {}, score: Number(r.score), passed: r.passed, feedback: r.feedback ?? [], attemptNumber: r.attempt_number, submittedAt: r.submitted_at });
-const mapProfile = (r: Row, ownedCourseIds: string[], ownedCategories: Role[] = []): User => ({
+// à-la-carte purchase rows (course_purchases) + catalog-pass rows (category_passes)
+// carry their own timestamps; we keep both the ownership list AND the date map so
+// the 1-year-from-purchase expiry can be computed per entitlement (see lib/access).
+type PurchaseRow = { course_id: string; purchased_at?: string | null };
+type PassRow = { category: string; granted_at?: string | null };
+
+const mapProfile = (r: Row, purchases: PurchaseRow[] = [], passes: PassRow[] = []): User => ({
   id: r.id, name: r.name ?? "", username: r.username ?? undefined, email: r.email ?? "", role: r.role ?? null, avatarUrl: r.avatar_url,
   age: r.age ?? undefined, gender: r.gender ?? undefined, phone: r.phone ?? undefined, phoneVerified: r.phone_verified ?? false,
   company: r.company ?? undefined, nationality: r.nationality ?? undefined, region: r.region ?? undefined,
   headline: r.headline ?? undefined, bio: r.bio ?? undefined,
   learningCredits: r.learning_credits ?? 0, topicCredits: r.topic_credits ?? {}, subscriptionPlan: r.subscription_plan ?? "none",
-  subscriptionValidUntil: r.subscription_valid_until ?? null, ownedCourseIds, ownedCategories, banned: r.banned ?? false,
+  subscriptionValidUntil: r.subscription_valid_until ?? null,
+  ownedCourseIds: purchases.map((p) => p.course_id),
+  coursePurchasedAt: Object.fromEntries(purchases.filter((p) => p.purchased_at).map((p) => [p.course_id, p.purchased_at as string])),
+  ownedCategories: passes.map((p) => p.category as Role),
+  categoryPassAt: Object.fromEntries(passes.filter((p) => p.granted_at).map((p) => [p.category as Role, p.granted_at as string])),
+  banned: r.banned ?? false,
   isAdmin: r.is_admin ?? false, permissions: r.permissions ?? null, createdAt: r.created_at, lastActiveAt: r.last_active_at,
 });
 const mapTeamMember = (r: Row): TeamMember => ({
@@ -219,8 +230,8 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     users: profiles.map((p) =>
       mapProfile(
         p,
-        (purchasesByUser[p.id] ?? []).map((x) => x.course_id),
-        (passesByUser[p.id] ?? []).map((x) => x.category as Role),
+        (purchasesByUser[p.id] ?? []) as PurchaseRow[],
+        (passesByUser[p.id] ?? []) as PassRow[],
       ),
     ),
     courses: assembledCourses,
@@ -275,14 +286,10 @@ export async function fetchUser(sb: SupabaseClient, id: string): Promise<User | 
   const { data } = await sb.from("profiles").select("*").eq("id", id).maybeSingle();
   if (!data) return null;
   const [owned, passes] = await Promise.all([
-    rows(sb.from("course_purchases").select("course_id").eq("user_id", id)),
-    rows(sb.from("category_passes").select("category").eq("user_id", id)),
+    rows(sb.from("course_purchases").select("course_id, purchased_at").eq("user_id", id)),
+    rows(sb.from("category_passes").select("category, granted_at").eq("user_id", id)),
   ]);
-  return mapProfile(
-    data,
-    owned.map((x) => x.course_id),
-    passes.map((x) => x.category as Role),
-  );
+  return mapProfile(data, owned as PurchaseRow[], passes as PassRow[]);
 }
 
 // ─────────────────────────── writes ───────────────────────────
@@ -297,8 +304,13 @@ export const updateProfile = (sb: SupabaseClient, id: string, patch: Row) =>
 export const enroll = (sb: SupabaseClient, userId: string, courseId: string) =>
   sb.from("enrollments").upsert({ user_id: userId, course_id: courseId }, { onConflict: "user_id,course_id" });
 
+// Stamp purchased_at on every (re)purchase so re-buying an expired topic restarts
+// its 1-year access window (the DB default only applies on first insert).
 export const purchase = (sb: SupabaseClient, userId: string, courseId: string) =>
-  sb.from("course_purchases").upsert({ user_id: userId, course_id: courseId }, { onConflict: "user_id,course_id" });
+  sb.from("course_purchases").upsert(
+    { user_id: userId, course_id: courseId, purchased_at: new Date().toISOString() },
+    { onConflict: "user_id,course_id" },
+  );
 
 export const completeVideo = (sb: SupabaseClient, p: { userId: string; videoId: string; courseId: string; watchSeconds: number }) =>
   sb.from("video_progress").upsert(
@@ -387,8 +399,13 @@ export const saveCoupon = (sb: SupabaseClient, c: Coupon) =>
   });
 export const deleteCoupon = (sb: SupabaseClient, code: string) => sb.from("coupons").delete().eq("code", code);
 
+// Stamp granted_at on every (re)purchase so re-buying an expired catalog restarts
+// its 1-year access window (the DB default only applies on first insert).
 export const grantCategoryPass = (sb: SupabaseClient, userId: string, category: Role) =>
-  sb.from("category_passes").upsert({ user_id: userId, category }, { onConflict: "user_id,category" });
+  sb.from("category_passes").upsert(
+    { user_id: userId, category, granted_at: new Date().toISOString() },
+    { onConflict: "user_id,category" },
+  );
 
 export const savePricing = (sb: SupabaseClient, t: PricingTiers) =>
   sb.from("pricing_tiers").upsert({ id: 1, cat1: t.cat1, cat2: t.cat2, cat3: t.cat3, per_topic_from: t.perTopicFrom });

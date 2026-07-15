@@ -1,12 +1,15 @@
 import "server-only"; // payment fulfilment — service-role only, never client
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { incrementCouponRedemption } from "./server";
+import { notifyGrantFailed, notifyPaymentGranted } from "./notify";
+import { ACCESS_DURATION_DAYS } from "@/lib/access";
 
 // Shared, idempotent payment fulfilment used by BOTH the browser-driven /verify
 // route and the server-to-server Razorpay webhook, so neither can double-grant and
 // a payment is never silently lost.
 
 const CATS = ["student", "professional", "entrepreneur"] as const;
+const ACCESS_MS = ACCESS_DURATION_DAYS * 86_400_000;
 
 export interface GrantInput {
   plan?: string; // 'course' | 'bundle' | 'all'
@@ -27,6 +30,7 @@ export async function grantAccess(
 ): Promise<{ ok: boolean; error?: string }> {
   const { plan, courseId } = input;
   const categories = (input.categories ?? []).filter((c) => (CATS as readonly string[]).includes(c));
+  const now = new Date().toISOString();
 
   const setAllAccess = async () => {
     const validUntil = new Date();
@@ -37,33 +41,46 @@ export async function grantAccess(
       .eq("id", userId);
   };
 
+  // Grant/refresh a catalog pass, stamping granted_at=now so a re-purchase of an
+  // expired catalog restarts its 1-year window (the DB default only fires on insert).
+  const grantPasses = (cats: readonly string[]) =>
+    admin.from("category_passes").upsert(
+      cats.map((c) => ({ user_id: userId, category: c, granted_at: now })),
+      { onConflict: "user_id,category" },
+    );
+
   try {
     if (plan === "all") {
-      await admin.from("category_passes").upsert(
-        CATS.map((c) => ({ user_id: userId, category: c })),
-        { onConflict: "user_id,category" },
-      );
+      await grantPasses(CATS);
       await setAllAccess();
       if (courseId)
         await admin
           .from("enrollments")
-          .upsert({ user_id: userId, course_id: courseId, enrolled_at: new Date().toISOString() }, { onConflict: "user_id,course_id" });
+          .upsert({ user_id: userId, course_id: courseId, enrolled_at: now }, { onConflict: "user_id,course_id" });
     } else if (plan === "bundle") {
       if (!categories.length) return { ok: false, error: "Nothing to grant." };
-      await admin.from("category_passes").upsert(
-        categories.map((c) => ({ user_id: userId, category: c })),
-        { onConflict: "user_id,category" },
+      await grantPasses(categories);
+      // Promote to all-access only when all THREE catalogs are currently active
+      // (an expired pass mustn't grant blanket access — the learner must re-buy it).
+      const { data: owned } = await admin
+        .from("category_passes")
+        .select("category, granted_at")
+        .eq("user_id", userId);
+      const cutoff = Date.now() - ACCESS_MS;
+      const active = new Set(
+        (owned ?? [])
+          .filter((r) => !r.granted_at || Date.parse(r.granted_at as string) >= cutoff)
+          .map((r) => r.category as string),
       );
-      // If the user now owns all three categories, promote to all-access.
-      const { data: owned } = await admin.from("category_passes").select("category").eq("user_id", userId);
-      const set = new Set((owned ?? []).map((r) => r.category as string));
-      if (CATS.every((c) => set.has(c))) await setAllAccess();
+      if (CATS.every((c) => active.has(c))) await setAllAccess();
     } else if (courseId) {
-      await admin.from("course_purchases").upsert({ user_id: userId, course_id: courseId }, { onConflict: "user_id,course_id" });
-      // (Re)purchase restarts the access timer for time-boxed courses.
+      // Stamp purchased_at=now so re-buying an expired topic restarts its 1-year window.
+      await admin
+        .from("course_purchases")
+        .upsert({ user_id: userId, course_id: courseId, purchased_at: now }, { onConflict: "user_id,course_id" });
       await admin
         .from("enrollments")
-        .upsert({ user_id: userId, course_id: courseId, enrolled_at: new Date().toISOString() }, { onConflict: "user_id,course_id" });
+        .upsert({ user_id: userId, course_id: courseId, enrolled_at: now }, { onConflict: "user_id,course_id" });
     } else {
       return { ok: false, error: "Nothing to grant." };
     }
@@ -160,6 +177,16 @@ export async function processPayment(admin: SupabaseClient, input: ProcessInput)
   // 3) Count the coupon once, only on the first successful fulfilment.
   if (g.ok && !existed && couponCode) {
     await incrementCouponRedemption(admin, couponCode);
+  }
+
+  // 4) Best-effort emails (they never fail or slow-fail the payment; both no-throw):
+  //    a receipt to the buyer on the FIRST successful grant, an owner alert when a
+  //    payment NEWLY lands in grant_failed (webhook retries won't re-alert). Demo
+  //    grants (no real charge) stay silent.
+  if (!notes.demo) {
+    const emailInput = { userId, paymentId, amountInr, plan, courseId, categories };
+    if (finalStatus === "granted") await notifyPaymentGranted(admin, emailInput);
+    else if (grantStatus !== "grant_failed") await notifyGrantFailed(admin, emailInput);
   }
 
   return { ok: g.ok, paymentId, grantStatus: finalStatus, amountInr, error: g.error };

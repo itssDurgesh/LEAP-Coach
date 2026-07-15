@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Check, Crown, BookOpen, ShieldCheck, Smartphone, CreditCard, Ticket, X, Layers, ClipboardList, ArrowRight } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button, buttonClasses } from "@/components/ui/Button";
-import { Course, Role, ROLES, bundlePrice, upgradePrice, planFor, isProfileComplete, missingProfileFields } from "@/lib/types";
+import { Course, Role, ROLES, bundlePrice, upgradePrice, isProfileComplete, missingProfileFields } from "@/lib/types";
+import { activeCategoryCount } from "@/lib/access";
 import { useApp } from "@/lib/store/AppProvider";
 import { cn, formatINR } from "@/lib/utils";
 import { ALL_ACCESS_PRICE, RAZORPAY_KEY_ID } from "@/lib/payments/config";
@@ -47,12 +48,19 @@ interface CheckoutModalProps {
 export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bundleCategories }: CheckoutModalProps) {
   const { currentUser, purchaseCourse, subscribeAllAccess, enrollFree, purchaseBundle, pricing } = useApp();
   const profileComplete = isProfileComplete(currentUser);
-  const ownedCount = planFor(currentUser).categories;
+  // Pay-the-difference credits only ACTIVE catalogs (an expired one is charged again),
+  // mirroring the authoritative server price in lib/payments/server.ts.
+  const ownedCount = activeCategoryCount(currentUser);
   const isBundle = !!bundleCategories && bundleCategories.length > 0;
   const [plan, setPlan] = React.useState<"course" | "all">(forcePlan ?? "course");
   const [status, setStatus] = React.useState<"idle" | "processing" | "done">("idle");
-  // Payment captured but access not yet granted (recorded + flagged for admin).
-  const [flagged, setFlagged] = React.useState(false);
+  // What the "done" screen says:
+  //  success     — verified + access granted.
+  //  finalizing  — payment captured, receipt saved, grant pending/failed (admin flagged).
+  //  unconfirmed — Razorpay reported success but our verify didn't confirm; the charge
+  //                almost certainly exists, so we must NOT offer an instant re-pay —
+  //                the webhook reconciles it. Honest copy, no fake access.
+  const [outcome, setOutcome] = React.useState<"success" | "finalizing" | "unconfirmed">("success");
   const [couponInput, setCouponInput] = React.useState("");
   const [applying, setApplying] = React.useState(false);
   const [couponError, setCouponError] = React.useState("");
@@ -61,7 +69,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
   React.useEffect(() => {
     if (open) {
       setStatus("idle");
-      setFlagged(false);
+      setOutcome("success");
       setPlan(forcePlan ?? (course ? "course" : "all"));
       setCouponInput("");
       setApplied(null);
@@ -115,6 +123,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
     } else if (course) {
       purchaseCourse(course.id, serverGranted);
     }
+    setOutcome("success");
     setStatus("done");
     setTimeout(() => {
       onComplete?.();
@@ -145,7 +154,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
       }
       if (r?.ok) {
         // Recorded but grant pending/failed — flagged for admin; don't fake access.
-        setFlagged(true);
+        setOutcome("finalizing");
         setStatus("done");
         setTimeout(() => {
           onComplete?.();
@@ -221,18 +230,32 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
           } else if (vr.ok) {
             // Payment captured but the grant didn't complete — it's recorded and
             // flagged for admin (and the webhook will retry). Don't fake access.
-            setFlagged(true);
+            setOutcome("finalizing");
             setStatus("done");
             setTimeout(() => {
               onComplete?.();
               onClose();
             }, 3200);
           } else {
-            // Verification itself failed — let them retry.
-            setStatus("idle");
+            // Razorpay's checkout reported success but verify couldn't confirm it —
+            // the charge almost certainly exists, so DON'T return to a live Pay
+            // button (that's how double-charges happen). The webhook reconciles.
+            setOutcome("unconfirmed");
+            setStatus("done");
+            setTimeout(() => {
+              onComplete?.();
+              onClose();
+            }, 5000);
           }
         } catch {
-          setStatus("idle");
+          // Network died between the charge and our confirmation — same rule: the
+          // money likely moved, so surface "being confirmed", never an instant re-pay.
+          setOutcome("unconfirmed");
+          setStatus("done");
+          setTimeout(() => {
+            onComplete?.();
+            onClose();
+          }, 5000);
         }
       },
       modal: { ondismiss: () => setStatus("idle") },
@@ -275,7 +298,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
             </Link>
           </div>
         ) : status === "done" ? (
-          flagged ? (
+          outcome === "finalizing" ? (
             <div className="py-8 text-center">
               <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-100 text-amber-600">
                 <ShieldCheck className="h-8 w-8" strokeWidth={2.5} />
@@ -284,6 +307,18 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
               <p className="mx-auto mt-1 max-w-xs text-sm text-muted">
                 We&apos;re finalizing your access. If it doesn&apos;t appear in a moment, our team has
                 been notified — your receipt is saved under Account. You won&apos;t be charged twice.
+              </p>
+            </div>
+          ) : outcome === "unconfirmed" ? (
+            <div className="py-8 text-center">
+              <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-100 text-amber-600">
+                <ShieldCheck className="h-8 w-8" strokeWidth={2.5} />
+              </div>
+              <p className="mt-4 font-heading text-xl font-bold text-heading">Payment being confirmed</p>
+              <p className="mx-auto mt-1 max-w-xs text-sm text-muted">
+                Razorpay accepted your payment, but we couldn&apos;t confirm it just yet. Your access
+                and receipt will appear automatically within a few minutes — please don&apos;t pay
+                again. You won&apos;t be charged twice.
               </p>
             </div>
           ) : (
@@ -344,7 +379,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
                           <span className="font-heading font-bold text-heading">{formatINR(course.price)}</span>
                         </span>
                         <span className="mt-0.5 block text-sm text-muted">
-                          Lifetime access to &ldquo;{course.title}&rdquo;.
+                          One year of access to &ldquo;{course.title}&rdquo;.
                         </span>
                       </span>
                     </button>

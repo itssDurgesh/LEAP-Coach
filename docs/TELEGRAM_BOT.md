@@ -39,7 +39,7 @@ Website (Next.js)  ──►  /api/telegram/{link,unlink,status}  ─┘  (write
 | `app/api/telegram/unlink/route.ts` | Remove the binding |
 | `app/api/telegram/status/route.ts` | Is this user linked? (drives the toggle) |
 | `lib/supabase/admin.ts` | Service-role client for the Next API routes |
-| `supabase/telegram-bot.sql` | Standalone migration (also folded into `database.sql`) |
+| `supabase/database.sql` §8 | The linking tables (part of the single schema file) |
 
 ## How linking works (toggle → Allow → deep link)
 
@@ -81,9 +81,10 @@ SUPABASE_SERVICE_ROLE_KEY=...
 
 ### 2. Database
 
-Run **`supabase/telegram-bot.sql`** once in the Supabase SQL editor (it adds the two
-linking tables, closes their RLS, and enables Realtime on `announcements`, `courses`,
-and `notifications`). It's idempotent and already included in the full `database.sql`.
+Nothing extra to run — the two linking tables (RLS closed, service-role only) and the
+Realtime publication on `announcements`, `courses`, and `notifications` are part of the
+single **`supabase/database.sql`** (section 8). If you haven't run it yet, run that one
+file in the Supabase SQL editor; it's idempotent.
 
 ### 3. Run the bot
 

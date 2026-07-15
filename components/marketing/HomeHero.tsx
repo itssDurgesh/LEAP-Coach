@@ -19,7 +19,7 @@ function highlightTitle(title: string, highlights: string[]) {
   const re = new RegExp(`(${escaped.join("|")})`, "g");
   return title.split(re).map((part, i) =>
     phrases.includes(part) ? (
-      <span key={i} className="text-gradient-gold">
+      <span key={i} className="text-gradient-gold-hero">
         {part}
       </span>
     ) : (
@@ -39,15 +39,15 @@ export function HomeHero({ initialContent }: { initialContent?: SiteContent | nu
 
   return (
     <section className="relative overflow-hidden bg-gradient-to-b from-navy-900 via-navy-900 to-navy-950 dark:from-card dark:via-card dark:to-surface">
-      <div className="pointer-events-none absolute -top-24 right-0 h-96 w-96 rounded-full bg-gold-500/20 blur-3xl" />
+      <div className="pointer-events-none absolute -top-24 right-0 h-96 w-96 rounded-full bg-[#f5c400]/20 blur-3xl" />
       <div className="pointer-events-none absolute -left-24 top-44 h-80 w-80 rounded-full bg-navy-600/40 blur-3xl" />
 
       <div className="relative mx-auto grid max-w-7xl items-center gap-9 px-5 pb-12 pt-20 sm:gap-12 sm:px-8 sm:pb-16 sm:pt-24 lg:grid-cols-[1.1fr_0.9fr] lg:pb-24 lg:pt-28">
         <div>
           <p className="font-heading text-[11px] font-semibold uppercase leading-relaxed tracking-[0.12em] sm:text-base sm:tracking-[0.16em]">
             <span className="text-cream-100/90">L·E·A·P</span>
-            <span className="mx-1.5 text-gold-400 sm:mx-2">—</span>
-            <Typewriter text={c.heroEyebrow} className="text-gold-500" speed={65} />
+            <span className="mx-1.5 text-[#f5c400] sm:mx-2">—</span>
+            <Typewriter text={c.heroEyebrow} className="text-[#f5c400]" speed={65} />
           </p>
           <h1 className="mt-3 font-heading text-[1.9rem] font-extrabold leading-[1.1] text-balance sm:mt-4 sm:text-5xl sm:leading-[1.08] lg:text-[3.4rem]">
             {highlightTitle(c.heroTitle, c.heroHighlights)}
@@ -102,7 +102,7 @@ export function HomeHero({ initialContent }: { initialContent?: SiteContent | nu
           </div>
 
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-700 to-navy-900 dark:from-surface-2 dark:to-card p-7 shadow-navy ring-1 ring-white/10">
-            <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-gold-500/20 blur-2xl" />
+            <div className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-[#f5c400]/20 blur-2xl" />
             <div className="relative flex items-center gap-4">
               <ProfessorPhoto className="h-16 w-16 ring-4 ring-white/10" position="top" />
               <div>

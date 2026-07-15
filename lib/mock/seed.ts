@@ -510,6 +510,7 @@ export const seedUsers: User[] = [
     bio: "Second-year student at VJTI Mumbai, building leadership and communication skills before I graduate. Big believer in systems over willpower.",
     learningCredits: 320, subscriptionPlan: "none",
     ownedCourseIds: ["c_student_leadership", "c_career_launch"],
+    coursePurchasedAt: { c_student_leadership: "2026-06-10T08:00:00.000Z", c_career_launch: "2026-06-10T08:00:00.000Z" },
     createdAt: "2026-03-10T08:00:00.000Z", lastActiveAt: "2026-05-31T19:10:00.000Z",
   },
   {
@@ -530,12 +531,15 @@ export const seedUsers: User[] = [
     bio: "Building Foundpe. Learned more from 12 user interviews than 12 weeks of building. Here for the founder track and the live pitch teardowns.",
     learningCredits: 980, subscriptionPlan: "per_course",
     ownedCourseIds: ["c_idea_to_funded", "c_high_perf_teams"],
+    // idea_to_funded was bought >1yr ago (access lapsed → must re-buy); high_perf_teams is still active.
+    coursePurchasedAt: { c_idea_to_funded: "2025-06-15T08:00:00.000Z", c_high_perf_teams: "2026-05-20T08:00:00.000Z" },
     createdAt: "2026-02-02T08:00:00.000Z", lastActiveAt: "2026-05-30T22:05:00.000Z",
   },
   {
     id: "u5", name: "Meera Iyer", username: "meera", email: "meera@example.com", role: "student",
     age: 22, gender: "female", nationality: "India", region: "Tamil Nadu", phoneVerified: true,
     learningCredits: 150, subscriptionPlan: "none", ownedCourseIds: ["c_student_leadership"],
+    coursePurchasedAt: { c_student_leadership: "2026-07-01T08:00:00.000Z" },
     createdAt: "2026-03-20T08:00:00.000Z", lastActiveAt: "2026-05-29T12:00:00.000Z",
   },
   {
@@ -560,6 +564,8 @@ export const seedUsers: User[] = [
     id: "u9", name: "Daniel Lee", username: "daniel", email: "daniel@example.com", role: "student",
     age: 19, gender: "male", nationality: "Singapore", region: "Singapore", phoneVerified: true,
     learningCredits: 230, subscriptionPlan: "none", ownedCourseIds: ["c_career_launch"],
+    // Bought just over a year ago → access lapsed; the topic page prompts a re-purchase.
+    coursePurchasedAt: { c_career_launch: "2025-07-01T08:00:00.000Z" },
     createdAt: "2026-03-25T08:00:00.000Z", lastActiveAt: "2026-05-31T14:20:00.000Z",
   },
   {

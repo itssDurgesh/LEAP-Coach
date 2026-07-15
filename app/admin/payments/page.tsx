@@ -10,6 +10,7 @@ import {
   Search,
   CreditCard,
   Crown,
+  ShieldCheck,
   Users as UsersIcon,
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
@@ -20,7 +21,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Input, Select } from "@/components/ui/Field";
 import { PlanBadge } from "@/components/app/PlanBadge";
 import { useApp } from "@/lib/store/AppProvider";
-import { isOwner, planFor, ROLES, Role } from "@/lib/types";
+import { isOwner, planFor, ROLES, Role, Payment } from "@/lib/types";
 import { paymentItemLabel } from "@/components/payments/Receipt";
 import { formatINR, timeAgo } from "@/lib/utils";
 
@@ -39,6 +40,15 @@ export default function AdminPaymentsPage() {
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 
+// A receipt needs attention when its grant FAILED, or when it's been sitting in
+// 'pending' for over 10 minutes (e.g. the server died between recording the payment
+// and granting — without this, such receipts would be invisible until a complaint).
+const STALE_PENDING_MS = 10 * 60_000;
+const needsAttention = (p: Payment) =>
+  p.status !== "refunded" &&
+  (p.grantStatus === "grant_failed" ||
+    (p.grantStatus === "pending" && Date.now() - Date.parse(p.createdAt) > STALE_PENDING_MS));
+
 function Dashboard() {
   const { payments, users, getCourse, currentUser, refundPayment, retryGrant, refreshPayments } = useApp();
   const owner = isOwner(currentUser);
@@ -46,6 +56,8 @@ function Dashboard() {
   const [tab, setTab] = React.useState<"payments" | "subscriptions">("payments");
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState("");
+  const [reconciling, setReconciling] = React.useState(false);
+  const [reconcileMsg, setReconcileMsg] = React.useState("");
   const [q, setQ] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [updatedAt, setUpdatedAt] = React.useState<number>(() => Date.now());
@@ -73,7 +85,7 @@ function Dashboard() {
   const captured = payments.filter((p) => p.status === "captured");
   const revenue = captured.reduce((s, p) => s + p.amountInr, 0);
   const refundedList = payments.filter((p) => p.status === "refunded");
-  const flagged = payments.filter((p) => p.grantStatus === "grant_failed" && p.status !== "refunded");
+  const flagged = payments.filter(needsAttention);
   const subscribers = users.filter((u) => !u.isAdmin && planFor(u).tier !== "free");
 
   const stats = [
@@ -86,7 +98,7 @@ function Dashboard() {
   // ── Payments table data ──
   const filteredPayments = [...payments]
     .filter((p) => {
-      const isFlagged = p.grantStatus === "grant_failed" && p.status !== "refunded";
+      const isFlagged = needsAttention(p);
       if (statusFilter === "granted" && !(p.grantStatus === "granted" && p.status !== "refunded")) return false;
       if (statusFilter === "flagged" && !isFlagged) return false;
       if (statusFilter === "refunded" && p.status !== "refunded") return false;
@@ -98,8 +110,8 @@ function Dashboard() {
       return true;
     })
     .sort((a, b) => {
-      const fa = a.grantStatus === "grant_failed" && a.status !== "refunded" ? 1 : 0;
-      const fb = b.grantStatus === "grant_failed" && b.status !== "refunded" ? 1 : 0;
+      const fa = needsAttention(a) ? 1 : 0;
+      const fb = needsAttention(b) ? 1 : 0;
       if (fa !== fb) return fb - fa;
       return a.createdAt < b.createdAt ? 1 : -1;
     });
@@ -127,6 +139,37 @@ function Dashboard() {
     if (!r.ok) setError(r.error ?? "Refund failed.");
   }
 
+  // Cross-check the last 48h of Razorpay captures/refunds against our receipts —
+  // recovers any payment both /verify and the webhook missed (see docs/PAYMENTS.md).
+  async function onReconcile() {
+    setError("");
+    setReconcileMsg("");
+    setReconciling(true);
+    try {
+      const res = await fetch("/api/payments/razorpay/reconcile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const r = await res.json();
+      if (r.ok) {
+        setReconcileMsg(
+          `Checked ${r.scanned} Razorpay payment(s) from the last ${r.windowHours}h — ` +
+            `${r.recovered} recovered, ${r.refundsSynced} refund(s) synced` +
+            (r.unattributed ? `, ${r.unattributed} unattributed (see Razorpay dashboard)` : "") +
+            ".",
+        );
+        await refreshPayments();
+        setUpdatedAt(Date.now());
+      } else {
+        setError(r.error ?? "Reconciliation failed.");
+      }
+    } catch {
+      setError("Reconciliation failed.");
+    }
+    setReconciling(false);
+  }
+
   const catLabel = (r: Role) => ROLES.find((x) => x.id === r)?.label ?? r;
 
   return (
@@ -140,16 +183,21 @@ function Dashboard() {
           </span>
           Live · updated {timeAgo(new Date(updatedAt).toISOString())}
         </span>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={async () => {
-            await refreshPayments();
-            setUpdatedAt(Date.now());
-          }}
-        >
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" loading={reconciling} onClick={onReconcile}>
+            <ShieldCheck className="h-3.5 w-3.5" /> Reconcile
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              await refreshPayments();
+              setUpdatedAt(Date.now());
+            }}
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -168,6 +216,11 @@ function Dashboard() {
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
           <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
+        </div>
+      )}
+      {reconcileMsg && (
+        <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3.5 py-2.5 text-sm text-green-700">
+          <CheckCircle2 className="h-4 w-4 shrink-0" /> {reconcileMsg}
         </div>
       )}
 
@@ -226,7 +279,7 @@ function Dashboard() {
               {filteredPayments.map((p) => {
                 const u = userOf(p.userId);
                 const title = p.courseId ? getCourse(p.courseId)?.title : undefined;
-                const isFlagged = p.grantStatus === "grant_failed" && p.status !== "refunded";
+                const isFlagged = needsAttention(p);
                 return (
                   <li
                     key={p.id}
@@ -327,7 +380,7 @@ function Dashboard() {
                               ? `Until ${new Date(u.subscriptionValidUntil).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`
                               : "Active"
                             : cats.length
-                              ? "Lifetime passes"
+                              ? "Annual passes"
                               : "—"}
                         </td>
                       </tr>

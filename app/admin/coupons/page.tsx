@@ -27,7 +27,7 @@ export default function CouponsPage() {
 }
 
 function PricingEditor() {
-  const { pricing, savePricing } = useApp();
+  const { pricing, savePricing, hydrated } = useApp();
   const [form, setForm] = React.useState(pricing);
   const [saved, setSaved] = React.useState(false);
 
@@ -45,6 +45,23 @@ function PricingEditor() {
     { key: "cat2", label: "2 categories", hint: "Any two categories" },
     { key: "cat3", label: "3 categories", hint: "All-Access" },
   ];
+
+  // Wait for the saved prices to load from the DB before showing the inputs — otherwise the
+  // fields flash the hardcoded DEFAULT_PRICING (₹6,000…) for a frame before syncing to the
+  // real values, which looks like the admin's saved prices were lost.
+  if (!hydrated) {
+    return (
+      <Card padded>
+        <div className="h-6 w-64 animate-pulse rounded bg-surface-2" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-10 animate-pulse rounded bg-surface-2" />
+          ))}
+        </div>
+        <div className="mt-4 h-10 w-full max-w-xs animate-pulse rounded bg-surface-2" />
+      </Card>
+    );
+  }
 
   return (
     <Card padded>

@@ -37,6 +37,10 @@ The key id prefix decides the label shown to users ("Razorpay (test)" vs "Razorp
 - `RAZORPAY_WEBHOOK_SECRET` — **server only**. Validates the webhook (optional but recommended for production).
 - `SUPABASE_SERVICE_ROLE_KEY` — **server only**. Writes the grant + receipt, bypassing RLS.
 - Clerk keys — the buyer is identified from their Clerk session, not from the client.
+- `PAYMENT_ALERT_EMAIL` — optional; comma-separated recipients for grant-failed alerts
+  (defaults to every owner profile's email). Uses the app's email provider (docs/EMAIL.md).
+- `PAYMENTS_RECONCILE_SECRET` (or `CRON_SECRET`) — optional; lets a scheduler call the
+  reconcile route with `Authorization: Bearer <secret>`.
 
 > ⚠️ Never expose `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, or
 > `SUPABASE_SERVICE_ROLE_KEY` to the browser. They are only read inside `app/api/payments/*`.
@@ -49,11 +53,12 @@ All under `app/api/payments/`. All are `runtime = "nodejs"`.
 
 | Route | Method | Who | Purpose |
 |---|---|---|---|
-| `razorpay/order` | POST | signed-in user | Creates a Razorpay **order** with the **server-computed** amount. Stamps `userId`, `plan`, `courseId`, `categories`, `couponCode` into the order **notes** (so the server — not the client — owns these). |
-| `razorpay/verify` | POST | signed-in user | After the popup succeeds: verifies the HMAC signature, re-confirms the payment with Razorpay, then **records + grants** (`processPayment`). |
-| `razorpay/webhook` | POST | Razorpay (server-to-server) | Safety net. On `payment.captured`, records + grants from the order notes even if the browser never reached `/verify`. |
-| `razorpay/refund` | POST | **owner** only | Full refund via Razorpay; marks the receipt `refunded`. |
-| `razorpay/retry-grant` | POST | any admin | Re-runs the grant for a `grant_failed` receipt. |
+| `razorpay/order` | POST | signed-in user | Creates a Razorpay **order** with the **server-computed** amount and `payment_capture: 1` (auto-capture, never rely on the dashboard setting). Stamps `userId`, `plan`, `courseId`, `categories`, `couponCode` into the order **notes** (so the server — not the client — owns these). |
+| `razorpay/verify` | POST | signed-in user | After the popup succeeds: verifies the HMAC signature, re-confirms the payment with Razorpay, then **records + grants** (`processPayment`). Grants **only for `captured` money** — a still-`authorized` payment is captured explicitly first, or reported as pending (never granted). |
+| `razorpay/webhook` | POST | Razorpay (server-to-server) | Safety net. On `payment.captured`, records + grants from the order notes even if the browser never reached `/verify`. On `refund.created`/`refund.processed`/`refund.failed`, keeps the receipt's refund state truthful (including refunds issued from the Razorpay dashboard). |
+| `razorpay/refund` | POST | **owner** only | Full refund via Razorpay; marks the receipt `refunded` and stores the `razorpay_refund_id` + amount. The webhook confirms (`refund.processed`) or reverts (`refund.failed`) it. |
+| `razorpay/retry-grant` | POST | any admin | Re-runs the grant for a `grant_failed` receipt (and emails the buyer their receipt on success). |
+| `razorpay/reconcile` | POST/GET | any admin, or a scheduler with `PAYMENTS_RECONCILE_SECRET` | Sweeps the last N hours (default 48) of Razorpay payments: records + grants any **captured payment we have no receipt for**, and syncs refunds made outside the app. Idempotent; also exposed as the **Reconcile** button on Admin → Payments. |
 | `coupon/validate` | POST | anyone | Previews a coupon's discount against server-side pricing (no money). |
 
 Pricing is **always** computed server-side in `lib/payments/server.ts` → `quotePrice()`
@@ -120,6 +125,14 @@ safe and the buyer is never double-charged.**
 - Because both paths key off the unique `razorpay_payment_id`, verify + webhook firing for the
   same payment is safe (the second is a no-op).
 
+**6c. Payment succeeded in the popup, but `/verify` errored or couldn't be reached.**
+- The modal shows **"Payment being confirmed"** and explicitly says *don't pay again* — it
+  never returns to a live Pay button after a successful charge (that's how accidental
+  double-charges happen). The webhook records + grants within seconds.
+- Extra guard: the server refuses to price a topic the buyer's à-la-carte access is still
+  active for (`quotePrice` → "You already own this topic"), so even a determined re-pay of
+  the same topic can't create a second order while the first purchase is active.
+
 **If the webhook is NOT configured** and the browser died before `/verify`: the charge exists at
 Razorpay but we have no receipt yet. Reconcile manually — find the payment in the Razorpay
 dashboard, then either (a) configure the webhook and let Razorpay redeliver, or (b) have an
@@ -134,7 +147,13 @@ admin grant access manually. **This is exactly why the webhook is recommended fo
 
 - **Owner-only** (an admin with no scoped permissions), from **Admin → Payments → Refund**.
 - `POST /razorpay/refund` issues a **full refund** at Razorpay and marks the receipt
-  `status = 'refunded'`. Idempotent (a payment already refunded is a no-op).
+  `status = 'refunded'` (storing `razorpay_refund_id` + `refund_amount_inr` for audit).
+  Idempotent (a payment already refunded is a no-op).
+- Razorpay refunds settle **asynchronously**. The webhook keeps the receipt truthful:
+  `refund.processed` confirms it; `refund.failed` (e.g. insufficient settlement balance)
+  **reverts the receipt to `captured`** so the owner sees it still needs refunding.
+- Refunds issued **from the Razorpay dashboard** (outside the app) sync the same way via
+  `refund.created`/`refund.processed` — the app's receipt won't silently stay "captured".
 - ⚠️ **A refund does not automatically revoke access** in the current build — it only returns
   the money. If you need to remove what they unlocked, do it manually (clear the course
   purchase / category pass / subscription on their profile). Consider this before refunding.
@@ -144,9 +163,19 @@ admin grant access manually. **This is exactly why the webhook is recommended fo
 ## 8. Admin tools
 
 **Admin → Payments** (`app/admin/payments/page.tsx`):
-- Flagged (`grant_failed`) receipts shown at the top.
+- **Needs attention** = `grant_failed` receipts **plus any receipt stuck `pending` for
+  over 10 minutes** (e.g. the server died between recording and granting) — shown at the top.
 - **Retry grant** (any admin) — re-runs `grantAccess` for a flagged receipt.
 - **Refund** (owner only) — see above.
+- **Reconcile** (any admin) — runs the reconcile sweep (last 48h) and reports what it
+  recovered/synced. Also callable on a schedule (see go-live checklist).
+
+**Emails** (when an email provider is configured — see `docs/EMAIL.md`):
+- Buyer gets a **receipt email** on every successful grant (including a later successful
+  retry). Demo/test-mode grants don't email.
+- Owner(s) (or `PAYMENT_ALERT_EMAIL`) get an **alert** the moment a captured payment lands
+  in `grant_failed` — recovery no longer depends on someone watching the admin page.
+  Webhook retries don't re-alert.
 
 Learners see their own receipts under **Account → Payment receipts** (read-own via RLS).
 
@@ -182,16 +211,28 @@ grant path.
 2. In Razorpay → enable the payment methods you want (UPI, cards, International if needed —
    International requires Razorpay approval).
 3. Create the webhook: **URL** `https://<your-domain>/api/payments/razorpay/webhook`,
-   **events** `payment.captured` (and optionally `order.paid`), and set the same secret in
-   `RAZORPAY_WEBHOOK_SECRET`.
-4. Ensure `supabase/database.sql` has been run (creates the `payments` table + RLS + indexes).
-5. Smoke-test with a test-card checkout, then a refund, then a deliberately-interrupted
-   payment to confirm the webhook reconciles.
+   **events** `payment.captured`, `refund.created`, `refund.processed`, `refund.failed`
+   (and optionally `order.paid`), and set the same secret in `RAZORPAY_WEBHOOK_SECRET`.
+   If the webhook arrives while the server is missing its config, we return **503** so
+   Razorpay retries instead of dropping the event.
+4. Ensure `supabase/database.sql` has been run (creates the `payments` table + RLS + indexes,
+   including the `razorpay_refund_id` / `refund_amount_inr` audit columns).
+5. Optional but recommended: schedule the reconcile sweep, e.g. Vercel cron in `vercel.json`
+   hitting `GET /api/payments/razorpay/reconcile` daily (Vercel sends
+   `Authorization: Bearer $CRON_SECRET` automatically — set the same value in
+   `PAYMENTS_RECONCILE_SECRET` or rely on `CRON_SECRET`).
+6. Configure an email provider (docs/EMAIL.md) so buyers get receipts and owners get
+   grant-failure alerts; optionally set `PAYMENT_ALERT_EMAIL`.
+7. Smoke-test with a test-card checkout, then a refund, then a deliberately-interrupted
+   payment to confirm the webhook reconciles, then click **Reconcile** and confirm it
+   reports a clean sweep.
 
 ### Manual reconciliation (rare)
-If you ever suspect a charge with no receipt: open the Razorpay dashboard, find the payment,
-copy its `order_id`, confirm `status = captured`, and either redeliver the webhook from the
-dashboard or have an admin grant access manually and (optionally) insert the receipt.
+If you ever suspect a charge with no receipt: click **Reconcile** on Admin → Payments — it
+finds any captured payment of the last 48h that has no receipt, records it, and grants from
+the order notes (pass `{"hours": N}` to the route for a wider window, up to 30 days). Only a
+payment whose order carries no `userId` note (i.e. not created by this app) still needs the
+Razorpay dashboard + a manual grant.
 
 ---
 
@@ -211,13 +252,35 @@ difference; the order route grants only the *new* categories and auto-promotes t
 before any purchase/upgrade. `CheckoutModal` blocks payment and links to `/account` until
 `isProfileComplete()` passes; the dashboard also shows a "complete your profile" nudge.
 
-## 13. Course auto-expiry
+## 13. One-year access & expiry
 
-Each course can carry an **access duration (days)** set in the Course Wizard (blank/0 = lifetime).
-Access lapses at `enrollment.enrolledAt + accessDurationDays` **for everyone, including
-subscribers** (`hasAccess()` enforces it). On the topic page an expired learner sees:
-- **Renew access** (free) if they hold a subscription-type entitlement (all-access / category pass / free), or
-- **Re-purchase** (à-la-carte) — which restarts the timer (verify + `grantAccess` reset `enrolled_at`).
+**Every purchase grants exactly one year of access, counted from its own purchase date.**
+This applies to all three purchase types, each with its OWN independent timeline:
+
+| Entitlement            | Window start                          | Length                                         |
+| ---------------------- | ------------------------------------- | ---------------------------------------------- |
+| À-la-carte topic       | `course_purchases.purchased_at`       | 1 year (or the topic's admin override, if set) |
+| Catalog / category pass| `category_passes.granted_at`          | 1 year — covers every topic in the category, **including ones published later** |
+| All-access             | `profiles.subscription_valid_until`   | 1 year (already stored as purchase + 1yr)      |
+
+The maths lives in **`lib/access.ts`** (pure, shared by the store + server). `courseAccessExpiry(user, course)`
+returns the **latest** expiry across every entitlement that grants a topic — so a learner who both bought a
+topic à-la-carte AND owns a catalog pass over it keeps access until whichever window runs longest. Free topics
+never expire. `hasAccess()` = `hasGrant()` (owns it) **AND** not past that expiry.
+
+**Re-purchase resets the window.** Buying a topic/catalog again stamps a fresh `purchased_at` / `granted_at`
+(both the client `db.ts` upserts and server `grantAccess` write the timestamp, since the DB `default now()`
+only fires on first insert). After a year the learner **must buy again** — there is no free renewal for paid
+access. On the topic page an expired learner sees a single **Renew · ₹price** button that re-opens checkout.
+
+**Pricing is expiry-aware** (`lib/payments/server.ts` + client mirrors in `CheckoutModal`/`UpgradePlanCard`/
+`/pricing`): only *active* catalogs count toward pay-the-difference, so a lapsed catalog is charged in full
+again and never blocks its own re-purchase with "you already own this". The all-access auto-promotion (owning
+all three catalogs) likewise only fires when all three are currently active.
+
+> The per-topic **access duration (days)** in the Course Wizard is now an optional *override* for à-la-carte
+> purchases only (blank/0 = the standard 1 year). Catalog passes and all-access always run one year.
+> Migration-free: the `purchased_at` / `granted_at` / `subscription_valid_until` columns already exist.
 
 ## 14. Admin payments & subscriptions dashboard
 

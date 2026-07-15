@@ -18,7 +18,6 @@ import {
   ArrowRight,
   FileText,
   Download,
-  RotateCcw,
 } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { CourseThumb } from "@/components/CourseThumb";
@@ -54,7 +53,6 @@ function CourseDetail() {
     isEnrolled,
     hasAccess,
     courseExpiresAt,
-    renewEnrollment,
     enrollFree,
     isVideoCompleted,
     isVideoUnlocked,
@@ -87,15 +85,12 @@ function CourseDetail() {
   const duration = course.videos.reduce((s, v) => s + v.durationSeconds, 0);
   const resumeOrder = course.videos.find((v) => !isVideoCompleted(v.id))?.order ?? 1;
 
-  // Course auto-expiry: access lapses accessDurationDays after enrolling (applies to everyone).
+  // Access to a paid topic lapses one year after purchase (computed per entitlement —
+  // à-la-carte topic, catalog pass, or all-access — whichever runs longest). When it
+  // lapses the learner re-purchases to unlock another year; there's no free renewal.
   const expiresAt = courseExpiresAt(course.id);
-  const expired = enrolled && !!expiresAt && Date.parse(expiresAt) < Date.now();
+  const expired = !!expiresAt && Date.parse(expiresAt) < Date.now();
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-  // Free renew = a subscription-type entitlement; à-la-carte buyers must re-purchase.
-  const freeRenew =
-    course.price === 0 ||
-    currentUser?.subscriptionPlan === "all_access" ||
-    courseCategories(course).some((c) => (currentUser?.ownedCategories ?? []).includes(c));
 
   const enrollment = enrollments.find((e) => e.userId === currentUser?.id && e.courseId === course.id);
   const report = currentUser ? buildTopicReport(course, currentUser.id, submissions, progress, enrollment) : null;
@@ -202,22 +197,14 @@ function CourseDetail() {
                     </span>
                     <div>
                       <p className="font-heading font-semibold text-heading">Access expired</p>
-                      <p className="text-sm text-muted">Your access ended on {fmtDate(expiresAt!)}.</p>
+                      <p className="text-sm text-muted">Your 1-year access ended on {fmtDate(expiresAt!)}.</p>
                     </div>
                   </div>
-                  {freeRenew ? (
-                    <Button onClick={() => renewEnrollment(course.id)} size="lg" className="mt-4 w-full">
-                      <RotateCcw className="h-4 w-4" /> Renew access
-                    </Button>
-                  ) : (
-                    <Button onClick={() => setCheckout(true)} size="lg" className="mt-4 w-full">
-                      Renew · {formatINR(course.price)}
-                    </Button>
-                  )}
+                  <Button onClick={() => setCheckout(true)} size="lg" className="mt-4 w-full">
+                    Renew · {formatINR(course.price)}
+                  </Button>
                   <p className="mt-2 text-center text-xs text-faint">
-                    {freeRenew
-                      ? "Included in your plan — renew to restart your access."
-                      : "Re-purchase to restart your access to this topic."}
+                    Re-purchase to unlock this topic for another year.
                   </p>
                 </>
               ) : enrolled ? (
@@ -248,7 +235,7 @@ function CourseDetail() {
                     <span className="font-heading text-3xl font-bold text-heading">
                       {course.price === 0 ? "Free" : formatINR(course.price)}
                     </span>
-                    {course.price > 0 && <span className="text-sm text-faint">lifetime access</span>}
+                    {course.price > 0 && <span className="text-sm text-faint">1 year of access</span>}
                   </div>
                   {access && course.price > 0 && (
                     <p className="mt-1 text-sm font-medium text-green-600">Included in your All-Access Pass</p>
@@ -262,7 +249,7 @@ function CourseDetail() {
                       `${course.assignments.length} AI-graded checkpoints`,
                       "LEAP AI tutor on every video",
                       "Class notes, transcripts & resources",
-                      "Lifetime access",
+                      course.price > 0 ? "1 year of access" : "Free — no expiry",
                     ].map((f) => (
                       <li key={f} className="flex items-center gap-2.5">
                         <Check className="h-4 w-4 shrink-0 text-green-600" /> {f}

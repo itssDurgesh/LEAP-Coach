@@ -60,7 +60,7 @@ interface Draft {
   instructorBio: string;
   level: Course["level"];
   price: number;
-  accessDurationDays: number; // 0 = lifetime
+  accessDurationDays: number; // 0 = standard 1 year (per-topic override for à-la-carte)
   accent: number;
   thumbnailUrl: string | null;
   workbookName: string | null;
@@ -400,13 +400,13 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                 <Field label="Price (INR, 0 = free)">
                   <Input type="number" min={0} value={draft.price} onChange={(e) => set({ price: Number(e.target.value) })} />
                 </Field>
-                <Field label="Access duration (days)" hint="Access expires this many days after a learner enrols. 0 = lifetime. Applies to everyone, including subscribers.">
+                <Field label="Access duration (days)" hint="Optional override for an à-la-carte purchase of this topic. Blank / 0 = the standard 1 year after purchase. Catalog passes & all-access always run 1 year.">
                   <Input
                     type="number"
                     min={0}
                     value={draft.accessDurationDays}
                     onChange={(e) => set({ accessDurationDays: Math.max(0, Number(e.target.value)) })}
-                    placeholder="0"
+                    placeholder="365"
                   />
                 </Field>
               </div>
@@ -576,7 +576,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                   <li>• {draft.videos.length} sessions ({draft.videos.reduce((s, v) => s + (v.durationMins || 0), 0)} mins)</li>
                   <li>• {draft.assignments.filter((a) => a.questions.some((q) => q.prompt.trim())).length} checkpoints</li>
                   <li>• Workbook: {draft.workbookName ?? "none"}</li>
-                  <li>• Access: {draft.accessDurationDays > 0 ? `${draft.accessDurationDays} days after enrolling` : "lifetime"}</li>
+                  <li>• Access: {draft.accessDurationDays > 0 ? `${draft.accessDurationDays} days after purchase` : "1 year after purchase"}</li>
                   <li>• Instructor: {draft.instructorName || "—"}</li>
                 </ul>
               </div>

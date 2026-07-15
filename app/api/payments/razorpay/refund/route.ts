@@ -49,10 +49,12 @@ export async function POST(req: NextRequest) {
   if (!pay.razorpay_payment_id)
     return NextResponse.json({ ok: false, error: "No Razorpay payment to refund." }, { status: 400 });
 
+  let refund: { id?: string; amount?: number } = {};
   try {
     const rzpAuth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
     const res = await fetch(`https://api.razorpay.com/v1/payments/${pay.razorpay_payment_id}/refund`, {
       method: "POST",
+      signal: AbortSignal.timeout(15_000),
       headers: { "Content-Type": "application/json", Authorization: `Basic ${rzpAuth}` },
       body: JSON.stringify({}), // full refund
     });
@@ -60,14 +62,22 @@ export async function POST(req: NextRequest) {
       logError("payments/refund", `razorpay ${res.status}: ${await res.text().catch(() => "")}`);
       return NextResponse.json({ ok: false, error: "Refund failed at Razorpay." }, { status: 502 });
     }
+    refund = (await res.json().catch(() => ({}))) as { id?: string; amount?: number };
   } catch (e) {
     logError("payments/refund", e);
     return NextResponse.json({ ok: false, error: "Refund request failed." }, { status: 502 });
   }
 
+  // Optimistic mark. Razorpay refunds settle asynchronously — the webhook's
+  // refund.processed confirms this, and refund.failed reverts it to 'captured'.
   await admin
     .from("payments")
-    .update({ status: "refunded", refunded_at: new Date().toISOString() })
+    .update({
+      status: "refunded",
+      refunded_at: new Date().toISOString(),
+      razorpay_refund_id: refund.id ?? null,
+      refund_amount_inr: refund.amount != null ? Math.round(refund.amount / 100) : (pay.amount_inr as number | null),
+    })
     .eq("id", body.paymentId);
   return NextResponse.json({ ok: true });
 }

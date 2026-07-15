@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { createClient } from "@supabase/supabase-js";
 import { grantAccess } from "@/lib/payments/grant";
+import { notifyPaymentGranted } from "@/lib/payments/notify";
 import { parseJson } from "@/lib/api/validate";
 import { enforceRate } from "@/lib/api/rate-limit";
 
@@ -51,5 +52,20 @@ export async function POST(req: NextRequest) {
     .from("payments")
     .update({ grant_status: g.ok ? "granted" : "grant_failed" })
     .eq("id", body.paymentId);
+
+  // The buyer finally has what they paid for — send their receipt now (it wasn't
+  // sent when the grant originally failed). No-throw, best-effort, skips demo rows.
+  const isDemo = !!(pay.notes as Record<string, unknown> | null)?.demo;
+  if (g.ok && pay.grant_status !== "granted" && !isDemo) {
+    await notifyPaymentGranted(admin, {
+      userId: pay.user_id as string,
+      paymentId: pay.id as string,
+      amountInr: (pay.amount_inr as number) ?? 0,
+      plan: (pay.plan as string) ?? undefined,
+      courseId: (pay.course_id as string) ?? undefined,
+      categories: (pay.categories as string[]) ?? [],
+    });
+  }
+
   return NextResponse.json({ ok: g.ok, grantStatus: g.ok ? "granted" : "grant_failed", error: g.error });
 }

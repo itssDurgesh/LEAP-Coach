@@ -134,9 +134,11 @@ export interface User {
   learningCredits: number; // total = sum of topicCredits (kept in sync when a topic is finalized)
   topicCredits?: Record<string, number>; // courseId -> best credit earned for that topic (0–100)
   subscriptionPlan: SubscriptionPlan;
-  subscriptionValidUntil?: string | null;
-  ownedCourseIds: string[]; // per-course lifetime purchases
-  ownedCategories?: Role[]; // category passes — unlock every topic in the category
+  subscriptionValidUntil?: string | null; // all-access expiry = its purchase date + 1 year
+  ownedCourseIds: string[]; // topics ever purchased à-la-carte (ownership record; access is time-boxed)
+  coursePurchasedAt?: Record<string, string>; // courseId -> ISO date of the latest à-la-carte purchase (drives its 1-year expiry)
+  ownedCategories?: Role[]; // category passes ever bought — unlock every topic in the category
+  categoryPassAt?: Partial<Record<Role, string>>; // category -> ISO date the pass was (re)bought (drives its 1-year expiry)
   banned?: boolean;
   isAdmin?: boolean;
   permissions?: Permission[] | null; // present => sub-admin limited to these; absent => full owner

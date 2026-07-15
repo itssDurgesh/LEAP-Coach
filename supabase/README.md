@@ -11,14 +11,17 @@ Create a project at [supabase.com](https://supabase.com) and wait for it to prov
 ## 2. Run the database script
 Open **SQL Editor** → paste the contents of [`database.sql`](./database.sql) → **Run**.
 
-This single file is the complete schema: every table, all row-level-security
-policies (final hardened state, keyed to the Clerk user id), and the
-payment-protection trigger. It is **idempotent** for a fresh project.
+This single file is the complete schema: every table (including FAQ/privacy and the
+Telegram linking tables), all row-level-security policies (final hardened state,
+keyed to the Clerk user id), the payment-protection trigger, and every performance
+index. It is **idempotent** (safe to re-run after every update) and **seed-free** —
+no demo content; the only inserted rows are two structural singletons
+(`pricing_tiers` id=1, `site_pages` id=1) that never overwrite your edits.
 
 > ⚠️ **Migrating an existing Supabase-Auth database?** Profile/user ids change from
 > `uuid` to `text` (the Clerk user id), which `create table if not exists` cannot
 > alter in place. Rebuild the schema first (`drop schema public cascade; …`) — see
-> the **section 8** banner inside `database.sql` for the exact commands. This resets
+> the **section 9** banner inside `database.sql` for the exact commands. This resets
 > demo purchases/progress.
 
 ## 3. Create a Clerk application
@@ -76,7 +79,9 @@ browser never reaches the verify step (closed tab, network drop):
 1. Razorpay Dashboard → **Settings → Webhooks → Add New Webhook**.
 2. URL: `https://YOUR-DOMAIN/api/payments/razorpay/webhook`
    (for local testing, expose your dev server with a tunnel, e.g. ngrok/cloudflared).
-3. Active events: **`payment.captured`** and **`order.paid`**.
+3. Active events: **`payment.captured`**, **`refund.created`**, **`refund.processed`**,
+   **`refund.failed`** (and optionally `order.paid`) — the refund events keep receipts
+   in sync with refunds made from the Razorpay dashboard (see `docs/PAYMENTS.md`).
 4. Set a **secret**, and paste the same value into `RAZORPAY_WEBHOOK_SECRET` in `.env.local`.
 
 If a payment is captured but access can't be granted, it's **flagged** on the Admin →
@@ -102,6 +107,7 @@ via Razorpay). Receipts are private — RLS lets each learner see only their own
   optimistic + fire-and-forget; a transient failure self-heals on the next load but isn't
   retried/surfaced. Add retry + a "couldn't save" indicator. (Payments are already
   server-authoritative and durable.)
-- **Rate limiting.** Add per-IP/user limits on the public API routes (e.g. Upstash Redis)
-  to absorb abuse/spikes — separate from normal concurrent-user load, which the stateless
-  routes + indexes already handle.
+- **Distributed rate limiting.** The API routes already rate-limit per user/IP
+  (`lib/api/rate-limit.ts`), but the counters are in-memory per instance. If the app
+  ever runs on multiple instances, swap the store for a shared one (e.g. Upstash
+  Redis) — the `RateStore` interface in that file is the single swap point.

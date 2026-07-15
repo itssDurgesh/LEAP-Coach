@@ -23,6 +23,18 @@ const WebhookEventSchema = z.object({
             .optional(),
         })
         .optional(),
+      refund: z
+        .object({
+          entity: z
+            .object({
+              id: z.string().optional(),
+              payment_id: z.string().optional(),
+              amount: z.number().optional(),
+              status: z.string().optional(),
+            })
+            .optional(),
+        })
+        .optional(),
     })
     .optional(),
 });
@@ -40,9 +52,12 @@ export async function POST(req: NextRequest) {
   // Read the RAW body (signature is computed over the exact bytes Razorpay sent).
   const raw = await req.text();
 
+  // Misconfigured (e.g. RAZORPAY_WEBHOOK_SECRET missing after a deploy): a 200 here
+  // would ACK the event and lose it forever. 503 makes Razorpay retry with backoff
+  // until the config is fixed, so no captured payment slips through unrecorded.
   if (!secret || !keyId || !keySecret || !url || !service) {
-    logError("payments/webhook", "not configured");
-    return NextResponse.json({ ignored: true }, { status: 200 });
+    logError("payments/webhook", "not configured — asking Razorpay to retry");
+    return NextResponse.json({ ok: false, error: "Webhook not configured." }, { status: 503 });
   }
 
   // 1) Verify the webhook signature: HMAC-SHA256(rawBody, webhook_secret).
@@ -59,6 +74,42 @@ export async function POST(req: NextRequest) {
     event = WebhookEventSchema.parse(JSON.parse(raw));
   } catch {
     return NextResponse.json({ ok: false, error: "Bad payload." }, { status: 400 });
+  }
+
+  // ── Refund lifecycle ─────────────────────────────────────────────────────────
+  // Keeps receipts truthful for refunds issued ANYWHERE (our admin page OR the
+  // Razorpay dashboard), and for refunds that fail asynchronously after being
+  // accepted (e.g. insufficient settlement balance).
+  const eventName = event.event ?? "";
+  if (eventName.startsWith("refund.")) {
+    const refund = event.payload?.refund?.entity;
+    if (!refund?.id || !refund.payment_id) return NextResponse.json({ ok: true, ignored: true }, { status: 200 });
+    const admin = createClient(url, service, { auth: { persistSession: false } });
+    try {
+      if (eventName === "refund.failed") {
+        // The refund bounced — the buyer was NOT repaid. Revert our optimistic
+        // 'refunded' mark so the receipt reflects reality and the owner can retry.
+        await admin
+          .from("payments")
+          .update({ status: "captured", refunded_at: null, razorpay_refund_id: refund.id })
+          .eq("razorpay_payment_id", refund.payment_id);
+        logError("payments/webhook", `refund ${refund.id} FAILED for payment ${refund.payment_id} — receipt reverted to captured`);
+      } else if (eventName === "refund.created" || eventName === "refund.processed") {
+        await admin
+          .from("payments")
+          .update({
+            status: "refunded",
+            refunded_at: new Date().toISOString(),
+            razorpay_refund_id: refund.id,
+            refund_amount_inr: Math.round((refund.amount ?? 0) / 100),
+          })
+          .eq("razorpay_payment_id", refund.payment_id);
+      }
+      return NextResponse.json({ ok: true });
+    } catch (e) {
+      logError("payments/webhook", e);
+      return NextResponse.json({ ok: false, error: "Processing error." }, { status: 500 });
+    }
   }
 
   const payment = event?.payload?.payment?.entity;

@@ -89,6 +89,13 @@ body {
     background-clip: text;
     -webkit-text-fill-color: transparent;
   }
+  /* Brand golden-yellow (#f5c400) gradient — hero title highlight */
+  .text-gradient-gold-hero {
+    background: linear-gradient(120deg, #ffd94a 0%, #f5c400 50%, #d9ad00 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
   .bg-grid {
     background-image: radial-gradient(circle at 1px 1px, var(--grid-dot) 1px, transparent 0);
     background-size: 28px 28px;

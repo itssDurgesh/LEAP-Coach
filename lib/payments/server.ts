@@ -2,6 +2,7 @@ import "server-only"; // build error if this (service-role pricing) module is im
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { applyDiscount, evaluateCoupon, normalizeCode, type CouponTarget } from "@/lib/coupons";
 import { bundlePrice, upgradePrice, DEFAULT_PRICING, type Coupon, type PricingTiers, type Role } from "@/lib/types";
+import { ACCESS_DURATION_DAYS } from "@/lib/access";
 
 const ALL_ROLES: Role[] = ["student", "professional", "entrepreneur"];
 
@@ -38,13 +39,31 @@ function cleanCategories(input?: Role[]): Role[] {
   return Array.from(new Set((input ?? []).filter((c) => ALL_ROLES.includes(c))));
 }
 
-/** The categories a buyer already owns (all-access ⇒ all three). Drives pay-the-difference upgrades. */
+/**
+ * The catalogs a buyer ACTIVELY owns (all-access ⇒ all three), used for
+ * pay-the-difference upgrades. Only entitlements still inside their 1-year window
+ * count — an expired catalog is charged in full again (and never blocks its own
+ * re-purchase with "you already own this"). Undated legacy rows count as active.
+ */
 async function ownedCategories(sb: SupabaseClient, userId?: string): Promise<Set<Role>> {
   if (!userId) return new Set();
-  const { data: prof } = await sb.from("profiles").select("subscription_plan").eq("id", userId).maybeSingle();
-  if (prof?.subscription_plan === "all_access") return new Set(ALL_ROLES);
-  const { data } = await sb.from("category_passes").select("category").eq("user_id", userId);
-  return new Set(((data ?? []) as { category: Role }[]).map((r) => r.category).filter((c) => ALL_ROLES.includes(c)));
+  const { data: prof } = await sb
+    .from("profiles")
+    .select("subscription_plan, subscription_valid_until")
+    .eq("id", userId)
+    .maybeSingle();
+  if (prof?.subscription_plan === "all_access") {
+    const vu = prof.subscription_valid_until as string | null;
+    if (!vu || Date.parse(vu) >= Date.now()) return new Set(ALL_ROLES); // active all-access
+  }
+  const { data } = await sb.from("category_passes").select("category, granted_at").eq("user_id", userId);
+  const cutoff = Date.now() - ACCESS_DURATION_DAYS * 86_400_000;
+  return new Set(
+    ((data ?? []) as { category: Role; granted_at: string | null }[])
+      .filter((r) => !r.granted_at || Date.parse(r.granted_at) >= cutoff)
+      .map((r) => r.category)
+      .filter((c) => ALL_ROLES.includes(c)),
+  );
 }
 
 function rowToCoupon(r: Record<string, unknown>): Coupon {
@@ -82,9 +101,32 @@ export async function quotePrice(input: {
   let target: CouponTarget;
   if (input.plan === "course") {
     if (!input.courseId) return base(input, 0, "Missing course.");
-    const { data } = await sb.from("courses").select("price,category").eq("id", input.courseId).maybeSingle();
+    const { data } = await sb
+      .from("courses")
+      .select("price,category,access_duration_days")
+      .eq("id", input.courseId)
+      .maybeSingle();
     if (!data) return base(input, 0, "Course not found.");
     if ((data.price ?? 0) <= 0) return base(input, 0, "This topic is free.");
+    // Double-purchase guard: an à-la-carte window that's still ACTIVE can't be bought
+    // again (e.g. verify hiccupped and the buyer clicked Pay a second time). Renewal
+    // is only offered — and only allowed — once the window has expired (§13).
+    if (input.userId) {
+      const { data: prior } = await sb
+        .from("course_purchases")
+        .select("purchased_at")
+        .eq("user_id", input.userId)
+        .eq("course_id", input.courseId)
+        .maybeSingle();
+      if (prior) {
+        const days = (data.access_duration_days as number | null) || ACCESS_DURATION_DAYS;
+        const at = prior.purchased_at as string | null;
+        // Undated legacy purchase ⇒ lifetime (mirrors lib/access.ts) ⇒ always active.
+        if (!at || Date.parse(at) + days * 86_400_000 >= Date.now()) {
+          return base(input, 0, "You already own this topic — your access is still active.");
+        }
+      }
+    }
     baseAmountInr = data.price as number;
     target = { type: "course", category: data.category as Role };
   } else if (input.plan === "bundle") {

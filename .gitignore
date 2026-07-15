@@ -25,9 +25,15 @@ yarn-error.log*
 # large media (host on CDN instead of git)
 public/professor-hero.mp4
 
+# Claude
+.claude
+
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+#Docs
+Docs

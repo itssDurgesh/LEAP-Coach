@@ -48,6 +48,46 @@ function unsubHeaders(oneClickUrl: string): Record<string, string> {
   };
 }
 
+/**
+ * Send ONE transactional email (payment receipt, admin alert) — tries providers in
+ * the same priority order, falling through on failure. Returns true once any
+ * provider accepts it. Transactional mail carries no unsubscribe headers: it's a
+ * record of something the recipient did (or must act on), not marketing.
+ */
+export async function sendTransactional(args: { to: string; subject: string; html: string }): Promise<boolean> {
+  for (const provider of providersInOrder()) {
+    try {
+      if (provider === "resend") {
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          signal: AbortSignal.timeout(10_000),
+          headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: fromAddress("resend"),
+            to: [args.to],
+            reply_to: REPLY_TO(),
+            subject: args.subject,
+            html: args.html,
+          }),
+        });
+        if (!res.ok) throw new Error(`Resend ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      } else {
+        await getGmailTransport().sendMail({
+          from: fromAddress("gmail"),
+          to: args.to,
+          replyTo: REPLY_TO(),
+          subject: args.subject,
+          html: args.html,
+        });
+      }
+      return true;
+    } catch (e) {
+      console.error(`[email] transactional via ${provider} failed`, errMsg(e));
+    }
+  }
+  return false;
+}
+
 export interface NotifyRecipient {
   id: string; // profile id — recorded as "delivered" so retries can skip it
   email: string;

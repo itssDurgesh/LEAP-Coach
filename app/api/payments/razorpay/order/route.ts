@@ -57,10 +57,15 @@ export async function POST(req: NextRequest) {
   try {
     const res = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
+      signal: AbortSignal.timeout(15_000), // a hung upstream must not hold the function
       headers: { "Content-Type": "application/json", Authorization: `Basic ${rzpAuth}` },
       body: JSON.stringify({
         amount: q.finalAmountInr * 100, // Razorpay expects paise
         currency: "INR",
+        // Auto-capture: never rely on the dashboard capture setting. An authorized-but-
+        // uncaptured payment auto-refunds after a few days while looking "paid" — this
+        // guarantees the money is actually captured (verify also only grants on captured).
+        payment_capture: 1,
         // Razorpay caps receipt at 40 chars; details live in `notes` (read by verify + webhook).
         receipt: `leap_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
         notes: {

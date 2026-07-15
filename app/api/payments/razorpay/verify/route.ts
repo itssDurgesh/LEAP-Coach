@@ -55,8 +55,14 @@ export async function POST(req: NextRequest) {
   }
   if (!userId) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
 
-  // 3) Confirm with Razorpay that the payment is real, captured/authorized, and matches the order.
+  // 3) Confirm with Razorpay that the payment is real, CAPTURED, and matches the order.
   const rzpAuth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+  const rzpGet = (path: string) =>
+    fetch(`https://api.razorpay.com/v1${path}`, {
+      headers: { Authorization: `Basic ${rzpAuth}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
   let plan: string | undefined;
   let courseId: string | undefined;
   let categories: string[] = [];
@@ -64,27 +70,57 @@ export async function POST(req: NextRequest) {
   let amountInr = 0;
   try {
     const [orderRes, payRes] = await Promise.all([
-      fetch(`https://api.razorpay.com/v1/orders/${razorpay_order_id}`, {
-        headers: { Authorization: `Basic ${rzpAuth}` },
-        cache: "no-store",
-      }),
-      fetch(`https://api.razorpay.com/v1/payments/${razorpay_payment_id}`, {
-        headers: { Authorization: `Basic ${rzpAuth}` },
-        cache: "no-store",
-      }),
+      rzpGet(`/orders/${razorpay_order_id}`),
+      rzpGet(`/payments/${razorpay_payment_id}`),
     ]);
     if (!orderRes.ok || !payRes.ok) return NextResponse.json({ ok: false, error: "Could not confirm payment." }, { status: 502 });
     const order = (await orderRes.json()) as {
       amount: number;
-      notes?: { plan?: string; courseId?: string; categories?: string; couponCode?: string };
+      notes?: { userId?: string; plan?: string; courseId?: string; categories?: string; couponCode?: string };
     };
     const payment = (await payRes.json()) as { order_id: string; status: string; amount: number };
 
-    const valid =
-      payment.order_id === razorpay_order_id &&
-      payment.amount === order.amount &&
-      (payment.status === "captured" || payment.status === "authorized");
-    if (!valid) return NextResponse.json({ ok: false, error: "Payment not completed." }, { status: 400 });
+    if (payment.order_id !== razorpay_order_id || payment.amount !== order.amount) {
+      return NextResponse.json({ ok: false, error: "Payment not completed." }, { status: 400 });
+    }
+
+    // Access is only ever granted for CAPTURED money. Orders are created with
+    // payment_capture:1, so `authorized` should be transient — but if we see it,
+    // capture explicitly now. An authorized payment that never captures auto-refunds
+    // at Razorpay, so granting on it would hand out access for money that bounces.
+    if (payment.status === "authorized") {
+      const capRes = await fetch(`https://api.razorpay.com/v1/payments/${razorpay_payment_id}/capture`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Basic ${rzpAuth}` },
+        body: JSON.stringify({ amount: payment.amount, currency: "INR" }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (capRes.ok) {
+        payment.status = "captured";
+      } else {
+        // Capture may have raced with Razorpay's own auto-capture — re-check once.
+        const recheck = await rzpGet(`/payments/${razorpay_payment_id}`);
+        const fresh = recheck.ok ? ((await recheck.json()) as { status?: string }) : null;
+        if (fresh?.status === "captured") {
+          payment.status = "captured";
+        } else {
+          // Not captured yet: do NOT grant. If Razorpay captures later, the webhook
+          // fulfils; if not, the authorization auto-refunds. Tell the client it's pending.
+          logError("payments/verify", `capture failed ${capRes.status}: ${await capRes.text().catch(() => "")}`);
+          return NextResponse.json({
+            ok: true,
+            granted: false,
+            grantStatus: "pending",
+            paymentId: null,
+            amountInr: Math.round((order.amount ?? 0) / 100),
+          });
+        }
+      }
+    }
+    if (payment.status !== "captured") {
+      return NextResponse.json({ ok: false, error: "Payment not completed." }, { status: 400 });
+    }
 
     // The plan/courseId/categories/coupon come from the server-created order's notes — not the client.
     plan = order.notes?.plan;
@@ -92,6 +128,15 @@ export async function POST(req: NextRequest) {
     categories = (order.notes?.categories || "").split(",").filter(Boolean);
     couponCode = order.notes?.couponCode || undefined;
     amountInr = Math.round((order.amount ?? 0) / 100);
+
+    // The order was created bound to a buyer (notes.userId). If the verifying session
+    // is a different account (switched accounts mid-checkout), grant to the ORDER's
+    // buyer — that's who the webhook would credit — and log the mismatch.
+    const orderUserId = order.notes?.userId || undefined;
+    if (orderUserId && orderUserId !== userId) {
+      logError("payments/verify", `buyer mismatch: session=${userId} order=${orderUserId} — granting to order buyer`);
+      userId = orderUserId;
+    }
   } catch (e) {
     logError("payments/verify", e);
     return NextResponse.json({ ok: false, error: "Could not confirm payment." }, { status: 502 });

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { useApp } from "@/lib/store/AppProvider";
 import { ROLES, Role, upgradePrice, bundlePrice } from "@/lib/types";
+import { activeCategories } from "@/lib/access";
 import { cn, formatINR } from "@/lib/utils";
 
 /**
@@ -23,12 +24,12 @@ export function UpgradePlanCard() {
   const [showInfo, setShowInfo] = React.useState(false);
 
   if (!currentUser) return null;
-  const allAccess = currentUser.subscriptionPlan === "all_access";
-  const owned = new Set<Role>(currentUser.ownedCategories ?? []);
+  // Only ACTIVE catalogs count as owned — an expired one becomes buyable again and is
+  // priced as a fresh purchase (mirrors the server). Once all three are active there's
+  // nothing left to upgrade.
+  const owned = activeCategories(currentUser);
   const missing = ROLES.filter((r) => !owned.has(r.id));
-
-  // Already has everything → nothing to upgrade.
-  if (allAccess || missing.length === 0) return null;
+  if (missing.length === 0) return null;
 
   const toggle = (r: Role) =>
     setSelected((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
