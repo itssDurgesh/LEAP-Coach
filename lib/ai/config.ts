@@ -5,7 +5,13 @@ import "server-only"; // reads GEMINI_API_KEY — keep out of the client bundle
 // `/api/leap/*` route handlers. When the key is absent the tutor gracefully
 // falls back to the local mock responder (lib/mock/leapAI.ts).
 
-export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+// "gemini-flash-lite-latest" is Google's rolling alias for the current Flash-Lite —
+// the cheapest tier, free-quota eligible. Do NOT pin a bare generation id like
+// "gemini-2.5-flash": Google retired it for new API keys (hard 404), and because
+// every /api/leap/* caller swallows errors into the mock fallback, the tutor
+// degrades silently rather than failing loudly. Override via GEMINI_MODEL if a
+// rollover ever regresses.
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-lite-latest";
 
 /** True when a Gemini key is configured (call from server code only). */
 export const isGeminiConfigured = (): boolean => !!process.env.GEMINI_API_KEY;

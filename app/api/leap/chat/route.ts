@@ -103,18 +103,30 @@ export async function POST(req: NextRequest) {
     contents.push({ role: "user", parts: [{ text: "Introduce yourself and what you can help with for this lesson." }] });
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemInstruction }] },
-          contents,
-          generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
-        }),
-      },
-    );
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+    const init: RequestInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024,
+          // Flash models "think" by default and those hidden tokens count against
+          // maxOutputTokens — they can swallow the whole budget and yield an empty
+          // reply. A grounded tutor answer doesn't need reasoning; keep it off.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+    };
+
+    let res = await fetch(url, init);
+    if (res.status === 503 || res.status === 500) {
+      // Rolling aliases intermittently 503 with "high demand" — one retry clears most.
+      await new Promise((r) => setTimeout(r, 700));
+      res = await fetch(url, init);
+    }
 
     if (!res.ok) {
       console.error("[gemini] HTTP", res.status, await res.text().catch(() => ""));
@@ -122,10 +134,12 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json();
+    const candidate = data?.candidates?.[0];
     const reply: string =
-      data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("").trim() ?? "";
+      candidate?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("").trim() ?? "";
 
-    if (!reply) return NextResponse.json({ fallback: true });
+    // MAX_TOKENS means the reply was cut off mid-sentence — worse than the fallback.
+    if (!reply || candidate?.finishReason === "MAX_TOKENS") return NextResponse.json({ fallback: true });
     return NextResponse.json({ reply });
   } catch (e) {
     logError("leap/chat", e);

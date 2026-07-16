@@ -90,18 +90,30 @@ export async function POST(req: NextRequest) {
     .join("\n");
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemInstruction }] },
-          contents: [{ role: "user", parts: [{ text: userText }] }],
-          generationConfig: { temperature: 0.5, maxOutputTokens: 160 },
-        }),
-      },
-    );
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+    const init: RequestInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        contents: [{ role: "user", parts: [{ text: userText }] }],
+        generationConfig: {
+          temperature: 0.5,
+          maxOutputTokens: 200,
+          // Thinking tokens count against maxOutputTokens; on a budget this small they
+          // ate ~150 of 160 and shipped a hint cut off mid-sentence. A 1–2 sentence
+          // nudge needs no reasoning — keep thinking off.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+    };
+
+    let res = await fetch(url, init);
+    if (res.status === 503 || res.status === 500) {
+      // Rolling aliases intermittently 503 with "high demand" — one retry clears most.
+      await new Promise((r) => setTimeout(r, 700));
+      res = await fetch(url, init);
+    }
 
     if (!res.ok) {
       console.error("[gemini hint] HTTP", res.status, await res.text().catch(() => ""));
@@ -109,9 +121,12 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json();
+    const candidate = data?.candidates?.[0];
     const hint: string =
-      data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("").trim() ?? "";
-    if (!hint) return NextResponse.json({ fallback: true });
+      candidate?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("").trim() ?? "";
+    // MAX_TOKENS means the hint was cut off mid-sentence — the client's local
+    // explanation-derived hint is better than shipping a fragment.
+    if (!hint || candidate?.finishReason === "MAX_TOKENS") return NextResponse.json({ fallback: true });
     return NextResponse.json({ hint });
   } catch (e) {
     logError("leap/hint", e);

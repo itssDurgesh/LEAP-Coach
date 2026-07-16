@@ -33,11 +33,15 @@ export function Logo({ className, href = "/", variant = "default", size = "md" }
       )}
     >
       {imgOk ? (
+        // object-contain, not cover: the mark is square with its own white plate, so
+        // covering a non-square box would crop the ring and the star off the edges.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src="/logo.png?v=3"
+          src="/logo-mark.png"
           alt="LEAP Coach"
-          className="h-full w-full rounded-xl object-cover"
+          width={256}
+          height={256}
+          className="h-full w-full rounded-xl bg-white object-contain"
           onError={() => setImgOk(false)}
         />
       ) : (
