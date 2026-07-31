@@ -3,6 +3,8 @@ import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { GEMINI_MODEL } from "@/lib/ai/config";
 import { isClerkConfigured } from "@/lib/clerk/config";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { fetchQuestionContextServer, type QuestionContext } from "@/lib/supabase/server";
 import { parseJson } from "@/lib/api/validate";
 import { apiError, logError } from "@/lib/api/errors";
 import { enforceRate } from "@/lib/api/rate-limit";
@@ -14,17 +16,25 @@ export const runtime = "nodejs";
 // it returns { fallback: true } so the client can show an explanation-derived hint.
 
 const HintSchema = z.object({
+  // The question is read from Supabase by id — the client does not get to supply the
+  // prompt, options, correct answer, or explanation that go into the hint prompt.
+  questionId: z.string().min(1).max(100),
+  // Genuine client state: what the learner picked, and which try this is.
+  wrongAnswer: z.string().max(500).optional(),
+  attempt: z.number().int().min(1).max(10).optional(),
+  // Cosmetic prompt labels + the mock-mode fallback payload (used only when Supabase
+  // isn't configured). None of these can leak an answer.
   courseTitle: z.string().max(300).optional(),
   video: z.object({ title: z.string().max(300).optional(), summary: z.string().max(4000).optional() }).optional(),
-  question: z.object({
-    prompt: z.string().min(1).max(2000),
-    options: z.array(z.string().max(500)).max(12).optional(),
-    type: z.string().max(40).optional(),
-  }),
-  wrongAnswer: z.string().max(500).optional(),
-  correctAnswer: z.string().min(1).max(500),
+  question: z
+    .object({
+      prompt: z.string().max(2000).optional(),
+      options: z.array(z.string().max(500)).max(12).optional(),
+      type: z.string().max(40).optional(),
+    })
+    .optional(),
+  correctAnswer: z.string().max(500).optional(),
   explanation: z.string().max(4000).optional(),
-  attempt: z.number().int().min(1).max(10).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -53,6 +63,32 @@ export async function POST(req: NextRequest) {
   if (!parsed.ok) return NextResponse.json({ fallback: true });
   const body = parsed.data;
 
+  // Grounding comes from the database. Only in mock mode (no Supabase, seed data lives
+  // in the browser) do we fall back to the client's copy of the question.
+  let q: QuestionContext;
+  if (isSupabaseConfigured) {
+    const fetched = await fetchQuestionContextServer(body.questionId);
+    if (!fetched || !fetched.prompt || !fetched.correctAnswer) return NextResponse.json({ fallback: true });
+    q = fetched;
+  } else {
+    if (!body.question?.prompt || !body.correctAnswer) return NextResponse.json({ fallback: true });
+    q = {
+      courseTitle: body.courseTitle ?? "",
+      type: body.question.type ?? "",
+      prompt: body.question.prompt,
+      options: body.question.options ?? [],
+      correctAnswer: body.correctAnswer,
+      explanation: body.explanation ?? "",
+    };
+  }
+
+  // For multiple-choice, only echo the learner's pick if it's a real option — that
+  // closes the last free-text field feeding the prompt.
+  const wrongAnswer =
+    q.options.length && body.wrongAnswer && !q.options.includes(body.wrongAnswer)
+      ? undefined
+      : body.wrongAnswer;
+
   const attempt = Math.max(1, Math.min(4, body.attempt ?? 1));
   const escalation =
     attempt >= 3
@@ -62,7 +98,7 @@ export async function POST(req: NextRequest) {
         : "This is their first try — give a gentle conceptual nudge.";
 
   const systemInstruction = [
-    `You are the LEAP Coach AI tutor for the topic “${body.courseTitle ?? "this topic"}”.`,
+    `You are the LEAP Coach AI tutor for the topic “${q.courseTitle || "this topic"}”.`,
     body.video?.title ? `The question is from the lesson “${body.video.title}”.` : "",
     "A learner just answered a checkpoint question INCORRECTLY and asked for a hint.",
     "",
@@ -76,14 +112,14 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join("\n");
 
-  const optionsList = (body.question.options ?? []).map((o, i) => `${i + 1}. ${o}`).join("\n");
+  const optionsList = q.options.map((o, i) => `${i + 1}. ${o}`).join("\n");
   const userText = [
-    `Question: ${body.question.prompt}`,
+    `Question: ${q.prompt}`,
     optionsList ? `Options:\n${optionsList}` : "",
-    body.wrongAnswer ? `The learner chose (incorrect): ${body.wrongAnswer}` : "",
+    wrongAnswer ? `The learner chose (incorrect): ${wrongAnswer}` : "",
     // Given to YOU only so the hint is relevant — never reveal it to the learner.
-    `[Internal — do not reveal] Correct answer: ${body.correctAnswer}`,
-    body.explanation ? `[Internal] Why: ${body.explanation}` : "",
+    `[Internal — do not reveal] Correct answer: ${q.correctAnswer}`,
+    q.explanation ? `[Internal] Why: ${q.explanation}` : "",
     "Now give the learner a single helpful hint.",
   ]
     .filter(Boolean)

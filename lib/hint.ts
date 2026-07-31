@@ -34,13 +34,16 @@ export async function fetchHint(req: HintRequest): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        // The server reads the question from Supabase by this id; the fields below are
+        // only used in mock mode (no Supabase), where seed data lives in the browser.
+        questionId: req.question.id,
+        wrongAnswer: req.wrongAnswer,
+        attempt: req.attempt,
         courseTitle: req.courseTitle,
         video: req.video,
         question: { prompt: req.question.prompt, options: req.question.options, type: req.question.type },
-        wrongAnswer: req.wrongAnswer,
         correctAnswer: req.question.correctAnswer,
         explanation: req.question.explanation,
-        attempt: req.attempt,
       }),
     });
     const data = await res.json();

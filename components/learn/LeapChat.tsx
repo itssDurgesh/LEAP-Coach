@@ -80,29 +80,75 @@ export function LeapChat({
     setTyping(true);
 
     const mock = () => leapReply(course, video, trimmed || labelFor(action), action);
-    let reply: string;
+    const replyId = `a${Date.now()}`;
+    // Create the assistant bubble on the first token, then keep rewriting it.
+    const upsertReply = (text: string) =>
+      setMessages((m) =>
+        m.some((x) => x.id === replyId)
+          ? m.map((x) => (x.id === replyId ? { ...x, text } : x))
+          : [...m, { id: replyId, role: "assistant", text, createdAt: new Date().toISOString() }],
+      );
+
     try {
       const res = await fetch("/api/leap/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // The server reads the lesson's transcript from Supabase by this id. The
+          // title/summary/transcript below are only used in mock mode (no Supabase),
+          // where the seed data exists solely in the browser.
+          videoId: video.id,
           courseTitle: course.title,
           video: { title: video.title, summary: video.summary, transcript: video.transcript },
           messages: history,
           action,
         }),
       });
-      const data = await res.json();
-      // Falls back to the local mock when Gemini isn't configured or errors out.
-      reply = data?.reply && !data.fallback ? (data.reply as string) : mock();
+
+      // Non-stream response = the route bailed before generating (no key, upstream
+      // refused, rate limited). Fall back to the local responder.
+      if (!res.ok || !res.body || !(res.headers.get("content-type") ?? "").includes("text/event-stream")) {
+        upsertReply(mock());
+      } else {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let acc = "";
+        let failed = false;
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            let evt: { delta?: string; done?: boolean; error?: boolean };
+            try {
+              evt = JSON.parse(payload);
+            } catch {
+              continue;
+            }
+            if (evt.error) failed = true;
+            if (typeof evt.delta === "string" && evt.delta) {
+              acc += evt.delta;
+              setTyping(false); // text is flowing — drop the typing dots
+              upsertReply(acc);
+            }
+          }
+        }
+
+        // Stream carried nothing usable → local responder rather than an empty bubble.
+        if (failed || !acc) upsertReply(mock());
+      }
     } catch {
-      reply = mock();
+      upsertReply(mock());
     }
 
-    setMessages((m) => [
-      ...m,
-      { id: `a${Date.now()}`, role: "assistant", text: reply, createdAt: new Date().toISOString() },
-    ]);
     setTyping(false);
   }
 

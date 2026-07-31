@@ -3,6 +3,8 @@ import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { GEMINI_MODEL, MAX_TRANSCRIPT_CHARS } from "@/lib/ai/config";
 import { isClerkConfigured } from "@/lib/clerk/config";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { fetchLessonContextServer, type LessonContext } from "@/lib/supabase/server";
 import { parseJson } from "@/lib/api/validate";
 import { apiError, logError } from "@/lib/api/errors";
 import { enforceRate } from "@/lib/api/rate-limit";
@@ -11,17 +13,32 @@ export const runtime = "nodejs";
 
 type Action = "summarize" | "quiz" | "deeper";
 
+/** One `data:` payload from Gemini's alt=sse stream. */
+interface GeminiChunk {
+  candidates?: {
+    content?: { parts?: { text?: string }[] };
+    finishReason?: string;
+  }[];
+}
+
 // Bound every user-supplied string so a request can't inflate token cost or carry a
 // prompt-injection-sized payload. The per-message cap is env-tunable (AI_MAX_MESSAGE_CHARS).
 const MAX_MESSAGE_CHARS = Number(process.env.AI_MAX_MESSAGE_CHARS) || 4000;
 
 const ChatSchema = z.object({
-  courseTitle: z.string().max(300).optional().default(""),
-  video: z.object({
-    title: z.string().min(1, "Missing lesson context.").max(300),
-    summary: z.string().max(4000).optional().default(""),
-    transcript: z.string().max(60_000).optional().default(""),
-  }),
+  // The lesson is identified by id and read from Supabase server-side. The client
+  // does NOT get to supply the grounding text.
+  videoId: z.string().min(1, "Missing lesson context.").max(100),
+  // Mock-mode only (no Supabase configured): seed data lives in the browser, so the
+  // client passes it through. Ignored entirely whenever Supabase IS configured.
+  courseTitle: z.string().max(300).optional(),
+  video: z
+    .object({
+      title: z.string().max(300).optional(),
+      summary: z.string().max(4000).optional(),
+      transcript: z.string().max(60_000).optional(),
+    })
+    .optional(),
   messages: z
     .array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(MAX_MESSAGE_CHARS) }))
     .max(50)
@@ -67,13 +84,33 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseJson(req, ChatSchema);
   if (!parsed.ok) return apiError(400, parsed.error);
-  const { courseTitle, video, messages, action } = parsed.data;
+  const { videoId, messages, action } = parsed.data;
 
-  const transcript = video.transcript.slice(0, MAX_TRANSCRIPT_CHARS);
+  // Grounding material comes from the database — the transcript the admin saved with
+  // the topic — so a caller can't inject their own prompt context. Only when Supabase
+  // isn't configured (local mock mode, where the seed data exists solely in the
+  // browser) do we accept the client's copy.
+  let lesson: LessonContext;
+  if (isSupabaseConfigured) {
+    const fetched = await fetchLessonContextServer(videoId);
+    // Unknown lesson id (or the read failed) → local fallback. A row with an empty
+    // transcript is still fine: the tutor grounds on the title + summary instead.
+    if (!fetched) return NextResponse.json({ fallback: true });
+    lesson = fetched;
+  } else {
+    lesson = {
+      courseTitle: parsed.data.courseTitle ?? "",
+      title: parsed.data.video?.title ?? "",
+      summary: parsed.data.video?.summary ?? "",
+      transcript: parsed.data.video?.transcript ?? "",
+    };
+  }
+
+  const transcript = lesson.transcript.slice(0, MAX_TRANSCRIPT_CHARS);
   const systemInstruction = [
-    `You are the LEAP Coach AI tutor — a warm, encouraging learning assistant for the coaching topic “${courseTitle}”.`,
-    `You are helping a learner with one specific lesson video: “${video.title}”.`,
-    video.summary ? `Lesson summary: ${video.summary}` : "",
+    `You are the LEAP Coach AI tutor — a warm, encouraging learning assistant for the coaching topic “${lesson.courseTitle}”.`,
+    `You are helping a learner with one specific lesson video: “${lesson.title}”.`,
+    lesson.summary ? `Lesson summary: ${lesson.summary}` : "",
     transcript ? `Lesson transcript:\n${transcript}` : "",
     "",
     "Rules:",
@@ -103,7 +140,11 @@ export async function POST(req: NextRequest) {
     contents.push({ role: "user", parts: [{ text: "Introduce yourself and what you can help with for this lesson." }] });
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+    // Streaming (SSE) so the learner sees the answer appear as it's generated instead
+    // of waiting on the full turn. Errors BEFORE the first token still return JSON
+    // { fallback: true }; once bytes are flowing we can't retract them, so a mid-stream
+    // failure keeps whatever was already shown.
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`;
     const init: RequestInit = {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
@@ -128,19 +169,74 @@ export async function POST(req: NextRequest) {
       res = await fetch(url, init);
     }
 
-    if (!res.ok) {
+    if (!res.ok || !res.body) {
       console.error("[gemini] HTTP", res.status, await res.text().catch(() => ""));
       return NextResponse.json({ fallback: true });
     }
 
-    const data = await res.json();
-    const candidate = data?.candidates?.[0];
-    const reply: string =
-      candidate?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("").trim() ?? "";
+    const upstream = res.body.getReader();
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
 
-    // MAX_TOKENS means the reply was cut off mid-sentence — worse than the fallback.
-    if (!reply || candidate?.finishReason === "MAX_TOKENS") return NextResponse.json({ fallback: true });
-    return NextResponse.json({ reply });
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const emit = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        let buffer = "";
+        let chars = 0;
+        let finishReason = "";
+        try {
+          for (;;) {
+            const { done, value } = await upstream.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            // Gemini's alt=sse emits one JSON object per `data:` line.
+            let nl: number;
+            while ((nl = buffer.indexOf("\n")) !== -1) {
+              const line = buffer.slice(0, nl).trim();
+              buffer = buffer.slice(nl + 1);
+              if (!line.startsWith("data:")) continue;
+              const payload = line.slice(5).trim();
+              if (!payload || payload === "[DONE]") continue;
+              let chunk: GeminiChunk;
+              try {
+                chunk = JSON.parse(payload) as GeminiChunk;
+              } catch {
+                continue; // partial/!JSON line — skip rather than kill the stream
+              }
+              const candidate = chunk.candidates?.[0];
+              if (candidate?.finishReason) finishReason = candidate.finishReason;
+              const text = candidate?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+              if (text) {
+                chars += text.length;
+                emit({ delta: text });
+              }
+            }
+          }
+          // Not a single token — let the client fall back instead of showing an empty bubble.
+          if (chars === 0) emit({ error: true });
+          else emit({ done: true, finishReason });
+        } catch (e) {
+          logError("leap/chat stream", e);
+          if (chars === 0) emit({ error: true });
+          else emit({ done: true, finishReason: "ERROR" });
+        } finally {
+          controller.close();
+        }
+      },
+      cancel(reason) {
+        // Learner navigated away / aborted — stop pulling (and paying for) tokens.
+        void upstream.cancel(reason);
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no", // don't let a proxy buffer the stream into one blob
+      },
+    });
   } catch (e) {
     logError("leap/chat", e);
     return NextResponse.json({ fallback: true });
