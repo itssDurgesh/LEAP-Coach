@@ -483,6 +483,44 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.isLoaded, auth.userId]);
 
+  // ── Live course updates (Supabase mode) ──
+  // Every page reads courses from this provider's in-memory state, which is loaded
+  // once on mount — so an owner publishing a topic wouldn't reach an already-open
+  // learner session until they reloaded. `courses` is in the supabase_realtime
+  // publication, so subscribe and re-read the tree whenever a row changes.
+  React.useEffect(() => {
+    if (!hydrated || !realMode) return;
+    const sb = getSupabase();
+    if (!sb) return;
+
+    let active = true;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+
+    const refresh = () => {
+      // Coalesce the burst of row events a course save produces into one re-read.
+      clearTimeout(pending);
+      pending = setTimeout(() => {
+        void db
+          .loadCourses(sb)
+          .then((courses) => {
+            if (active) setState((s) => ({ ...s, courses }));
+          })
+          .catch((e) => console.error("[supabase] loadCourses", e));
+      }, 300);
+    };
+
+    const channel = sb
+      .channel("courses-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, refresh)
+      .subscribe();
+
+    return () => {
+      active = false;
+      clearTimeout(pending);
+      void sb.removeChannel(channel);
+    };
+  }, [hydrated]);
+
   // ── Persist to localStorage, DEBOUNCED (mock mode only) ──
   // Serializing the whole app state on every state change is wasteful; debounce so a
   // burst of changes (or a background poll) writes at most once per ~500ms.
@@ -659,8 +697,17 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const patchUser = (userId: string, fn: (u: User) => User) =>
       setState((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? fn(u) : u)) }));
 
+    // supabase-js RESOLVES with `{ error }` instead of rejecting, so a rejection-only
+    // handler swallows RLS denials and constraint violations. Check both.
     const fire = (p: PromiseLike<unknown> | undefined) => {
-      if (p) Promise.resolve(p).then(undefined, (e) => console.error("[supabase]", e));
+      if (!p) return;
+      Promise.resolve(p).then(
+        (res) => {
+          const err = (res as { error?: unknown } | null)?.error;
+          if (err) console.error("[supabase]", err);
+        },
+        (e) => console.error("[supabase]", e),
+      );
     };
 
     // Owner-only user mutations (grant/revoke/ban/delete) go through a service-role
@@ -684,6 +731,40 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       } catch {
         return { ok: false, error: "Network error — the change couldn't be saved." };
       }
+    };
+
+    // Owner-only publish/approval transitions. Same reason as adminUserAction: the
+    // browser's RLS write can no-op silently, so these go through the service role.
+    // Applies optimistically, then rolls the course back if the server refuses.
+    const adminCourseAction = (
+      courseId: string,
+      action: "approve" | "reject" | "publish" | "unpublish",
+    ) => {
+      const before = getCourse(courseId);
+      if (!before) return;
+      void (async () => {
+        try {
+          const res = await fetch("/api/admin/courses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, courseId }),
+          });
+          if (res.ok) return;
+          const data = await res.json().catch(() => ({}));
+          console.error("[admin/courses]", action, data.error ?? res.status);
+        } catch (e) {
+          console.error("[admin/courses]", action, e);
+        }
+        // Failed — put the course back the way it was so the admin sees the truth.
+        setState((s) => ({
+          ...s,
+          courses: s.courses.map((x) =>
+            x.id === courseId
+              ? { ...x, published: before.published, pendingApproval: before.pendingApproval ?? false }
+              : x,
+          ),
+        }));
+      })();
     };
 
     return {
@@ -1384,7 +1465,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           ...s,
           courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: !x.published } : x)),
         }));
-        if (sb && c) fire(db.updateCourse(sb, courseId, { published: !c.published }));
+        if (sb && c) adminCourseAction(courseId, c.published ? "unpublish" : "publish");
       },
       toggleTrending(courseId) {
         if (!isOwner(currentUser)) return;
@@ -1401,7 +1482,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           ...s,
           courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: true, pendingApproval: false } : x)),
         }));
-        if (sb) fire(db.updateCourse(sb, courseId, { published: true, pending_approval: false }));
+        if (sb) adminCourseAction(courseId, "approve");
       },
       rejectCourse(courseId) {
         if (!isOwner(currentUser) || !getCourse(courseId)) return;
@@ -1409,7 +1490,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           ...s,
           courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: false, pendingApproval: false } : x)),
         }));
-        if (sb) fire(db.updateCourse(sb, courseId, { published: false, pending_approval: false }));
+        if (sb) adminCourseAction(courseId, "reject");
       },
       saveQuestion(courseId, assignmentId, question) {
         if (!hasPermission(currentUser, "content")) return;

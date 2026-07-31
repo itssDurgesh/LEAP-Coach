@@ -152,6 +152,39 @@ export interface LoadedData {
 }
 
 /** Fetch + assemble the entire app state from Supabase (RLS scopes per-user rows). */
+// The whole course tree in one PostgREST query (courses + videos + assignments + questions).
+const COURSE_SELECT = "*, videos(*), assignments(*, questions(*))";
+
+/** Map one embedded `courses` row (with its videos/assignments/questions) to a Course. */
+function assembleCourse(c: Row): Course {
+  return {
+    id: c.id, slug: c.slug, title: c.title, description: c.description ?? "", category: c.category,
+    instructorName: c.instructor_name ?? "", instructorTitle: c.instructor_title ?? "", instructorBio: c.instructor_bio ?? "",
+    instructorInitials: c.instructor_initials ?? "", hashtags: c.hashtags ?? [], tracks: c.tracks ?? [], level: c.level ?? "Beginner",
+    rating: Number(c.rating ?? 0), ratingCount: c.rating_count ?? 0, enrolledCount: c.enrolled_count ?? 0,
+    purchaseCount: c.purchase_count ?? 0, price: c.price ?? 0, trending: c.trending ?? false, published: c.published ?? false,
+    accent: c.accent ?? 0,
+    categories: c.categories ?? [c.category],
+    thumbnailUrl: c.thumbnail_url ?? null, workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
+    accessDurationDays: c.access_duration_days ?? null,
+    pendingApproval: c.pending_approval ?? false, submittedBy: c.submitted_by ?? null,
+    createdAt: c.created_at,
+    videos: ((c.videos ?? []) as Row[]).map(mapVideo).sort((a, b) => a.order - b.order),
+    assignments: ((c.assignments ?? []) as Row[]).map((a) => ({
+      id: a.id, courseId: a.course_id, afterVideoOrder: a.after_video_order, title: a.title,
+      questions: ((a.questions ?? []) as Row[]).map(mapQuestion),
+    })).sort((a, b) => a.afterVideoOrder - b.afterVideoOrder),
+  };
+}
+
+/**
+ * Re-read just the course tree. Used by the realtime subscription so a publish or
+ * approval lands in every open session without a full `loadAll` or a page reload.
+ */
+export async function loadCourses(sb: SupabaseClient): Promise<Course[]> {
+  return (await rows(sb.from("courses").select(COURSE_SELECT))).map(assembleCourse);
+}
+
 export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   const [
     // videos/assignments/questions are embedded in `courses` now → their slots are empty.
@@ -166,7 +199,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     // Whole course tree in ONE query via PostgREST embedding (was 4 separate fetches:
     // courses + videos + assignments + questions). videos/assignments/questions below
     // are kept as empty placeholders so the positional destructure stays aligned.
-    rows(sb.from("courses").select("*, videos(*), assignments(*, questions(*))")),
+    rows(sb.from("courses").select(COURSE_SELECT)),
     Promise.resolve([] as Row[]),
     Promise.resolve([] as Row[]),
     Promise.resolve([] as Row[]),
@@ -207,24 +240,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   const likesByComment = group(commentLikes, (l) => l.comment_id);
   const likesByVideoComment = group(videoCommentLikeRows, (l) => l.comment_id);
 
-  const assembledCourses: Course[] = courses.map((c) => ({
-    id: c.id, slug: c.slug, title: c.title, description: c.description ?? "", category: c.category,
-    instructorName: c.instructor_name ?? "", instructorTitle: c.instructor_title ?? "", instructorBio: c.instructor_bio ?? "",
-    instructorInitials: c.instructor_initials ?? "", hashtags: c.hashtags ?? [], tracks: c.tracks ?? [], level: c.level ?? "Beginner",
-    rating: Number(c.rating ?? 0), ratingCount: c.rating_count ?? 0, enrolledCount: c.enrolled_count ?? 0,
-    purchaseCount: c.purchase_count ?? 0, price: c.price ?? 0, trending: c.trending ?? false, published: c.published ?? false,
-    accent: c.accent ?? 0,
-    categories: c.categories ?? [c.category],
-    thumbnailUrl: c.thumbnail_url ?? null, workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
-    accessDurationDays: c.access_duration_days ?? null,
-    pendingApproval: c.pending_approval ?? false, submittedBy: c.submitted_by ?? null,
-    createdAt: c.created_at,
-    videos: ((c.videos ?? []) as Row[]).map(mapVideo).sort((a, b) => a.order - b.order),
-    assignments: ((c.assignments ?? []) as Row[]).map((a) => ({
-      id: a.id, courseId: a.course_id, afterVideoOrder: a.after_video_order, title: a.title,
-      questions: ((a.questions ?? []) as Row[]).map(mapQuestion),
-    })).sort((a, b) => a.afterVideoOrder - b.afterVideoOrder),
-  }));
+  const assembledCourses: Course[] = courses.map(assembleCourse);
 
   return {
     users: profiles.map((p) =>
