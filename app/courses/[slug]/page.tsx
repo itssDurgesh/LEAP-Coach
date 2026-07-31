@@ -33,6 +33,7 @@ import { courseCategories } from "@/lib/types";
 import { buildTopicReport } from "@/lib/report";
 import { topicCredit, TOPIC_CREDIT_MAX } from "@/lib/credits";
 import { downloadNotesPdf } from "@/lib/pdf";
+import { downloadUrl } from "@/lib/download";
 import { cn, formatINR, formatDuration, formatClock } from "@/lib/utils";
 
 export default function CourseDetailPage() {
@@ -429,13 +430,13 @@ function CourseDetail() {
                 </p>
               </div>
               {access ? (
-                <a
-                  href={course.workbookUrl}
-                  download={course.workbookName ?? "workbook"}
+                <button
+                  type="button"
+                  onClick={() => void downloadUrl(course.workbookUrl!, course.workbookName ?? "workbook.pdf")}
                   className={buttonClasses({ variant: "primary", size: "sm" })}
                 >
                   <Download className="h-4 w-4" /> Download
-                </a>
+                </button>
               ) : (
                 <Badge variant="neutral">
                   <Lock className="h-3 w-3" /> Locked

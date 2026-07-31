@@ -25,6 +25,7 @@ import { Input, Textarea, Select, Field } from "@/components/ui/Field";
 import { useApp } from "@/lib/store/AppProvider";
 import { Course, Question, Role, ROLES, courseCategories, isOwner } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
+import { mimeForFilename } from "@/lib/download";
 
 interface DraftQuestion {
   tmpId: string;
@@ -77,7 +78,15 @@ const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-"
 
 function readFileAsDataUrl(file: File, onDone: (dataUrl: string) => void) {
   const reader = new FileReader();
-  reader.onload = () => onDone(String(reader.result));
+  reader.onload = () => {
+    let dataUrl = String(reader.result);
+    // Some OSes hand us a File with an empty `type`, which yields a headerless
+    // "data:;base64,…" URL and downloads as a generic blob. Stamp the real type on.
+    if (dataUrl.startsWith("data:;")) {
+      dataUrl = `data:${mimeForFilename(file.name)};${dataUrl.slice("data:;".length)}`;
+    }
+    onDone(dataUrl);
+  };
   reader.readAsDataURL(file);
 }
 

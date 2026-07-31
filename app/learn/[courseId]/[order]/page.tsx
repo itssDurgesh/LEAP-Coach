@@ -32,6 +32,7 @@ import { useApp } from "@/lib/store/AppProvider";
 import { useRequireLearner } from "@/components/app/guards";
 import { cn, formatClock, timeAgo } from "@/lib/utils";
 import { downloadNotesPdf } from "@/lib/pdf";
+import { downloadText, downloadUrl } from "@/lib/download";
 import { Course, Video } from "@/lib/types";
 
 export default function PlayerPage() {
@@ -105,17 +106,18 @@ function Player({ course, video }: { course: Course; video: Video }) {
 
   const myNotes = notesFor(video.id);
 
-  function downloadNotes() {
+  async function downloadNotes() {
+    // Serve the file the admin actually uploaded, with its own bytes and extension.
+    if (video.notesPdfUrl) {
+      const name = video.notesPdfName?.trim() || `${course.slug}-session-${video.order}-notes.pdf`;
+      await downloadUrl(video.notesPdfUrl, name);
+      return;
+    }
+    // No upload for this session — fall back to the on-page notes as a .txt.
     const body =
       `LEAP Coach — Class Notes\n${course.title}\nVideo ${video.order}: ${video.title}\n\n` +
       `${video.summary}\n\n${video.transcript}\n`;
-    const blob = new Blob([body], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = (video.notesPdfName ?? `${course.slug}-session-${video.order}-notes.pdf`).replace(/\.pdf$/, ".txt");
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(body, `${course.slug}-session-${video.order}-notes.txt`);
   }
 
   const discussionCount = videoCommentsFor(video.id).length;
@@ -279,9 +281,11 @@ function Player({ course, video }: { course: Course; video: Video }) {
                 {bottomTab === "notes" && (
                   <div>
                     <div className="mb-3 flex items-center justify-between">
-                      <span className="text-sm font-medium text-muted">{video.notesPdfName}</span>
+                      <span className="text-sm font-medium text-muted">
+                        {video.notesPdfName ?? `${course.slug}-session-${video.order}-notes.txt`}
+                      </span>
                       <button
-                        onClick={downloadNotes}
+                        onClick={() => void downloadNotes()}
                         className={buttonClasses({ variant: "outline", size: "sm" })}
                       >
                         <Download className="h-4 w-4" /> Download
