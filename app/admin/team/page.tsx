@@ -12,6 +12,7 @@ import { Input, Textarea, Select, Field } from "@/components/ui/Field";
 import { useApp } from "@/lib/store/AppProvider";
 import { resolveTeam } from "@/lib/team";
 import { TeamMember, TEAM_GROUPS } from "@/lib/types";
+import { normalizeExternalUrl } from "@/lib/utils";
 
 const blank = (order: number): TeamMember => ({
   id: `tm_${Date.now()}`,
@@ -146,7 +147,23 @@ function MemberForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        onSave(form);
+        // Clean pasted links on the way in ("Linkedin: https://…", bare domains) so a
+        // stray label can't be stored as a relative href that 404s on the team page.
+        const links = form.links;
+        onSave(
+          links
+            ? {
+                ...form,
+                links: {
+                  ...links,
+                  linkedin: normalizeExternalUrl(links.linkedin) ?? undefined,
+                  site: normalizeExternalUrl(links.site) ?? undefined,
+                  youtube: normalizeExternalUrl(links.youtube) ?? undefined,
+                  instagram: normalizeExternalUrl(links.instagram) ?? undefined,
+                },
+              }
+            : form,
+        );
       }}
       className="space-y-4 p-6"
     >

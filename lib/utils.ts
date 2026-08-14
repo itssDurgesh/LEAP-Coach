@@ -30,6 +30,39 @@ export function formatClock(totalSeconds: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Coerce an admin-entered link into a safe absolute URL, or null if it can't be one.
+ *
+ * Admins paste links from all over ("Linkedin: https://…", ": https://…", a bare
+ * "linkedin.com/in/x"). A value without a scheme is treated by the browser as a
+ * RELATIVE path, so `href` lands on leapcoach.in/<garbage> → a 404 on our own site.
+ * Returning null instead lets callers hide the icon rather than ship a broken link.
+ */
+export function normalizeExternalUrl(input?: string | null): string | null {
+  const raw = (input ?? "").trim();
+  if (!raw) return null;
+
+  // Prefer a real URL found anywhere in the string — strips pasted labels/prefixes.
+  const found = raw.match(/https?:\/\/\S+/i);
+  // Otherwise drop a leading "Label:" / ":" and any protocol-relative "//".
+  let candidate = found ? found[0] : raw.replace(/^[^:/?#]{0,20}:\s*/, "").trim();
+  if (!candidate) return null;
+  if (candidate.startsWith("//")) candidate = `https:${candidate}`;
+  // Bare domain ("linkedin.com/in/x") → assume https.
+  if (!/^https?:\/\//i.test(candidate)) {
+    if (!/^[^\s/]+\.[^\s/]{2,}/.test(candidate)) return null;
+    candidate = `https://${candidate}`;
+  }
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null; // no javascript:/data:
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 /** Relative "time ago" label from an ISO date string. */
 export function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();

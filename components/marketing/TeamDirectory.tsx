@@ -7,6 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { useApp } from "@/lib/store/AppProvider";
 import { resolveTeam } from "@/lib/team";
 import { TEAM_GROUPS, TeamLinks } from "@/lib/types";
+import { normalizeExternalUrl } from "@/lib/utils";
 
 /**
  * Bio text clamped to a preview with a "See more"/"See less" toggle. The clamp is
@@ -44,15 +45,17 @@ function ClampText({ text, limit = 180, className }: { text: string; limit?: num
 
 function MemberLinks({ links, align = "center" }: { links?: TeamLinks; align?: "center" | "start" }) {
   if (!links) return null;
+  // Normalize every admin-entered URL: a value that isn't absolute would resolve
+  // relative to leapcoach.in and 404. Un-fixable values drop out entirely.
   const items = (
     [
-      links.linkedin && { Icon: Linkedin, href: links.linkedin },
-      links.youtube && { Icon: Youtube, href: links.youtube },
-      links.instagram && { Icon: Instagram, href: links.instagram },
-      links.site && { Icon: Globe, href: links.site },
-      links.email && { Icon: Mail, href: `mailto:${links.email}` },
-    ] as ({ Icon: LucideIcon; href: string } | "" | undefined)[]
-  ).filter(Boolean) as { Icon: LucideIcon; href: string }[];
+      { Icon: Linkedin, href: normalizeExternalUrl(links.linkedin) },
+      { Icon: Youtube, href: normalizeExternalUrl(links.youtube) },
+      { Icon: Instagram, href: normalizeExternalUrl(links.instagram) },
+      { Icon: Globe, href: normalizeExternalUrl(links.site) },
+      { Icon: Mail, href: links.email?.trim() ? `mailto:${links.email.trim()}` : null },
+    ] as { Icon: LucideIcon; href: string | null }[]
+  ).filter((x) => x.href) as { Icon: LucideIcon; href: string }[];
   if (!items.length) return null;
   return (
     <div className={`mt-4 flex flex-wrap gap-2 ${align === "start" ? "justify-start" : "justify-center"}`}>
