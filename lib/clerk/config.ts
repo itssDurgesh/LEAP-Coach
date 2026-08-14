@@ -2,7 +2,5 @@
 // sessions). The app falls back to the localStorage mock until the publishable
 // key is present, then automatically switches to real Clerk auth.
 
-export const CLERK_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
-
 /** True when the Clerk publishable key is set (build-time inlined). */
-export const isClerkConfigured = Boolean(CLERK_PUBLISHABLE_KEY);
+export const isClerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);

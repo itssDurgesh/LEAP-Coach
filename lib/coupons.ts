@@ -12,7 +12,7 @@ export interface CouponCheck {
 }
 
 /** Structural validity: active, not expired, redemptions remaining. */
-export function couponValid(c: Coupon, now: number = Date.now()): CouponCheck {
+function couponValid(c: Coupon, now: number = Date.now()): CouponCheck {
   if (!c.active) return { ok: false, reason: "This coupon is no longer active." };
   if (c.expiresAt && Date.parse(c.expiresAt) < now) return { ok: false, reason: "This coupon has expired." };
   if (c.maxRedemptions != null && c.redemptions >= c.maxRedemptions)
@@ -21,7 +21,7 @@ export function couponValid(c: Coupon, now: number = Date.now()): CouponCheck {
 }
 
 /** Eligibility for the thing being purchased. */
-export function couponApplies(c: Coupon, target: CouponTarget): boolean {
+function couponApplies(c: Coupon, target: CouponTarget): boolean {
   if (c.category === "all") return true; // all-categories coupon → everything incl. max plan
   if (target.type === "course") return target.category === c.category;
   // A category-scoped coupon only applies to a single-category pass for that category.

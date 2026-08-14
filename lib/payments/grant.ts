@@ -18,7 +18,7 @@ export interface GrantInput {
 }
 
 /** Generate our receipt id, e.g. rcpt_lt3k9f2a. */
-export function receiptId(): string {
+function receiptId(): string {
   return `rcpt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
 

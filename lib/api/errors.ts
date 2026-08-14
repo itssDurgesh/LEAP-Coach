@@ -20,12 +20,6 @@ export function apiError(
   return NextResponse.json({ error: message, ...extra }, { status });
 }
 
-/** Generic 500 — use when an unexpected error was caught. Detail goes to the log, not the body. */
-export function serverError(scope: string, err: unknown, extra?: Record<string, unknown>): NextResponse {
-  logError(scope, err);
-  return apiError(500, "An unexpected error occurred. Please try again.", extra);
-}
-
 /**
  * Log full diagnostic detail — SERVER SIDE ONLY. Never called with anything that
  * reaches the client. Centralized so the logging backend can be swapped in one place.

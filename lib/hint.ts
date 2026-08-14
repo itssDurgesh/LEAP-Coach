@@ -8,7 +8,7 @@ function stripAnswer(text: string, answer: string): string {
 }
 
 /** Explanation-derived hint used when the AI is unavailable. Never reveals the answer. */
-export function localHint(q: Question, attempt: number): string {
+function localHint(q: Question, attempt: number): string {
   const safe = stripAnswer((q.explanation || "").trim(), q.correctAnswer);
   if (attempt >= 3) {
     return safe

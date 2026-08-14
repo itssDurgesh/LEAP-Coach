@@ -18,7 +18,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
+# env files (.env.local.example stays tracked as the template)
 .env
 .env*.local
 
@@ -35,7 +35,8 @@ public/professor-hero.mp4
 *.tsbuildinfo
 next-env.d.ts
 
-#Docs
+# local docs scratch
 Docs
-.vercel
-.env*
+
+# MS Office lock files (open Word/Excel docs)
+~$*

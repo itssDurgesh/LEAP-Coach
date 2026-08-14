@@ -74,10 +74,11 @@ Re-run it after pulling changes to pick up new columns — it's always safe to r
    and set `RAZORPAY_WEBHOOK_SECRET` to the same secret.
 4. Deploy.
 
-> **The Telegram bot does not run on Vercel.** `bot/` is a long-polling Node
-> process (`npm run bot`) and must run on a persistent host (a small VM,
-> Railway, Render, or similar) — not in a serverless function. It's optional;
-> the web app is fully functional without it.
+> **The Telegram bot lives in its own repo** —
+> [`leap-coach-telegram-bot`](https://github.com/itssDurgesh/leap-coach-telegram-bot)
+> — and deploys separately (Vercel webhook or local long-polling). It shares
+> this app's Supabase project and the `telegram_links` tables; the web app is
+> fully functional without it.
 
 ### Production notes
 
@@ -94,7 +95,6 @@ Re-run it after pulling changes to pick up new columns — it's always safe to r
 | `npm run dev`    | Dev server (localhost:3000) |
 | `npm run build`  | Production build |
 | `npm run start`  | Serve the production build |
-| `npm run bot`    | Run the Telegram bot (separate process/host) |
 
 ## Project layout
 
@@ -102,7 +102,6 @@ Re-run it after pulling changes to pick up new columns — it's always safe to r
 app/            Next.js App Router routes (pages + API route handlers)
 components/     UI, marketing, admin, and app components
 lib/            State store, types, Supabase/Clerk/AI/payments/email helpers
-bot/            Standalone Telegram bot (not deployed with the web app)
 supabase/       SQL schema + migrations
 docs/           Subsystem docs (payments, email, security, bot, PRD)
 ```

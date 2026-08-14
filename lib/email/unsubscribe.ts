@@ -33,7 +33,7 @@ function sign(payload: string): string {
 }
 
 /** `<b64url(userId)>.<hmac>` — opaque, tamper-evident. */
-export function makeUnsubscribeToken(userId: string): string {
+function makeUnsubscribeToken(userId: string): string {
   const p = b64url(Buffer.from(userId, "utf8"));
   return `${p}.${sign(p)}`;
 }

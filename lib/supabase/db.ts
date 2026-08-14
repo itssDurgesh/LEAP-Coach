@@ -383,10 +383,6 @@ export const deleteSession = (sb: SupabaseClient, id: string) => sb.from("live_s
 
 export const setBanned = (sb: SupabaseClient, userId: string, banned: boolean) =>
   sb.from("profiles").update({ banned }).eq("id", userId);
-export const deleteUserProfile = (sb: SupabaseClient, userId: string) => sb.from("profiles").delete().eq("id", userId);
-
-export const upsertResource = (sb: SupabaseClient, r: RecommendedResource) =>
-  sb.from("recommended_resources").upsert({ id: r.id, title: r.title, type: r.type, author: r.author, blurb: r.blurb, target_role: r.targetRole, accent: r.accent });
 
 export const saveQuestion = (sb: SupabaseClient, assignmentId: string, q: Question) =>
   sb.from("questions").upsert({ id: q.id, assignment_id: assignmentId, type: q.type, prompt: q.prompt, options: q.options, correct_answer: q.correctAnswer, explanation: q.explanation });

@@ -18,13 +18,12 @@ import { courseCategories } from "./types";
 
 /** Every purchase grants one year of access. */
 export const ACCESS_DURATION_DAYS = 365;
-export const ACCESS_DURATION_YEARS = 1;
 
 const DAY_MS = 86_400_000;
 const ALL_CATEGORIES: Role[] = ["student", "professional", "entrepreneur"];
 
 /** ISO timestamp `days` after `fromIso` — turns a purchase date into an expiry. */
-export function addDays(fromIso: string, days: number): string {
+function addDays(fromIso: string, days: number): string {
   return new Date(new Date(fromIso).getTime() + days * DAY_MS).toISOString();
 }
 
@@ -33,7 +32,7 @@ export function addDays(fromIso: string, days: number): string {
  * year; an admin MAY set a per-topic override on the course (Course Wizard →
  * "access duration"). Catalog passes & all-access always use the standard year.
  */
-export function courseAccessDays(course: Pick<Course, "accessDurationDays">): number {
+function courseAccessDays(course: Pick<Course, "accessDurationDays">): number {
   const d = course.accessDurationDays;
   return d && d > 0 ? d : ACCESS_DURATION_DAYS;
 }

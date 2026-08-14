@@ -14,7 +14,7 @@ export interface Searchable {
 }
 
 /** Relevance score of one record for `query` (0 = no match). */
-export function scoreMatch(item: Searchable, query: string): number {
+function scoreMatch(item: Searchable, query: string): number {
   const q = query.trim().toLowerCase();
   if (!q) return 1;
   const words = q.split(/\s+/).filter(Boolean);

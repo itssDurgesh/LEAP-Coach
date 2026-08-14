@@ -83,7 +83,7 @@ function limitFor(tier: TierName): number {
 }
 
 /** Stable per-caller key: the Clerk user id when signed in, else the client IP. */
-export function clientKey(req: Request, userId?: string | null): string {
+function clientKey(req: Request, userId?: string | null): string {
   if (userId) return `u:${userId}`;
   const xff = req.headers.get("x-forwarded-for");
   const ip = xff?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
@@ -91,7 +91,7 @@ export function clientKey(req: Request, userId?: string | null): string {
 }
 
 /** Core check. Namespaced by tier so tiers don't share a bucket. */
-export function checkRate(tier: TierName, key: string): RateResult {
+function checkRate(tier: TierName, key: string): RateResult {
   if (process.env.RL_DISABLED === "1") {
     return { ok: true, limit: Infinity, remaining: Infinity, retryAfterSec: 0 };
   }
@@ -104,7 +104,7 @@ export function checkRate(tier: TierName, key: string): RateResult {
 }
 
 /** 429 response with a Retry-After header and a safe generic message. */
-export function tooManyRequests(result: RateResult, extra?: Record<string, unknown>): NextResponse {
+function tooManyRequests(result: RateResult, extra?: Record<string, unknown>): NextResponse {
   return NextResponse.json(
     { error: "Too many requests — please slow down and try again in a moment.", ...extra },
     { status: 429, headers: { "Retry-After": String(result.retryAfterSec) } },

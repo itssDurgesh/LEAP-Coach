@@ -13,8 +13,5 @@ import "server-only"; // reads GEMINI_API_KEY — keep out of the client bundle
 // rollover ever regresses.
 export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-lite-latest";
 
-/** True when a Gemini key is configured (call from server code only). */
-export const isGeminiConfigured = (): boolean => !!process.env.GEMINI_API_KEY;
-
 /** Keep transcript context bounded so token cost/latency stays predictable. */
 export const MAX_TRANSCRIPT_CHARS = 8000;

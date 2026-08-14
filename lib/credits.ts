@@ -13,7 +13,7 @@ export const TOPIC_CREDIT_MAX = 100;
 // The app allows up to 4 tries (with AI hints), but per the credit spec only the
 // 1st–3rd count — a question solved only on the 4th try (or never) earns nothing.
 // Legacy/simple submissions without per-attempt data fall back to correct = 1st try.
-export function questionWeight(f: Pick<QuestionFeedback, "correct" | "attempts" | "solved">): number {
+function questionWeight(f: Pick<QuestionFeedback, "correct" | "attempts" | "solved">): number {
   if (f.attempts == null) return f.correct ? 1 : 0; // no attempt data recorded
   if (!f.solved) return 0; // answer was revealed after exhausting tries
   if (f.attempts <= 1) return 1; // first try
@@ -23,7 +23,7 @@ export function questionWeight(f: Pick<QuestionFeedback, "correct" | "attempts" 
 }
 
 // Ladder: attempt-weighted topic score (0–100) → topic credits (0–100).
-export function creditForPercent(percent: number, hasQuestions: boolean): number {
+function creditForPercent(percent: number, hasQuestions: boolean): number {
   if (!hasQuestions) return 0; // nothing to assess in this topic
   if (percent > 85) return 100;
   if (percent > 75) return 90;

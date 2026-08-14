@@ -497,8 +497,9 @@ insert into public.site_pages (id, privacy_policy) values (1, null) on conflict 
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 8. INTEGRATIONS — Telegram bot linking + realtime
---    Bridges the website and the standalone Telegram bot (see bot/ +
---    docs/TELEGRAM_BOT.md). Both sides use the SERVICE-ROLE key, so RLS is
+--    Bridges the website and the standalone Telegram bot (separate repo:
+--    github.com/itssDurgesh/leap-coach-telegram-bot). Both sides use the
+--    SERVICE-ROLE key, so RLS is
 --    enabled with NO policies → anon/authenticated get nothing.
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Short-lived one-time tokens minted by the website; redeemed by the bot via the

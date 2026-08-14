@@ -21,14 +21,13 @@ import nodemailer from "nodemailer";
 export type EmailProvider = "resend" | "gmail";
 
 /** Configured providers in priority order (Resend first, Gmail as fallback). */
-export function providersInOrder(): EmailProvider[] {
+function providersInOrder(): EmailProvider[] {
   const list: EmailProvider[] = [];
   if (process.env.RESEND_API_KEY) list.push("resend");
   if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) list.push("gmail");
   return list;
 }
 
-export const emailProvider = (): EmailProvider | null => providersInOrder()[0] ?? null;
 export const isEmailConfigured = () => providersInOrder().length > 0;
 
 const REPLY_TO = () => process.env.EMAIL_REPLY_TO || "info.leapcoach@gmail.com";

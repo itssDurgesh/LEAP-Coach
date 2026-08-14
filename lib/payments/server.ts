@@ -7,7 +7,7 @@ import { ACCESS_DURATION_DAYS } from "@/lib/access";
 const ALL_ROLES: Role[] = ["student", "professional", "entrepreneur"];
 
 // Service-role client (bypasses RLS). Server-only.
-export function adminClient(): SupabaseClient {
+function adminClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   return createClient(url, service, { auth: { persistSession: false } });
