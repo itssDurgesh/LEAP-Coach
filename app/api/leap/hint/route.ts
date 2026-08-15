@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
-import { GEMINI_MODEL } from "@/lib/ai/config";
+import { generateContent } from "@/lib/ai/gemini";
 import { isClerkConfigured } from "@/lib/clerk/config";
 import { parseJson } from "@/lib/api/validate";
-import { apiError, logError } from "@/lib/api/errors";
+import { apiError } from "@/lib/api/errors";
 import { enforceRate } from "@/lib/api/rate-limit";
 
 export const runtime = "nodejs";
@@ -89,47 +89,22 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join("\n");
 
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-    const init: RequestInit = {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        contents: [{ role: "user", parts: [{ text: userText }] }],
-        generationConfig: {
-          temperature: 0.5,
-          maxOutputTokens: 200,
-          // Thinking tokens count against maxOutputTokens; on a budget this small they
-          // ate ~150 of 160 and shipped a hint cut off mid-sentence. A 1–2 sentence
-          // nudge needs no reasoning — keep thinking off.
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-    };
+  const result = await generateContent({
+    key,
+    system: systemInstruction,
+    contents: [{ role: "user", parts: [{ text: userText }] }],
+    temperature: 0.5,
+    // Thinking tokens are billed against this budget, so it has to cover the capped
+    // thinking allowance AND the hint. At the old 200 a full thinking budget would
+    // leave too little to finish a sentence — the truncation this route used to hit.
+    maxOutputTokens: 500,
+    scope: "gemini hint",
+  });
 
-    let res = await fetch(url, init);
-    if (res.status === 503 || res.status === 500) {
-      // Rolling aliases intermittently 503 with "high demand" — one retry clears most.
-      await new Promise((r) => setTimeout(r, 700));
-      res = await fetch(url, init);
-    }
-
-    if (!res.ok) {
-      console.error("[gemini hint] HTTP", res.status, await res.text().catch(() => ""));
-      return NextResponse.json({ fallback: true });
-    }
-
-    const data = await res.json();
-    const candidate = data?.candidates?.[0];
-    const hint: string =
-      candidate?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("").trim() ?? "";
-    // MAX_TOKENS means the hint was cut off mid-sentence — the client's local
-    // explanation-derived hint is better than shipping a fragment.
-    if (!hint || candidate?.finishReason === "MAX_TOKENS") return NextResponse.json({ fallback: true });
-    return NextResponse.json({ hint });
-  } catch (e) {
-    logError("leap/hint", e);
+  // MAX_TOKENS means the hint was cut off mid-sentence — the client's local
+  // explanation-derived hint is better than shipping a fragment.
+  if (!result || !result.text || result.finishReason === "MAX_TOKENS") {
     return NextResponse.json({ fallback: true });
   }
+  return NextResponse.json({ hint: result.text });
 }
