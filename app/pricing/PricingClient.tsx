@@ -14,9 +14,9 @@ import { activeCategories } from "@/lib/access";
 import { cn, formatINR } from "@/lib/utils";
 
 const faqs = [
-  { q: "Can I buy more categories later?", a: "Yes — buy one category now and add others any time. Owning all three is the All-Access Pass." },
-  { q: "What does a category pass include?", a: "Every coaching topic in that category — current and future — plus the LEAP AI tutor and AI-graded checkpoints." },
-  { q: "Do I get the LEAP Coach AI tutor on every plan?", a: "Yes — the AI tutor and AI-graded checkpoints are included with every enrolled topic." },
+  { q: "Can I buy more categories later?", a: "Yes. Buy one category now and add others any time. Owning all three is the All-Access Pass." },
+  { q: "What does a category pass include?", a: "Every coaching topic in that category, current and future, plus the LEAP AI tutor and AI-graded checkpoints." },
+  { q: "Do I get the LEAP Coach AI tutor on every plan?", a: "Yes. The AI tutor and AI-graded checkpoints are included with every enrolled topic." },
   { q: "What payment methods are supported?", a: "UPI, cards, and netbanking via Razorpay." },
 ];
 

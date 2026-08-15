@@ -326,7 +326,7 @@ function TelegramConnect() {
           <div>
             <h2 className="font-heading text-lg font-bold text-heading">LEAP Coach on Telegram</h2>
             <p className="mt-0.5 text-sm text-muted">
-              Link your account to chat with your personal LEAP Coach bot — ask about your courses, marks,
+              Link your account to chat with your personal LEAP Coach bot. Ask about your courses, marks,
               plan &amp; credits, and get notified about announcements, new topics, and mentions. It is
               read-only and never changes your account.
             </p>

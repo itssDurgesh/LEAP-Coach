@@ -621,7 +621,7 @@ export const DEFAULT_SITE_CONTENT: SiteContent = {
   heroTitle: "Scaling Human Wisdom through High Performance Stars",
   heroHighlights: ["Human Wisdom", "High Performance Stars"],
   heroSubtitle:
-    "High-quality, evidence-based coaching for students, professionals, and entrepreneurs — structured topics, a personal AI tutor on every video, and assessments that actually teach.",
+    "High-quality, evidence-based coaching for students, professionals, and entrepreneurs: structured topics, a personal AI tutor on every video, and assessments that teach as well as test.",
   heroQuote: "Lead from your values, not from fear of judgement.",
   professorName: "Prof. Vishal Gupta",
   professorTitle: "Professor, IIM Ahmedabad",

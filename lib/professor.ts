@@ -4,7 +4,7 @@
 export const PROFESSOR = {
   name: "Prof. Vishal Gupta",
   title: "Professor of Organizational Behaviour, IIM Ahmedabad",
-  bio: "Prof. Vishal Gupta is a Professor of Organizational Behaviour at IIM Ahmedabad and a globally recognised authority on leadership, motivation, and authentic performance. A PhD from IIM Lucknow and past President of the Indian Academy of Management, he is the author of four books — including “First Among Equals: T-R-E-A-T Leadership for L-E-A-P” — and 67 research papers cited over 3,500 times. His High-Performance Leadership Specialisation on Coursera has reached 250,000+ learners, and he has trained more than 300,000 professionals across 35+ organisations.",
+  bio: "Prof. Vishal Gupta is a Professor of Organizational Behaviour at IIM Ahmedabad and a globally recognised authority on leadership, motivation, and authentic performance. A PhD from IIM Lucknow and past President of the Indian Academy of Management, he is the author of four books (including “First Among Equals: T-R-E-A-T Leadership for L-E-A-P”) and 67 research papers cited over 3,500 times. His High-Performance Leadership Specialisation on Coursera has reached 250,000+ learners, and he has trained more than 300,000 professionals across 35+ organisations.",
   shortBio:
     "Professor of Organizational Behaviour at IIM Ahmedabad and past President of the Indian Academy of Management. Author of 4 leadership books and 67 research papers (3,500+ citations); his Coursera specialisation has reached 250K+ learners and he has trained 300K+ professionals across 35+ organisations.",
 

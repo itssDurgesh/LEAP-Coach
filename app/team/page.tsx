@@ -6,9 +6,9 @@ import { TeamDirectory } from "@/components/marketing/TeamDirectory";
 import { buttonClasses } from "@/components/ui/button-variants";
 
 export const metadata = {
-  title: "Our Team — LEAP Coach",
+  title: "Our Team | LEAP Coach",
   description:
-    "Meet the mentors, researchers, and coaches behind LEAP Coach — led by Prof. Vishal Gupta of IIM Ahmedabad.",
+    "Meet the mentors, researchers, and coaches behind LEAP Coach, led by Prof. Vishal Gupta of IIM Ahmedabad.",
 };
 
 export default function TeamPage() {
@@ -28,8 +28,8 @@ export default function TeamPage() {
             The people behind <span className="text-gradient-gold">LEAP</span>
           </h1>
           <p className="mt-5 text-lg leading-relaxed text-cream-100/80">
-            Mentors, researchers, and coaches dedicated to building high-performance stars — guided by
-            decades of research and a deep commitment to authentic leadership.
+            Mentors, researchers, and coaches dedicated to building high-performance stars, guided by
+            decades of research and a commitment to authentic leadership.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Link href="/about" className={buttonClasses({ variant: "primary", size: "lg" })}>

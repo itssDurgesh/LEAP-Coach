@@ -138,7 +138,7 @@ function DashboardContent() {
             </h1>
             <p className="mt-2 max-w-lg text-cream-100/75">
               You&rsquo;ve watched {totals.done} of {totals.all || 0} videos across your coaching
-              topics. Keep going — your next milestone is closer than you think.
+              topics. Keep going. Your next milestone is not far off.
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               {withProgress[0] && (
@@ -179,7 +179,7 @@ function DashboardContent() {
           <div className="min-w-0 flex-1">
             <p className="font-heading font-semibold text-heading">Complete your profile</p>
             <p className="text-sm text-muted">
-              Add {profileMissing.join(", ")} to unlock purchases and a tailored experience.
+              Add {profileMissing.join(", ")} to unlock purchases and tailor your experience.
             </p>
           </div>
           <ArrowRight className="h-5 w-5 shrink-0 text-gold-600" />

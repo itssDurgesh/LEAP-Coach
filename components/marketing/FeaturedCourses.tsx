@@ -23,7 +23,7 @@ export function FeaturedCourses() {
   if (!featured.length) {
     return (
       <p className="mt-10 rounded-2xl border border-dashed border-hair bg-card/40 px-6 py-12 text-center text-sm text-muted">
-        New coaching topics are on the way — check back soon.
+        New coaching topics are on the way. Check back soon.
       </p>
     );
   }

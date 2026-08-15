@@ -39,7 +39,7 @@ function Announcements() {
       </header>
 
       {list.length === 0 ? (
-        <Card padded className="text-center text-muted">No announcements yet — check back soon.</Card>
+        <Card padded className="text-center text-muted">No announcements yet. Check back soon.</Card>
       ) : (
         list.map((a) => (
           <Card key={a.id} padded className={a.pinned ? "border-gold-200" : undefined}>

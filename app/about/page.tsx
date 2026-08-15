@@ -23,9 +23,9 @@ import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/button-variants";
 
 export const metadata = {
-  title: "About LEAP Coach — Creating High-Performance Stars",
+  title: "About LEAP Coach | Creating High-Performance Stars",
   description:
-    "LEAP Coach is a 24/7 AI-powered friend and life coach for students, professionals, and entrepreneurs — building leadership excellence and authentic performance.",
+    "LEAP Coach is a 24/7 AI-powered friend and life coach for students, professionals, and entrepreneurs, built around leadership excellence and authentic performance.",
 };
 
 const domains = [
@@ -44,22 +44,22 @@ const gaps = [
   {
     icon: GraduationCap,
     title: "Gaps in formal school education",
-    body: "Schooling is exam-oriented and academic. Even good schools rarely prioritise behavioural and leadership development — the skills that actually shape a life.",
+    body: "Schooling is exam-oriented and academic. Even good schools rarely prioritise behavioural and leadership development, the skills that shape a life.",
   },
   {
     icon: Users,
     title: "Counseling is grossly inadequate",
-    body: "The average student-to-counselor ratio is ~500:1 — over 1000:1 in public schools, against an ideal of 250:1. And seeking help is still treated as taboo.",
+    body: "The average student-to-counselor ratio is ~500:1, and over 1000:1 in public schools, against an ideal of 250:1. Seeking help is also still treated as taboo.",
   },
   {
     icon: Briefcase,
     title: "Little behavioural training at work",
-    body: "Coaches and one-to-one mentors are reserved for CXOs and hi-potentials. Most professionals are left to fend for themselves.",
+    body: "Coaching and one-to-one mentoring go to CXOs and hi-potentials. Most professionals fend for themselves.",
   },
   {
     icon: Rocket,
     title: "Gaps in entrepreneurship education",
-    body: "Founders are taught tactics, not character. People, leadership, and culture-building — what makes ventures last — are seldom taught at all.",
+    body: "Founders learn tactics, not character. People, leadership, and culture-building, the things that make ventures last, are seldom taught at all.",
   },
 ];
 
@@ -67,12 +67,12 @@ const mission = [
   {
     icon: HeartHandshake,
     title: "Coaching conversations",
-    body: "Enable real coaching conversations on behavioural skills — the kind most people never get access to.",
+    body: "Enable real coaching conversations on behavioural skills, the kind most people never get access to.",
   },
   {
     icon: Gamepad2,
     title: "Engaging content",
-    body: "Offer game-based and simulation-based content that makes building leadership skills genuinely engaging.",
+    body: "Offer game-based and simulation-based content that makes building leadership skills engaging.",
   },
   {
     icon: Bot,
@@ -115,7 +115,7 @@ export default function AboutPage() {
             Creating <span className="text-gradient-gold">High-Performance Stars</span>
           </h1>
           <p className="mt-5 text-lg leading-relaxed text-cream-100/80">
-            Leadership Excellence and Authentic Performance — a 24/7 AI-powered friend and life coach
+            Leadership Excellence and Authentic Performance: a 24/7 AI-powered friend and life coach
             for students, professionals, and entrepreneurs.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
@@ -157,10 +157,10 @@ export default function AboutPage() {
                 sustain well-being through positive thinking, emotional resilience, and authentic living.
               </p>
               <p>
-                Uniquely, LEAP integrates lessons from{" "}
+                What sets LEAP apart is its integration of{" "}
                 <span className="font-semibold text-heading">scientific literature with ancient Indian
-                scriptures</span>{" "}
-                — imparting timeless wisdom alongside modern life skills.
+                scriptures</span>
+                , so learners get timeless wisdom alongside modern life skills.
               </p>
             </div>
           </div>
@@ -267,8 +267,8 @@ export default function AboutPage() {
             Lessons drawn from across disciplines
           </h2>
           <p className="mt-3 text-muted">
-            LEAP Coach draws on a wide range of fields — then integrates scientific research with ancient
-            Indian scriptures to deliver wisdom you can actually use.
+            LEAP Coach draws on a wide range of fields, then integrates scientific research with ancient
+            Indian scriptures to deliver wisdom you can put to use.
           </p>
           <div className="mt-9 flex flex-wrap justify-center gap-2.5">
             {disciplines.map((d) => (
@@ -284,7 +284,7 @@ export default function AboutPage() {
             <ScrollText className="mt-0.5 h-5 w-5 shrink-0 text-gold-700" />
             <p className="text-sm leading-relaxed text-heading">
               <span className="font-semibold">Indian Wisdom, modernised.</span> Life and leadership
-              lessons from the Mahabharata, the Upanishads, and more — paired with modern behavioural
+              lessons from the Mahabharata, the Upanishads, and more, paired with modern behavioural
               science.
             </p>
           </div>

@@ -180,7 +180,7 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
               </Badge>
               <h1 className="mt-3 font-heading text-3xl font-bold text-heading">AI-Graded Assignment</h1>
               <p className="mt-2 text-muted">
-                Answer each question. A wrong answer gets a hint from your LEAP AI tutor — you have up to{" "}
+                Answer each question. A wrong answer gets a hint from your LEAP AI tutor, and you have up to{" "}
                 {MAX_Q_ATTEMPTS} tries before the answer is shown. Getting it in your first one or two tries lifts
                 your topic rating. {prior.attempts > 0 && `Attempt ${prior.attempts + 1} of ${MAX_ATTEMPTS}.`}
               </p>
@@ -358,11 +358,11 @@ function QuestionCard({
               {st.status === "solved" ? (
                 <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-green-600">
                   <CheckCircle2 className="h-4 w-4" />
-                  {st.attempts <= 1 ? "Correct on the first try! 🎉" : `Correct — solved in ${st.attempts} tries.`}
+                  {st.attempts <= 1 ? "Correct on the first try! 🎉" : `Correct, solved in ${st.attempts} tries.`}
                 </p>
               ) : (
                 <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-orange-600">
-                  <Eye className="h-4 w-4" /> Answer revealed after {MAX_Q_ATTEMPTS} tries — highlighted above.
+                  <Eye className="h-4 w-4" /> Answer revealed after {MAX_Q_ATTEMPTS} tries, highlighted above.
                 </p>
               )}
               <div className="flex items-start gap-2 rounded-xl bg-surface p-3 text-sm text-muted">
@@ -417,7 +417,7 @@ function ResultView({
         </p>
         <p className="mt-1 text-muted">
           {passed
-            ? `Great work — the next videos are now unlocked. You nailed ${firstTwo} of ${assignment.questions.length} within two tries.`
+            ? `Great work. The next videos are now unlocked, and you nailed ${firstTwo} of ${assignment.questions.length} within two tries.`
             : exhausted
               ? "You've used all attempts, so the next videos are unlocked. Review the feedback below."
               : `You need 60% to pass. Review the feedback and try again (attempt ${result.attemptNumber}/${MAX_ATTEMPTS}).`}

@@ -43,7 +43,7 @@ function Sessions() {
             <Video className="h-6 w-6" />
           </span>
           <p className="mt-3 font-heading text-lg font-semibold text-heading">No sessions scheduled yet</p>
-          <p className="mt-1 text-sm text-muted">Check back soon — new live sessions are added regularly.</p>
+          <p className="mt-1 text-sm text-muted">Check back soon. We add new live sessions regularly.</p>
         </Card>
       )}
     </div>

@@ -11,7 +11,7 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 const themeScript = `(function(){try{if(localStorage.getItem('leap-theme')==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})();`;
 
 export const metadata: Metadata = {
-  title: "LEAP Coach — Scale Human Wisdom",
+  title: "LEAP Coach | Scale Human Wisdom",
   description:
     "High-quality, evidence-based learning for Students, Professionals, and Entrepreneurs. Leadership Excellence and Authentic Performance.",
 };

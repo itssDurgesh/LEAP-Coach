@@ -126,7 +126,7 @@ function MyTopics() {
                 {exp && (
                   <p className={cn("px-1 text-xs font-medium", expired ? "text-red-600" : "text-faint")}>
                     {expired
-                      ? "Access expired — renew from the topic page"
+                      ? "Access expired. Renew from the topic page"
                       : `Access valid until ${fmtDate(exp)}`}
                   </p>
                 )}

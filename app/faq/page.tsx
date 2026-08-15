@@ -21,7 +21,7 @@ export default function FaqPage() {
             <HelpCircle className="h-3.5 w-3.5" /> Help Center
           </span>
           <h1 className="mt-4 font-heading text-4xl font-bold text-heading">Frequently asked questions</h1>
-          <p className="mt-3 text-muted">Everything you need to know about LEAP Coach.</p>
+          <p className="mt-3 text-muted">Answers to the questions we get most often about LEAP Coach.</p>
         </div>
 
         <div className="mt-10 space-y-3">

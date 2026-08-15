@@ -61,7 +61,7 @@ function Notifications() {
             <Bell className="h-7 w-7 text-gold-500" /> Notifications
           </h1>
           <p className="mt-1.5 text-muted">
-            Mentions, replies, announcements and live sessions — all in one place.
+            All your mentions, replies, announcements and live sessions in one place.
           </p>
         </div>
         {unread > 0 && (

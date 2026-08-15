@@ -26,13 +26,13 @@ function Articles() {
     <div className="mx-auto max-w-3xl space-y-5">
       <header>
         <h1 className="font-heading text-3xl font-bold text-heading">Articles</h1>
-        <p className="mt-1.5 text-muted">Essays and insights from your mentors — straight from the LEAP desk.</p>
+        <p className="mt-1.5 text-muted">Essays and insights from your mentors, straight from the LEAP desk.</p>
       </header>
 
       {published.length === 0 && (
         <Card padded className="text-center text-muted">
           <Newspaper className="mx-auto h-8 w-8 text-faint" />
-          <p className="mt-3 text-sm">No articles yet — check back soon.</p>
+          <p className="mt-3 text-sm">No articles yet. Check back soon.</p>
         </Card>
       )}
 

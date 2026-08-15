@@ -47,17 +47,17 @@ const features = [
   {
     icon: Clapperboard,
     title: "High-Quality Video Lessons",
-    body: "Evidence-based lessons recorded by the professor himself — studio-quality video that streams instantly, anytime.",
+    body: "Evidence-based lessons recorded by the professor himself, in studio-quality video that streams instantly, anytime.",
   },
   {
     icon: Bot,
     title: "LEAP AI Tutor",
-    body: "A context-aware AI tutor on every video, grounded strictly in that lesson — summarize, quiz, or go deeper.",
+    body: "A context-aware AI tutor on every video, grounded strictly in that lesson. Ask it to summarize, quiz you, or go deeper.",
   },
   {
     icon: ClipboardCheck,
     title: "AI-Graded Assessments",
-    body: "Checkpoints every two lessons with instant, personalized feedback that helps you actually improve.",
+    body: "Checkpoints every two lessons, with instant personalized feedback on where to improve.",
   },
   {
     icon: Layers,
@@ -67,7 +67,7 @@ const features = [
 ];
 
 const steps = [
-  { n: "01", title: "Choose your path", body: "Tell us if you're a student, professional, or entrepreneur — your catalog adapts." },
+  { n: "01", title: "Choose your path", body: "Tell us if you're a student, professional, or entrepreneur, and your catalog adapts." },
   { n: "02", title: "Learn with AI", body: "Watch the professor's video lessons with a personal AI tutor and class notes beside every video." },
   { n: "03", title: "Prove it & level up", body: "Pass AI-graded checkpoints, earn credits, and unlock the next stage." },
 ];
@@ -133,10 +133,10 @@ export default async function Home() {
           <div className="mx-auto max-w-2xl text-center">
             <Badge variant="navy">How it Works</Badge>
             <h2 className="mt-4 font-heading text-3xl font-bold text-heading sm:text-4xl">
-              Everything you need to actually learn
+              Everything you need to learn it properly
             </h2>
             <p className="mt-3 text-muted">
-              Not just videos — a complete system that teaches, tutors, and tests.
+              More than a video library: a system that teaches, tutors, and tests.
             </p>
           </div>
 

@@ -30,7 +30,7 @@ export function SiteFooter() {
           <div>
             <Logo variant="light" href={null} />
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-cream-100/70">
-              High-quality, evidence-based learning. Scale human wisdom — creating high performance stars.
+              High-quality, evidence-based learning that scales human wisdom and creates high performance stars.
             </p>
             <div className="mt-5 space-y-2 text-sm text-cream-100/80">
               {/* Primary support email — anchors + suppressHydrationWarning so a browser

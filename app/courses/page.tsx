@@ -69,7 +69,7 @@ function CatalogContent() {
       <div>
         <h1 className="font-heading text-3xl font-bold text-heading">Explore Coaching Topics</h1>
         <p className="mt-1.5 text-muted">
-          Curated for your path — discover programs that build authentic, high-performance leadership.
+          Curated for your path. These programs build authentic, high-performance leadership.
         </p>
       </div>
 
