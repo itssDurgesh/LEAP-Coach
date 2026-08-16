@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { ClerkAuthBridge } from "@/lib/auth/ClerkAuthBridge";
 import { MockAuthBridge } from "@/lib/auth/MockAuthBridge";
@@ -59,6 +60,7 @@ export default function RootLayout({
             <MockAuthBridge>{children}</MockAuthBridge>
           )}
         </ThemeProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
