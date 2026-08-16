@@ -21,6 +21,7 @@ const accents: Record<Role, string> = {
 export default function SelectRolePage() {
   const { currentUser, hydrated, setRole, signOut } = useApp();
   const router = useRouter();
+  const [waiting, setWaiting] = React.useState(false);
 
   React.useEffect(() => {
     if (!hydrated) return;
@@ -32,13 +33,16 @@ export default function SelectRolePage() {
       router.replace("/dashboard");
       return;
     }
-    if (currentUser) return; // signed in, no role yet → show the picker below
-    // No profile loaded yet. Either genuinely signed out, or a fresh Google/OAuth
-    // session still attaching after the /sso-callback redirect (Clerk's user id and the
-    // profile load lag a moment, during which currentUser is briefly null). Wait — if a
-    // user loads, this effect re-runs and clears the timer; otherwise treat as signed out.
-    const t = setTimeout(() => router.replace("/login"), 2500);
-    return () => clearTimeout(t);
+    if (currentUser) return;
+    // No profile loaded yet. On a cold start (Supabase + Vercel waking up), the
+    // ensureProfile + loadAll chain can take 5-8s. Show "setting up" feedback after
+    // 2s; only give up and redirect to login after 12s.
+    const feedback = setTimeout(() => setWaiting(true), 2000);
+    const giveUp = setTimeout(() => router.replace("/login"), 12000);
+    return () => {
+      clearTimeout(feedback);
+      clearTimeout(giveUp);
+    };
   }, [hydrated, currentUser, router]);
 
   function choose(role: Role) {
@@ -49,7 +53,12 @@ export default function SelectRolePage() {
   if (!hydrated || !currentUser || currentUser.role || currentUser.isAdmin) {
     return (
       <div className="grid min-h-screen place-items-center bg-surface">
-        <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
+          {waiting && (
+            <p className="animate-fade-up text-sm text-muted">Setting up your account...</p>
+          )}
+        </div>
       </div>
     );
   }

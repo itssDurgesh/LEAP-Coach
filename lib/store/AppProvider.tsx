@@ -399,15 +399,18 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     (async () => {
       // First sign-in: provision the profile row keyed by the Clerk user id (the
       // old auth.users → handle_new_user trigger is gone). No-op if it already exists.
-      if (userId && auth.identity) {
-        try {
-          await db.ensureProfile(sb, userId, auth.identity.email, auth.identity.name);
-        } catch (e) {
-          console.error("[supabase] ensureProfile", e);
-        }
-      }
+      // Run in parallel with loadAll — ensureProfile is an ignoreDuplicates upsert so
+      // it's safe to race; and loadAll's fetchUser fallback (below) covers the case
+      // where the new row isn't in the initial profiles result yet.
+      const ensurePromise =
+        userId && auth.identity
+          ? db.ensureProfile(sb, userId, auth.identity.email, auth.identity.name).then(
+              ({ error }) => { if (error) console.error("[supabase] ensureProfile", error); },
+              (e: unknown) => { console.error("[supabase] ensureProfile", e); },
+            )
+          : Promise.resolve();
 
-      const data = await db.loadAll(sb);
+      const [data] = await Promise.all([db.loadAll(sb), ensurePromise]);
       if (!active) return;
 
       // Guarantee the signed-in user is in `users` (loadAll can miss a just-created

@@ -32,7 +32,7 @@ export function HeroMedia({ className, src }: { className?: string; src?: string
       muted
       loop
       playsInline
-      preload="auto"
+      preload="metadata"
       onError={() => setVideoOk(false)}
       className={cn("h-full w-full object-cover", className)}
     />

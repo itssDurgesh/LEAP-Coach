@@ -31,7 +31,7 @@ export function Avatar({ src, name, size = 40, className, ring = true }: AvatarP
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name ?? "avatar"} className="h-full w-full object-cover" />
+        <img src={src} alt={name ?? "avatar"} width={size} height={size} loading="lazy" decoding="async" className="h-full w-full object-cover" />
       ) : (
         initialsOf(name)
       )}

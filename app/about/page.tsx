@@ -23,9 +23,10 @@ import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/button-variants";
 
 export const metadata = {
-  title: "About LEAP Coach | Creating High-Performance Stars",
+  title: { absolute: "About LEAP Coach — Mission, Team & Prof. Vishal Gupta" },
   description:
-    "LEAP Coach is a 24/7 AI-powered friend and life coach for students, professionals, and entrepreneurs, built around leadership excellence and authentic performance.",
+    "LEAP Coach brings the leadership coaching of Prof. Vishal Gupta (IIM Ahmedabad) to students, professionals, and entrepreneurs. Here's who we are and what we teach.",
+  alternates: { canonical: "/about" },
 };
 
 const domains = [

@@ -3,8 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --font-outfit: "Outfit", system-ui, -apple-system, sans-serif;
-  --font-inter: "Inter", system-ui, -apple-system, sans-serif;
+  /* --font-outfit and --font-inter are set by next/font on <html> */
 
   /* Semantic theme tokens — LIGHT (default). Channels = "r g b" for alpha support. */
   --surface: 253 251 247; /* cream-50  #FDFBF7 — page bg */

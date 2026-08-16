@@ -36,6 +36,10 @@ export function ProfessorPhoto({ className, rounded = "rounded-2xl", position = 
     <img
       src="/professor.jpg"
       alt="Prof. Vishal Gupta"
+      width={640}
+      height={800}
+      loading="lazy"
+      decoding="async"
       style={{ objectPosition: position }}
       className={cn("h-full w-full object-cover", rounded, className)}
       onError={() => setOk(false)}

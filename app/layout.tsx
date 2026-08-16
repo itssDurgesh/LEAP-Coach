@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Outfit, Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
@@ -7,14 +8,134 @@ import { MockAuthBridge } from "@/lib/auth/MockAuthBridge";
 import { isClerkConfigured } from "@/lib/clerk/config";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
+const outfit = Outfit({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
+  display: "swap",
+  variable: "--font-outfit",
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+  variable: "--font-inter",
+});
+
 // Runs before paint: re-applies a remembered dark choice so there's no flash.
 // Default is light, so we only add the class when the user previously chose dark.
 const themeScript = `(function(){try{if(localStorage.getItem('leap-theme')==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})();`;
 
+// Canonical host — keep in sync with NEXT_PUBLIC_SITE_URL, robots.ts and sitemap.ts.
+const siteUrl = (
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.leapcoach.in"
+).replace(/\/$/, "");
+
 export const metadata: Metadata = {
-  title: "LEAP Coach | Scale Human Wisdom",
+  metadataBase: new URL(siteUrl),
+  title: {
+    // Home uses this verbatim; child pages get "%s | LEAP Coach".
+    default: "LEAP Coach — Leadership Coaching by Prof. Vishal Gupta (IIM Ahmedabad)",
+    template: "%s | LEAP Coach",
+  },
   description:
-    "High-quality, evidence-based learning for Students, Professionals, and Entrepreneurs. Leadership Excellence and Authentic Performance.",
+    "Learn leadership from Prof. Vishal Gupta of IIM Ahmedabad: video lessons, an AI tutor on every lesson, and assessments that give real feedback. Built for students, professionals, and entrepreneurs.",
+  applicationName: "LEAP Coach",
+  keywords: [
+    "LEAP Coach",
+    "leapcoach",
+    "Vishal Gupta",
+    "Prof. Vishal Gupta",
+    "IIM Ahmedabad leadership",
+    "leadership coaching",
+    "leadership development India",
+    "authentic performance",
+    "AI tutor",
+    "online leadership course",
+  ],
+  authors: [{ name: "Prof. Vishal Gupta", url: "https://www.profvishalgupta.com" }],
+  creator: "LEAP Coach",
+  publisher: "LEAP Coach",
+  category: "education",
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    siteName: "LEAP Coach",
+    title: "LEAP Coach — Leadership Coaching by Prof. Vishal Gupta (IIM Ahmedabad)",
+    description:
+      "An AI-enhanced leadership coaching platform built on the work of Prof. Vishal Gupta (IIM Ahmedabad): video lessons, a personal AI tutor, and assessments that teach as well as test.",
+    url: siteUrl,
+    locale: "en_IN",
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "LEAP Coach" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "LEAP Coach — Leadership Coaching by Prof. Vishal Gupta",
+    description:
+      "AI-enhanced leadership coaching built on the work of Prof. Vishal Gupta (IIM Ahmedabad).",
+    images: ["/og-image.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
+  icons: { icon: "/logo-mark.png", apple: "/logo-mark.png" },
+};
+
+// Machine-readable identity so Google (and AI answer engines) can resolve what
+// "LEAP Coach" is, who is behind it, and which external profiles are the same
+// entity. This is the highest-leverage signal for winning the brand-name query.
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": `${siteUrl}/#website`,
+      name: "LEAP Coach",
+      url: siteUrl,
+      inLanguage: "en-IN",
+      publisher: { "@id": `${siteUrl}/#organization` },
+    },
+    {
+      "@type": "EducationalOrganization",
+      "@id": `${siteUrl}/#organization`,
+      name: "LEAP Coach",
+      alternateName: ["LeapCoach", "LEAP Coach India"],
+      url: siteUrl,
+      logo: `${siteUrl}/logo.png`,
+      description:
+        "AI-enhanced leadership coaching platform built on the teaching of Prof. Vishal Gupta of IIM Ahmedabad, for students, professionals, and entrepreneurs.",
+      founder: { "@id": `${siteUrl}/#vishalgupta` },
+      sameAs: [
+        "https://www.profvishalgupta.com",
+        "https://www.linkedin.com/in/gvishal/",
+        "https://www.youtube.com/@ProfVishalGupta",
+      ],
+    },
+    {
+      "@type": "Person",
+      "@id": `${siteUrl}/#vishalgupta`,
+      name: "Prof. Vishal Gupta",
+      jobTitle: "Professor of Organizational Behaviour",
+      worksFor: {
+        "@type": "CollegeOrUniversity",
+        name: "Indian Institute of Management Ahmedabad",
+      },
+      url: `${siteUrl}/about`,
+      sameAs: [
+        "https://www.profvishalgupta.com",
+        "https://www.linkedin.com/in/gvishal/",
+        "https://www.youtube.com/@ProfVishalGupta",
+      ],
+    },
+  ],
 };
 
 export default function RootLayout({
@@ -23,18 +144,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={`${outfit.variable} ${inter.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap"
-          rel="stylesheet"
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
       </head>
       <body className="font-sans antialiased">

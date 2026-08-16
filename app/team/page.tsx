@@ -6,9 +6,10 @@ import { TeamDirectory } from "@/components/marketing/TeamDirectory";
 import { buttonClasses } from "@/components/ui/button-variants";
 
 export const metadata = {
-  title: "Our Team | LEAP Coach",
+  title: { absolute: "The LEAP Coach Team — Mentors & Coaches" },
   description:
     "Meet the mentors, researchers, and coaches behind LEAP Coach, led by Prof. Vishal Gupta of IIM Ahmedabad.",
+  alternates: { canonical: "/team" },
 };
 
 export default function TeamPage() {
