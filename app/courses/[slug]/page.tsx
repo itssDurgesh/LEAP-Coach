@@ -131,79 +131,114 @@ function CourseDetail() {
     });
 
   return (
-    <div className="space-y-8">
-      <Link href="/courses" className="inline-flex items-center gap-1.5 text-sm font-medium text-muted hover:text-heading">
-        <ArrowLeft className="h-4 w-4" /> Back to catalog
+    <div className="space-y-10">
+      <Link
+        href="/courses"
+        className="group inline-flex items-center gap-2 font-heading text-sm font-semibold text-muted transition-colors duration-200 hover:text-heading"
+      >
+        <ArrowLeft className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:-translate-x-1" />
+        Back to catalog
       </Link>
 
-      {/* Hero */}
-      <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
-        <div>
+      {/* ── Hero ── */}
+      <div className="grid gap-8 lg:grid-cols-[1.6fr_1fr]">
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="navy" className="capitalize">{course.category}</Badge>
             <Badge variant="neutral">{course.level}</Badge>
-            {course.trending && <Badge variant="trending">🔥 Trending</Badge>}
-            {enrolled && <Badge variant="success"><Check className="h-3 w-3" /> Enrolled</Badge>}
+            {course.trending && <Badge variant="trending">Trending</Badge>}
+            {enrolled && <Badge variant="success"><Check className="h-3 w-3" strokeWidth={3} /> Enrolled</Badge>}
           </div>
-          <h1 className="mt-3 font-heading text-3xl font-bold leading-tight text-heading sm:text-4xl">
+
+          <h1 className="mt-4 text-balance font-heading text-display-sm font-bold leading-tight text-heading">
             {course.title}
           </h1>
-          <p className="mt-3 max-w-2xl leading-relaxed text-muted">{course.description}</p>
+          <p className="mt-4 max-w-2xl leading-[1.75] text-muted">{course.description}</p>
 
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted">
-            <span className="inline-flex items-center gap-1.5">
-              <Star className="h-4 w-4 fill-gold-500 text-gold-500" />
-              <span className="font-semibold text-heading">{course.rating.toFixed(1)}</span>
-              ({course.ratingCount})
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Users className="h-4 w-4" /> {course.enrolledCount.toLocaleString("en-IN")} enrolled
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Clock className="h-4 w-4" /> {formatDuration(duration)}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <BookOpen className="h-4 w-4" /> {course.videos.length} videos
-            </span>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {course.hashtags.map((h) => (
-              <span key={h} className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">
-                {h}
-              </span>
+          {/* Meta as a ruled row */}
+          <div className="mt-6 grid grid-cols-2 gap-y-5 border-y border-hair py-5 sm:grid-cols-4">
+            {[
+              {
+                label: "Rating",
+                value: course.rating.toFixed(1),
+                sub: `${course.ratingCount} ratings`,
+                icon: Star,
+              },
+              {
+                label: "Enrolled",
+                value: course.enrolledCount.toLocaleString("en-IN"),
+                sub: "learners",
+                icon: Users,
+              },
+              { label: "Duration", value: formatDuration(duration), sub: "total", icon: Clock },
+              {
+                label: "Lessons",
+                value: String(course.videos.length),
+                sub: `${course.assignments.length} checkpoints`,
+                icon: BookOpen,
+              },
+            ].map((m) => (
+              <div
+                key={m.label}
+                className="border-l border-hair pl-4 [&:nth-child(2n+1)]:border-l-0 [&:nth-child(2n+1)]:pl-0 sm:pl-5 sm:[&:nth-child(2n+1)]:border-l sm:[&:nth-child(2n+1)]:pl-5 sm:[&:nth-child(4n+1)]:border-l-0 sm:[&:nth-child(4n+1)]:pl-0"
+              >
+                <m.icon className="h-4 w-4 text-gold-600" />
+                <p className="mt-2 font-heading text-lg font-bold leading-none tabular-nums text-heading">
+                  {m.value}
+                </p>
+                <p className="mt-1.5 text-xs text-faint">{m.sub}</p>
+              </div>
             ))}
           </div>
 
-          <div className="mt-5 flex items-center gap-3">
+          {course.hashtags.length > 0 && (
+            <div className="mt-5 flex flex-wrap gap-2">
+              {course.hashtags.map((h) => (
+                <span
+                  key={h}
+                  className="rounded-full border border-hair px-3 py-1 text-xs font-medium text-muted"
+                >
+                  {h}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-6 flex items-center gap-3.5">
             <Avatar name={course.instructorName} size={44} />
-            <div>
-              <p className="font-heading font-semibold text-heading">{course.instructorName}</p>
-              <p className="text-sm text-muted">{course.instructorTitle}</p>
+            <div className="min-w-0">
+              <p className="font-heading font-bold text-heading">{course.instructorName}</p>
+              <p className="truncate text-sm text-muted">{course.instructorTitle}</p>
             </div>
           </div>
         </div>
 
-        {/* Access / enroll card */}
-        <div className="lg:sticky lg:top-24 lg:self-start">
-          <div className="overflow-hidden rounded-2xl border border-hair bg-card shadow-card">
-            <CourseThumb accent={course.accent} category={course.category} src={course.thumbnailUrl} className="aspect-[16/9]" />
-            <div className="p-5">
+        {/* ── Access / enroll card ── */}
+        <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">
+          <div className="overflow-hidden rounded-3xl border border-hair bg-card shadow-lift">
+            <CourseThumb
+              accent={course.accent}
+              category={course.category}
+              src={course.thumbnailUrl}
+              rounded="rounded-none"
+              className="aspect-[16/9]"
+            />
+            <div className="p-6">
               {expired ? (
                 <>
-                  <div className="flex items-center gap-3">
-                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-100 text-orange-600">
-                      <Clock className="h-6 w-6" />
+                  <div className="flex items-center gap-3.5">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-orange-100 text-orange-600">
+                      <Clock className="h-5 w-5" />
                     </span>
                     <div>
-                      <p className="font-heading font-semibold text-heading">Access expired</p>
+                      <p className="font-heading font-bold text-heading">Access expired</p>
                       <p className="text-sm text-muted">Your 1-year access ended on {fmtDate(expiresAt!)}.</p>
                     </div>
                   </div>
-                  <Button onClick={() => setCheckout(true)} size="lg" className="mt-4 w-full">
+                  <Button onClick={() => setCheckout(true)} size="lg" className="mt-5 w-full">
                     Renew · {formatINR(course.price)}
                   </Button>
-                  <p className="mt-2 text-center text-xs text-faint">
+                  <p className="mt-2.5 text-center text-xs text-faint">
                     Re-purchase to unlock this topic for another year.
                   </p>
                 </>
@@ -212,7 +247,7 @@ function CourseDetail() {
                   <div className="flex items-center gap-4">
                     <ProgressRing value={prog.pct} size={72} stroke={7} />
                     <div>
-                      <p className="font-heading font-semibold text-heading">Your progress</p>
+                      <p className="font-heading font-bold text-heading">Your progress</p>
                       <p className="text-sm text-muted">
                         {prog.completed} of {prog.total} videos complete
                       </p>
@@ -220,30 +255,38 @@ function CourseDetail() {
                   </div>
                   <Link
                     href={`/learn/${course.id}/${resumeOrder}`}
-                    className={buttonClasses({ variant: "primary", size: "lg", className: "mt-5 w-full" })}
+                    className={buttonClasses({
+                      variant: "primary",
+                      size: "lg",
+                      className: "group mt-6 w-full",
+                    })}
                   >
-                    {prog.completed > 0 ? "Continue learning" : "Start course"}{" "}
-                    <ArrowRight className="h-4 w-4" />
+                    {prog.completed > 0 ? "Continue learning" : "Start course"}
+                    <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
                   </Link>
                   {expiresAt && (
-                    <p className="mt-2 text-center text-xs text-faint">Access valid until {fmtDate(expiresAt)}</p>
+                    <p className="mt-2.5 text-center text-xs text-faint">
+                      Access valid until {fmtDate(expiresAt)}
+                    </p>
                   )}
                 </>
               ) : (
                 <>
-                  <div className="flex items-baseline justify-between">
-                    <span className="font-heading text-3xl font-bold text-heading">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-heading text-display-sm font-bold leading-none text-heading">
                       {course.price === 0 ? "Free" : formatINR(course.price)}
                     </span>
                     {course.price > 0 && <span className="text-sm text-faint">1 year of access</span>}
                   </div>
                   {access && course.price > 0 && (
-                    <p className="mt-1 text-sm font-medium text-green-600">Included in your All-Access Pass</p>
+                    <p className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-green-600">
+                      <Check className="h-4 w-4" strokeWidth={3} /> Included in your All-Access Pass
+                    </p>
                   )}
-                  <Button onClick={handleEnroll} size="lg" className="mt-4 w-full">
+                  <Button onClick={handleEnroll} size="lg" className="mt-5 w-full">
                     {course.price === 0 || access ? "Enroll now" : `Enroll · ${formatINR(course.price)}`}
                   </Button>
-                  <ul className="mt-5 space-y-2.5 text-sm text-muted">
+                  <ul className="mt-6 space-y-3 border-t border-hair pt-5 text-sm text-muted">
                     {[
                       `${course.videos.length} video lessons`,
                       `${course.assignments.length} AI-graded checkpoints`,
@@ -251,8 +294,8 @@ function CourseDetail() {
                       "Class notes, transcripts & resources",
                       course.price > 0 ? "1 year of access" : "Free — no expiry",
                     ].map((f) => (
-                      <li key={f} className="flex items-center gap-2.5">
-                        <Check className="h-4 w-4 shrink-0 text-green-600" /> {f}
+                      <li key={f} className="flex items-start gap-2.5">
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-green-600" strokeWidth={2.5} /> {f}
                       </li>
                     ))}
                   </ul>
@@ -263,10 +306,10 @@ function CourseDetail() {
         </div>
       </div>
 
-      {/* Performance report — shown once the learner completes the whole topic */}
+      {/* ── Performance report — shown once the learner completes the whole topic ── */}
       {enrolled && report?.completed && (
-        <section className="rounded-2xl border border-gold-200 bg-gradient-to-br from-gold-50 to-cream-50 p-4 dark:from-gold-500/10 dark:to-transparent sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <section className="rounded-3xl border border-gold-300 bg-gold-50 p-6 dark:border-gold-500/25 dark:bg-gold-500/10">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-3">
               <Badge variant="success">
                 <CheckCircle2 className="h-3.5 w-3.5" /> Topic completed
@@ -279,9 +322,11 @@ function CourseDetail() {
                     className={cn("h-4 w-4", n <= report.stars ? "fill-gold-500 text-gold-500" : "text-hair")}
                   />
                 ))}
-                <span className="ml-1.5 text-xs font-semibold text-heading">{report.stars}.0 / 5</span>
+                <span className="ml-1.5 font-heading text-xs font-bold tabular-nums text-heading">
+                  {report.stars}.0 / 5
+                </span>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500 px-2.5 py-1 text-xs font-bold text-navy-900">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500 px-3 py-1 font-heading text-xs font-bold tabular-nums text-navy-900">
                 <Award className="h-3.5 w-3.5" /> {earnedCredit} / {TOPIC_CREDIT_MAX} credits
               </span>
             </div>
@@ -294,7 +339,8 @@ function CourseDetail() {
               <Download className="h-4 w-4" /> Download notes (PDF)
             </Button>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               {
                 label: "Completed in",
@@ -312,41 +358,47 @@ function CourseDetail() {
                 icon: CheckCircle2,
               },
             ].map((s) => (
-              <div key={s.label} className="rounded-xl bg-card p-3 ring-1 ring-hair">
+              <div key={s.label} className="rounded-2xl bg-card p-4 ring-1 ring-hair">
                 <s.icon className="h-4 w-4 text-gold-600" />
-                <p className="mt-1.5 font-heading text-base font-bold text-heading">{s.value}</p>
-                <p className="text-xs text-muted">{s.label}</p>
+                <p className="mt-2.5 font-heading text-base font-bold tabular-nums text-heading">{s.value}</p>
+                <p className="mt-0.5 text-xs text-muted">{s.label}</p>
               </div>
             ))}
           </div>
           {!myNotes.length && (
-            <p className="mt-3 text-xs text-faint">Save notes while watching to export them all as a PDF here.</p>
+            <p className="mt-4 text-xs text-faint">
+              Save notes while watching to export them all as a PDF here.
+            </p>
           )}
         </section>
       )}
 
-      {/* Syllabus / Roadmap */}
-      <section className="grid gap-8 lg:grid-cols-[1.6fr_1fr]">
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-heading text-2xl font-bold text-heading">
+      {/* ── Syllabus / Roadmap ── */}
+      <section className="grid gap-10 lg:grid-cols-[1.6fr_1fr]">
+        <div className="min-w-0">
+          <div className="mb-5 flex items-end justify-between gap-4">
+            <h2 className="font-heading text-xl font-bold text-heading sm:text-2xl">
               {enrolled ? "Your roadmap" : "Topic syllabus"}
             </h2>
-            <span className="text-sm text-muted">{course.videos.length} videos</span>
+            <span className="shrink-0 text-sm tabular-nums text-faint">
+              {course.videos.length} videos
+            </span>
           </div>
 
           {enrolled && (
-            <div className="mb-4 rounded-2xl border border-hair bg-card p-4 shadow-card">
-              <div className="mb-1.5 flex items-center justify-between text-sm">
-                <span className="font-medium text-heading">Overall progress</span>
-                <span className="font-semibold text-heading">{prog.pct}%</span>
+            <div className="mb-5 rounded-2xl border border-hair bg-card p-5">
+              <div className="mb-2.5 flex items-center justify-between text-sm">
+                <span className="font-medium uppercase tracking-[0.1em] text-faint">
+                  Overall progress
+                </span>
+                <span className="font-heading font-bold tabular-nums text-heading">{prog.pct}%</span>
               </div>
               <ProgressBar value={prog.pct} size="lg" />
             </div>
           )}
 
-          <div className="overflow-hidden rounded-2xl border border-hair bg-card shadow-card">
-            {rows.map((row, i) => {
+          <div className="overflow-hidden rounded-3xl border border-hair bg-card">
+            {rows.map((row) => {
               if (row.kind === "video") {
                 const video = course.videos.find((v) => v.order === row.order)!;
                 const done = enrolled && isVideoCompleted(video.id);
@@ -359,27 +411,37 @@ function CourseDetail() {
                     href={clickable ? `/learn/${course.id}/${video.order}` : undefined}
                     key={video.id}
                     className={cn(
-                      "flex items-center gap-4 border-b border-hair px-5 py-4 last:border-0",
-                      clickable ? "cursor-pointer hover:bg-surface-2" : "opacity-80",
+                      "group flex items-center gap-4 border-b border-hair px-5 py-4 transition-colors duration-200 last:border-0",
+                      clickable ? "cursor-pointer hover:bg-surface-2" : "opacity-70",
                     )}
                   >
                     <span
                       className={cn(
-                        "grid h-9 w-9 shrink-0 place-items-center rounded-full",
+                        "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-colors duration-200",
                         done
-                          ? "bg-green-100 text-green-600"
+                          ? "bg-green-100 text-green-600 dark:bg-green-500/15"
                           : open
-                            ? "bg-gold-100 text-gold-600"
+                            ? "bg-gold-100 text-gold-700 group-hover:bg-gold-500 group-hover:text-navy-900 dark:bg-gold-500/15"
                             : "bg-surface-2 text-faint",
                       )}
                     >
-                      {done ? <CheckCircle2 className="h-5 w-5" /> : open ? <PlayCircle className="h-5 w-5" /> : <Lock className="h-4 w-4" />}
+                      {done ? (
+                        <CheckCircle2 className="h-5 w-5" />
+                      ) : open ? (
+                        <PlayCircle className="h-5 w-5" />
+                      ) : (
+                        <Lock className="h-4 w-4" />
+                      )}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-faint">Video {video.order}</p>
-                      <p className="font-medium text-heading">{video.title}</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+                        Video {video.order}
+                      </p>
+                      <p className="mt-0.5 truncate font-medium text-heading">{video.title}</p>
                     </div>
-                    <span className="text-sm text-faint">{formatClock(video.durationSeconds)}</span>
+                    <span className="shrink-0 text-sm tabular-nums text-faint">
+                      {formatClock(video.durationSeconds)}
+                    </span>
                   </Tag>
                 );
               }
@@ -392,19 +454,22 @@ function CourseDetail() {
                   key={row.id}
                   className="flex items-center gap-4 border-b border-hair bg-surface-2/60 px-5 py-4 last:border-0"
                 >
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-2 text-heading">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-navy-900 text-gold-400 dark:bg-surface-2">
                     <ClipboardCheck className="h-5 w-5" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-faint">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
                       Checkpoint · after video {row.afterVideoOrder}
                     </p>
-                    <p className="font-medium text-heading">AI-graded assignment</p>
+                    <p className="mt-0.5 font-medium text-heading">AI-graded assignment</p>
                   </div>
                   {res.passed ? (
                     <Badge variant="success">Passed {res.bestScore}%</Badge>
                   ) : unlocked ? (
-                    <Link href={`/learn/${course.id}/assignment/${row.id}`} className={buttonClasses({ variant: "navy", size: "sm" })}>
+                    <Link
+                      href={`/learn/${course.id}/assignment/${row.id}`}
+                      className={buttonClasses({ variant: "navy", size: "sm" })}
+                    >
                       {res.attempts > 0 ? "Retry" : "Start"}
                     </Link>
                   ) : (
@@ -416,12 +481,12 @@ function CourseDetail() {
           </div>
 
           {course.workbookUrl && (
-            <div className="mt-4 flex flex-wrap items-center gap-4 rounded-2xl border border-gold-200 bg-gold-50 p-5 dark:bg-gold-500/10">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gold-100 text-gold-700">
+            <div className="mt-5 flex flex-wrap items-center gap-4 rounded-3xl border border-gold-300 bg-gold-50 p-5 dark:border-gold-500/25 dark:bg-gold-500/10">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gold-500 text-navy-900">
                 <FileText className="h-5 w-5" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="font-heading font-semibold text-heading">Final workbook</p>
+                <p className="font-heading font-bold text-heading">Final workbook</p>
                 <p className="text-sm text-muted">
                   {access
                     ? "Download and complete your final workbook (PDF / DOCX)."
@@ -445,31 +510,40 @@ function CourseDetail() {
           )}
         </div>
 
-        {/* Instructor bio */}
-        <div>
-          <h2 className="mb-4 font-heading text-2xl font-bold text-heading">Your instructor</h2>
-          <div className="rounded-2xl border border-hair bg-card p-5 shadow-card">
-            <div className="flex items-center gap-3">
+        {/* ── Instructor bio ── */}
+        <div className="min-w-0">
+          <h2 className="mb-5 font-heading text-xl font-bold text-heading sm:text-2xl">
+            Your instructor
+          </h2>
+          <div className="rounded-3xl border border-hair bg-card p-6">
+            <div className="flex items-center gap-3.5">
               <Avatar name={course.instructorName} size={52} />
-              <div>
-                <p className="font-heading text-lg font-semibold text-heading">{course.instructorName}</p>
-                <p className="text-sm text-muted">{course.instructorTitle}</p>
+              <div className="min-w-0">
+                <p className="font-heading text-lg font-bold text-heading">{course.instructorName}</p>
+                <p className="truncate text-sm text-muted">{course.instructorTitle}</p>
               </div>
             </div>
-            <p className="mt-4 text-sm leading-relaxed text-muted">{course.instructorBio}</p>
-            <div className="mt-4 flex items-center gap-2 rounded-xl bg-surface-2 p-3 text-sm">
-              <Award className="h-5 w-5 text-gold-600" />
-              <span className="text-muted">Rated <span className="font-semibold text-heading">{course.rating.toFixed(1)}</span> by {course.ratingCount} learners</span>
+            <p className="mt-5 border-t border-hair pt-5 text-sm leading-[1.75] text-muted">
+              {course.instructorBio}
+            </p>
+            <div className="mt-5 flex items-center gap-3 rounded-2xl bg-surface-2 p-4 text-sm">
+              <Award className="h-5 w-5 shrink-0 text-gold-600" />
+              <span className="text-muted">
+                Rated <span className="font-heading font-bold text-heading">{course.rating.toFixed(1)}</span> by{" "}
+                {course.ratingCount} learners
+              </span>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Recommended */}
+      {/* ── Recommended ── */}
       {recommended.length > 0 && (
         <section>
-          <h2 className="mb-4 font-heading text-2xl font-bold text-heading">You might also like</h2>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <h2 className="mb-5 font-heading text-xl font-bold text-heading sm:text-2xl">
+            You might also like
+          </h2>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {recommended.map((c) => (
               <CourseCard key={c.id} course={c} enrolled={isEnrolled(c.id)} />
             ))}
