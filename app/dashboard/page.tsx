@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -15,6 +14,7 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
+import { Panel } from "@/components/app/Panel";
 import { CourseCard } from "@/components/CourseCard";
 import { SessionCard } from "@/components/SessionCard";
 import { UpgradePlanCard } from "@/components/app/UpgradePlanCard";
@@ -40,11 +40,6 @@ function SectionHeader({ title, href, cta }: { title: string; href?: string; cta
       )}
     </div>
   );
-}
-
-/** Shared panel shell — replaces the old <Card> so the app matches the new language. */
-function Panel({ className = "", children }: { className?: string; children: ReactNode }) {
-  return <div className={`rounded-3xl border border-hair bg-card p-6 ${className}`}>{children}</div>;
 }
 
 export default function DashboardPage() {
