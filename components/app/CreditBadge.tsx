@@ -46,7 +46,7 @@ export function CreditBadge({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-2xl border border-hair bg-card shadow-card-hover">
+          <div className="absolute right-0 top-full z-20 mt-2 w-72 overflow-hidden rounded-3xl border border-hair bg-card shadow-lift">
             <div className="border-b border-hair px-4 py-3">
               <p className="font-heading font-semibold text-heading">Your badge</p>
               <p className="text-xs text-muted">

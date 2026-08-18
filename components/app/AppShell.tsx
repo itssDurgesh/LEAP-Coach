@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-surface">
       <AppHeader />
-      <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">{children}</main>
+      <main className="mx-auto max-w-[88rem] px-5 py-8 sm:px-8">{children}</main>
     </div>
   );
 }
