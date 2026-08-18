@@ -4,29 +4,30 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Plays a looping, muted, autoplaying hero clip.
+ * Plays the looping, muted, autoplaying hero clip.
  *
- * Video source priority:
- *  1. NEXT_PUBLIC_HERO_VIDEO_URL env var (CDN / Supabase Storage URL)
- *  2. /professor-hero.mp4 in public/ (local dev only — gitignored, too large for git)
+ * The source is the bundled public/professor-hero.mp4, hardcoded on purpose so it
+ * starts immediately with no CDN round-trip. It used to read
+ * NEXT_PUBLIC_HERO_VIDEO_URL first, but that pointed at a Supabase "public-assets"
+ * bucket which does not exist — every request came back NoSuchBucket, the video
+ * never loaded, and the old still-image fallback was what actually rendered. That
+ * env var is now unused and can be deleted.
  *
- * There is deliberately NO still-image fallback. If the clip fails to load the
- * element simply stays transparent and the container's own gradient shows through —
- * a frozen photo of the professor read as the real hero on every hard reload
- * (cropped mid-torso) until the video decoded, which looked worse than nothing.
+ * There is deliberately NO still-image fallback: if the clip fails, the element
+ * stays transparent and the container's own gradient shows through.
  */
-export function HeroMedia({ className, src }: { className?: string; src?: string }) {
-  const videoSrc = src || process.env.NEXT_PUBLIC_HERO_VIDEO_URL || "/professor-hero.mp4";
+const HERO_VIDEO = "/professor-hero.mp4";
 
+export function HeroMedia({ className, src }: { className?: string; src?: string }) {
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption
     <video
-      src={videoSrc}
+      src={src || HERO_VIDEO}
       autoPlay
       muted
       loop
       playsInline
-      preload="metadata"
+      preload="auto"
       className={cn("h-full w-full object-cover", className)}
     />
   );
