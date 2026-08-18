@@ -15,7 +15,7 @@ interface MuxVideoPlayerProps {
  */
 export function MuxVideoPlayer({ course, video, onEnded }: MuxVideoPlayerProps) {
   return (
-    <div className="overflow-hidden rounded-2xl bg-navy-950 shadow-card">
+    <div className="overflow-hidden rounded-3xl bg-navy-950 shadow-lift ring-1 ring-white/10">
       <MuxPlayer
         playbackId={video.muxPlaybackId}
         streamType="on-demand"

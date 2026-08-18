@@ -20,7 +20,6 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
-import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Field";
@@ -130,40 +129,54 @@ function Player({ course, video }: { course: Course; video: Video }) {
     },
   ];
 
+  const progressPct = prog.total ? Math.round((prog.completed / prog.total) * 100) : 0;
+
   return (
     <div className="min-h-screen bg-surface">
-      {/* Top bar */}
-      <header className="sticky top-0 z-30 border-b border-hair bg-surface/90 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
+      {/* ── Top bar ── */}
+      <header className="sticky top-0 z-30 border-b border-hair bg-surface/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-[88rem] items-center justify-between gap-4 px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <Link
               href={`/courses/${course.slug}`}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-muted hover:bg-surface-2"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-hair text-muted transition-all duration-200 hover:border-gold-500 hover:bg-gold-500 hover:text-navy-900"
               aria-label="Back to topic"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </Link>
-            <div className="h-6 w-px bg-hair" />
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-heading">{course.title}</p>
+              <p className="truncate font-heading text-sm font-bold text-heading">{course.title}</p>
               <p className="truncate text-xs text-faint">
                 Video {video.order} · {video.title}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="hidden rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-heading sm:inline">
-              {prog.completed}/{prog.total} videos
-            </span>
-            <Logo href="/dashboard" size="sm" className="hidden sm:inline-flex" />
+
+          <div className="flex items-center gap-4">
+            {/* Course progress, as a real bar rather than a text pill */}
+            <div className="hidden items-center gap-2.5 sm:flex">
+              <div className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  className="h-full rounded-full bg-gold-500 transition-[width] duration-500 ease-out-expo"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <span className="font-heading text-xs font-semibold tabular-nums text-muted">
+                {prog.completed}/{prog.total}
+              </span>
+            </div>
+            <Logo href="/dashboard" size="sm" className="hidden lg:inline-flex" />
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        <div className="grid gap-5 lg:grid-cols-[1.7fr_1fr]">
-          {/* Left: player + meta */}
-          <div className="space-y-5">
+      <main className="mx-auto max-w-[88rem] px-4 py-6 sm:px-6">
+        <div className="grid gap-6 lg:grid-cols-[1.75fr_1fr]">
+          {/* ── Left: player + meta ──
+              min-w-0: grid items default to min-width:auto, so without it the column
+              refuses to shrink below its content and the page scrolls sideways on
+              narrow screens. */}
+          <div className="min-w-0 space-y-6">
             {/* Real Mux playback when the video has a genuine playback id; the seed
                 uses "mux_…" placeholders, which fall back to the mock player. */}
             {video.muxPlaybackId && !video.muxPlaybackId.startsWith("mux_") ? (
@@ -183,30 +196,38 @@ function Player({ course, video }: { course: Course; video: Video }) {
               />
             )}
 
-            <Card padded>
+            {/* Lesson header — set flush, not boxed in a card */}
+            <div>
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-medium text-faint">
+                <div className="min-w-0">
+                  <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.14em] text-gold-600">
                     Video {video.order} · {formatClock(video.durationSeconds)}
                   </p>
-                  <h1 className="mt-0.5 font-heading text-xl font-bold text-heading">{video.title}</h1>
+                  <h1 className="mt-2 font-heading text-display-sm font-bold leading-tight text-heading">
+                    {video.title}
+                  </h1>
                 </div>
                 {completed && (
                   <Badge variant="success">
-                    <Check className="h-3 w-3" /> Completed
+                    <Check className="h-3 w-3" strokeWidth={3} /> Completed
                   </Badge>
                 )}
               </div>
-              <p className="mt-2 text-sm leading-relaxed text-muted">{video.summary}</p>
-              <div className="mt-4 flex flex-wrap gap-2">
+              <p className="mt-3 max-w-2xl text-sm leading-[1.75] text-muted">{video.summary}</p>
+
+              <div className="mt-5 flex flex-wrap gap-2.5">
                 {!completed && (
                   <Button onClick={() => markVideoComplete(video.id)}>
                     <Check className="h-4 w-4" /> Mark complete
                   </Button>
                 )}
                 {completed && playerNextHref && (
-                  <Link href={playerNextHref} className={buttonClasses({ variant: "primary" })}>
-                    Next video <ArrowRight className="h-4 w-4" />
+                  <Link
+                    href={playerNextHref}
+                    className={buttonClasses({ variant: "primary", className: "group" })}
+                  >
+                    Next video
+                    <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
                   </Link>
                 )}
                 {completed && !playerNextHref && !gateAssignment && (
@@ -215,32 +236,32 @@ function Player({ course, video }: { course: Course; video: Video }) {
                   </Link>
                 )}
               </div>
-            </Card>
+            </div>
 
-            {/* Assignment unlock banner */}
+            {/* ── Assignment unlock banner ── */}
             {gateAssignment && completed && (
               <div
                 className={cn(
-                  "flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4",
+                  "flex flex-wrap items-center justify-between gap-4 rounded-3xl border p-5",
                   gateRes?.passed
-                    ? "border-green-200 bg-green-50 dark:bg-green-500/10"
-                    : "border-gold-200 bg-gradient-to-r from-gold-50 to-cream-100 dark:from-gold-500/10 dark:to-transparent",
+                    ? "border-green-200 bg-green-50 dark:border-green-500/25 dark:bg-green-500/10"
+                    : "border-gold-300 bg-gold-50 dark:border-gold-500/25 dark:bg-gold-500/10",
                 )}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
                   <span
                     className={cn(
-                      "grid h-11 w-11 place-items-center rounded-xl",
-                      gateRes?.passed ? "bg-green-100 text-green-600" : "bg-gold-100 text-gold-600",
+                      "grid h-12 w-12 shrink-0 place-items-center rounded-2xl",
+                      gateRes?.passed ? "bg-green-500 text-white" : "bg-gold-500 text-navy-900",
                     )}
                   >
                     <ClipboardCheck className="h-6 w-6" />
                   </span>
                   <div>
-                    <p className="font-heading font-semibold text-heading">
-                      {gateRes?.passed ? "Checkpoint passed 🎉" : "Assignment unlocked!"}
+                    <p className="font-heading font-bold text-heading">
+                      {gateRes?.passed ? "Checkpoint passed" : "Assignment unlocked"}
                     </p>
-                    <p className="text-sm text-muted">
+                    <p className="mt-0.5 text-sm leading-relaxed text-muted">
                       {gateRes?.passed
                         ? `You scored ${gateRes.bestScore}%. The next videos are open.`
                         : "Complete the AI-graded checkpoint to unlock the next videos."}
@@ -256,29 +277,30 @@ function Player({ course, video }: { course: Course; video: Video }) {
               </div>
             )}
 
-            {/* Bottom tabs */}
-            <Card className="overflow-hidden">
-              <div className="flex border-b border-hair">
+            {/* ── Bottom tabs ── */}
+            <div className="overflow-hidden rounded-3xl border border-hair bg-card">
+              <div className="scrollbar-thin flex overflow-x-auto border-b border-hair">
                 {bottomTabs.map((t) => (
                   <button
                     key={t.id}
                     onClick={() => setBottomTab(t.id)}
                     className={cn(
-                      "flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors",
-                      bottomTab === t.id
-                        ? "border-b-2 border-gold-500 text-heading"
-                        : "text-muted hover:text-heading",
+                      "relative flex shrink-0 items-center gap-2 px-5 py-4 font-heading text-sm font-semibold transition-colors duration-200",
+                      bottomTab === t.id ? "text-heading" : "text-muted hover:text-heading",
                     )}
                   >
                     <t.icon className="h-4 w-4" /> {t.label}
+                    {bottomTab === t.id && (
+                      <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-gold-500" />
+                    )}
                   </button>
                 ))}
               </div>
 
-              <div className="p-5">
+              <div className="p-5 sm:p-6">
                 {bottomTab === "notes" && (
                   <div>
-                    <div className="mb-3 flex items-center justify-between">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                       <span className="text-sm font-medium text-muted">{video.notesPdfName}</span>
                       <button
                         onClick={downloadNotes}
@@ -287,20 +309,20 @@ function Player({ course, video }: { course: Course; video: Video }) {
                         <Download className="h-4 w-4" /> Download
                       </button>
                     </div>
-                    <div className="rounded-xl bg-surface-2 p-4 sm:p-6">
-                      <div className="mx-auto max-w-2xl rounded-lg bg-card p-6 shadow-sm sm:p-8">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gold-600">
+                    <div className="rounded-2xl bg-surface-2 p-4 sm:p-7">
+                      <div className="mx-auto max-w-2xl rounded-xl bg-card p-6 shadow-card sm:p-9">
+                        <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.14em] text-gold-600">
                           LEAP Coach · Class Notes
                         </p>
-                        <h3 className="mt-1 font-heading text-xl font-bold text-heading">{video.title}</h3>
-                        <p className="mt-4 leading-relaxed text-heading">{video.summary}</p>
-                        <ul className="mt-4 space-y-2.5">
+                        <h3 className="mt-2 font-heading text-xl font-bold text-heading">{video.title}</h3>
+                        <p className="mt-5 leading-[1.75] text-heading">{video.summary}</p>
+                        <ul className="mt-5 space-y-3 border-t border-hair pt-5">
                           {video.transcript
                             .split(/(?<=[.!?])\s+/)
                             .filter(Boolean)
                             .slice(0, 4)
                             .map((s, i) => (
-                              <li key={i} className="flex gap-2.5 text-sm leading-relaxed text-muted">
+                              <li key={i} className="flex gap-3 text-sm leading-relaxed text-muted">
                                 <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold-500" />
                                 {s.trim()}
                               </li>
@@ -313,8 +335,8 @@ function Player({ course, video }: { course: Course; video: Video }) {
 
                 {bottomTab === "transcript" && (
                   <div className="scrollbar-thin max-h-80 overflow-y-auto pr-2">
-                    <p className="leading-relaxed text-muted">{video.transcript}</p>
-                    <p className="mt-4 text-xs text-faint">
+                    <p className="max-w-2xl leading-[1.8] text-muted">{video.transcript}</p>
+                    <p className="mt-5 border-t border-hair pt-4 text-xs text-faint">
                       Transcript auto-syncs with the video when timestamps are available.
                     </p>
                   </div>
@@ -331,57 +353,66 @@ function Player({ course, video }: { course: Course; video: Video }) {
                             href={r.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center justify-between rounded-xl border border-hair px-4 py-3 transition-colors hover:border-gold-300 hover:bg-gold-50"
+                            className="group flex items-center justify-between rounded-2xl border border-hair px-4 py-3.5 transition-all duration-200 hover:border-gold-300 hover:bg-surface-2"
                           >
-                            <span className="flex items-center gap-3">
-                              <span className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 text-muted">
+                            <span className="flex items-center gap-3.5">
+                              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted transition-colors duration-200 group-hover:bg-gold-500 group-hover:text-navy-900">
                                 <Paperclip className="h-4 w-4" />
                               </span>
                               <span>
-                                <span className="block text-sm font-medium text-heading">{r.title}</span>
+                                <span className="block text-sm font-semibold text-heading">{r.title}</span>
                                 <span className="block text-xs capitalize text-faint">
                                   {r.type}
                                   {r.author ? ` · ${r.author}` : ""}
                                 </span>
                               </span>
                             </span>
-                            <ExternalLink className="h-4 w-4 text-faint" />
+                            <ExternalLink className="h-4 w-4 shrink-0 text-faint transition-colors duration-200 group-hover:text-gold-600" />
                           </a>
                         </li>
                       ))
                     ) : (
-                      <li className="text-sm text-muted">No extra resources for this lesson.</li>
+                      <li className="py-6 text-center text-sm text-faint">
+                        No extra resources for this lesson.
+                      </li>
                     )}
                   </ul>
                 )}
               </div>
-            </Card>
+            </div>
           </div>
 
-          {/* Right: chat / notes */}
-          <aside className="flex h-[560px] flex-col overflow-hidden rounded-2xl border border-hair bg-card shadow-card lg:sticky lg:top-20 lg:h-[640px]">
-            <div className="flex shrink-0 border-b border-hair p-1.5">
-              <button
-                onClick={() => setRightTab("chat")}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition-colors",
-                  rightTab === "chat" ? "bg-navy-800 text-white" : "text-muted hover:bg-surface-2",
-                )}
-              >
-                <Bot className="h-4 w-4" /> Ask LEAP AI
-              </button>
-              <button
-                onClick={() => setRightTab("notes")}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition-colors",
-                  rightTab === "notes" ? "bg-navy-800 text-white" : "text-muted hover:bg-surface-2",
-                )}
-              >
-                <StickyNote className="h-4 w-4" /> My Notes
-              </button>
+          {/* ── Right: chat / notes ── */}
+          <aside className="flex h-[600px] min-w-0 flex-col overflow-hidden rounded-3xl border border-hair bg-card shadow-card lg:sticky lg:top-[5.5rem] lg:h-[calc(100vh-7rem)]">
+            {/* Segmented control */}
+            <div className="shrink-0 p-2">
+              <div className="flex rounded-full bg-surface-2 p-1">
+                <button
+                  onClick={() => setRightTab("chat")}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 font-heading text-sm font-semibold transition-all duration-200",
+                    rightTab === "chat"
+                      ? "bg-card text-heading shadow-sm"
+                      : "text-muted hover:text-heading",
+                  )}
+                >
+                  <Bot className="h-4 w-4" /> Ask LEAP AI
+                </button>
+                <button
+                  onClick={() => setRightTab("notes")}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 font-heading text-sm font-semibold transition-all duration-200",
+                    rightTab === "notes"
+                      ? "bg-card text-heading shadow-sm"
+                      : "text-muted hover:text-heading",
+                  )}
+                >
+                  <StickyNote className="h-4 w-4" /> My Notes
+                </button>
+              </div>
             </div>
 
-            <div className="min-h-0 flex-1">
+            <div className="min-h-0 flex-1 border-t border-hair">
               {rightTab === "chat" ? (
                 <LeapChat course={course} video={video} showHeader={false} />
               ) : (
@@ -407,7 +438,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
                   {courseNotes.length > 0 && (
                     <button
                       onClick={() => downloadNotesPdf(course, courseNotes, currentUser?.name)}
-                      className="flex items-center justify-center gap-2 border-b border-hair px-3 py-2.5 text-sm font-medium text-gold-700 transition-colors hover:bg-surface-2"
+                      className="flex items-center justify-center gap-2 border-b border-hair px-3 py-3 font-heading text-sm font-semibold text-gold-700 transition-colors duration-200 hover:bg-surface-2"
                       title="Combine every note you've saved across this topic into one PDF"
                     >
                       <Download className="h-4 w-4" /> Download all my notes ({courseNotes.length}) · PDF
@@ -416,13 +447,16 @@ function Player({ course, video }: { course: Course; video: Video }) {
                   <div className="scrollbar-thin flex-1 space-y-2.5 overflow-y-auto p-3">
                     {myNotes.length ? (
                       myNotes.map((n) => (
-                        <div key={n.id} className="group rounded-xl border border-hair bg-surface p-3">
-                          <p className="whitespace-pre-line text-sm text-heading">{n.text}</p>
-                          <div className="mt-2 flex items-center justify-between">
+                        <div
+                          key={n.id}
+                          className="group rounded-2xl border border-hair bg-surface p-3.5 transition-colors duration-200 hover:border-gold-300"
+                        >
+                          <p className="whitespace-pre-line text-sm leading-relaxed text-heading">{n.text}</p>
+                          <div className="mt-2.5 flex items-center justify-between border-t border-hair pt-2.5">
                             <span className="text-xs text-faint">{timeAgo(n.createdAt)}</span>
                             <button
                               onClick={() => deleteNote(n.id)}
-                              className="text-faint opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100"
+                              className="text-faint opacity-0 transition-all duration-200 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100"
                               aria-label="Delete note"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -431,7 +465,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
                         </div>
                       ))
                     ) : (
-                      <p className="px-1 py-6 text-center text-sm text-faint">
+                      <p className="px-1 py-8 text-center text-sm text-faint">
                         Your private notes for this lesson will appear here.
                       </p>
                     )}
