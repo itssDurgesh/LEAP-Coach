@@ -8,14 +8,16 @@ const socials = [
   { Icon: Linkedin, href: "https://www.linkedin.com/in/gvishal/", label: "LinkedIn" },
 ];
 
+// Public routes only. /articles and /sessions are behind AppShell, so linking them
+// from a public footer just bounces signed-out visitors to /login.
 const columns = [
   {
-    title: "Learn",
+    title: "Explore",
     links: [
       { label: "Topics", href: "/courses" },
       { label: "How it works", href: "/#how" },
       { label: "Pricing", href: "/pricing" },
-      { label: "Articles", href: "/articles" },
+      { label: "Get started", href: "/signup" },
     ],
   },
   {
@@ -32,33 +34,45 @@ const columns = [
 export function SiteFooter() {
   return (
     <footer className="bg-navy-900 text-cream-100 dark:bg-card">
-      <Container width="wide" className="py-16 sm:py-20">
-        <div className="grid gap-12 lg:grid-cols-12 lg:gap-8">
-          {/* ── Brand ── */}
+      <Container width="wide" className="py-12 sm:py-14">
+        {/* ── Newsletter band ──
+            Lifted out of the contact column: as a column it made that block far
+            taller than the two link columns, leaving ~84px of dead space under each.
+            Across the top it uses the full width and evens the row out. */}
+        <div className="flex flex-col gap-4 border-b border-white/10 pb-8 md:flex-row md:items-center md:justify-between">
+          <p className="font-heading text-base font-bold text-cream-100">
+            Subscribe for the latest
+            <span className="ml-2 font-sans text-sm font-normal text-cream-100/55">
+              Occasional notes on leadership research and new topics.
+            </span>
+          </p>
+          <form className="flex w-full max-w-sm shrink-0 overflow-hidden rounded-full bg-white/[0.07] ring-1 ring-white/15 transition-colors duration-200 focus-within:ring-gold-500/60">
+            <input
+              type="email"
+              placeholder="you@email.com"
+              aria-label="Email address"
+              className="w-full bg-transparent px-5 py-3 text-sm text-cream-100 placeholder:text-cream-100/35 focus:outline-none"
+            />
+            <button
+              type="button"
+              className="grid w-14 shrink-0 place-items-center bg-gold-500 text-navy-900 transition-colors duration-200 hover:bg-gold-400"
+              aria-label="Subscribe"
+            >
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </form>
+        </div>
+
+        {/* ── Columns ── */}
+        <div className="grid gap-x-8 gap-y-10 pt-10 lg:grid-cols-12">
           <div className="lg:col-span-4">
             <Logo variant="light" href={null} />
-            <p className="mt-5 max-w-xs text-sm leading-relaxed text-cream-100/65">
+            <p className="mt-4 max-w-xs text-sm leading-relaxed text-cream-100/65">
               High-quality, evidence-based learning that scales human wisdom and creates high
               performance stars.
             </p>
-            <div className="mt-6 flex gap-2.5">
-              {socials.map(({ Icon, href, label }) => (
-                <a
-                  key={label}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={label}
-                  title={label}
-                  className="grid h-10 w-10 place-items-center rounded-full border border-white/15 text-cream-100 transition-all duration-200 hover:border-gold-500 hover:bg-gold-500 hover:text-navy-900"
-                >
-                  <Icon className="h-4 w-4" />
-                </a>
-              ))}
-            </div>
           </div>
 
-          {/* ── Nav columns ── */}
           {columns.map((col) => (
             <div key={col.title} className="lg:col-span-2">
               <h4 className="font-heading text-[11px] font-semibold uppercase tracking-[0.14em] text-cream-100/50">
@@ -79,7 +93,6 @@ export function SiteFooter() {
             </div>
           ))}
 
-          {/* ── Contact ── */}
           <div className="lg:col-span-4">
             <h4 className="font-heading text-[11px] font-semibold uppercase tracking-[0.14em] text-cream-100/50">
               Contact
@@ -116,32 +129,28 @@ export function SiteFooter() {
                 502, Forum Tower, IIMA New Campus, Vastrapur
               </p>
             </div>
-
-            <p className="mt-7 font-heading text-sm font-semibold text-cream-100">
-              Subscribe for the latest
-            </p>
-            <form className="mt-3 flex overflow-hidden rounded-full bg-white/[0.07] ring-1 ring-white/15 transition-colors duration-200 focus-within:ring-gold-500/60">
-              <input
-                type="email"
-                placeholder="you@email.com"
-                aria-label="Email address"
-                className="w-full bg-transparent px-4 py-2.5 text-sm text-cream-100 placeholder:text-cream-100/35 focus:outline-none"
-              />
-              <button
-                type="button"
-                className="grid w-12 shrink-0 place-items-center bg-gold-500 text-navy-900 transition-colors duration-200 hover:bg-gold-400"
-                aria-label="Subscribe"
-              >
-                <ArrowRight className="h-4 w-4" />
-              </button>
-            </form>
           </div>
         </div>
 
         {/* ── Bottom bar ── */}
-        <div className="mt-14 flex flex-col gap-4 border-t border-white/10 pt-7 text-sm text-cream-100/55 md:flex-row md:items-center md:justify-between">
+        <div className="mt-10 flex flex-col gap-4 border-t border-white/10 pt-6 text-sm text-cream-100/55 md:flex-row md:items-center md:justify-between">
           <p>© 2026 Prof. Vishal Gupta. All rights reserved.</p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <span className="flex gap-2">
+              {socials.map(({ Icon, href, label }) => (
+                <a
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={label}
+                  title={label}
+                  className="grid h-8 w-8 place-items-center rounded-full border border-white/15 text-cream-100 transition-all duration-200 hover:border-gold-500 hover:bg-gold-500 hover:text-navy-900"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </a>
+              ))}
+            </span>
             <a
               href="mailto:info.leapcoach@gmail.com"
               className="transition-colors duration-200 hover:text-gold-400"
