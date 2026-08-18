@@ -124,7 +124,7 @@ export default function SignupPage() {
         subtitle={`We emailed a 6-digit code to ${form.email}. Enter it to finish creating your account.`}
       >
         {error && (
-          <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+          <div className="mb-4 flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
             <AlertCircle className="h-4 w-4 shrink-0" />
             {error}
           </div>
@@ -154,7 +154,7 @@ export default function SignupPage() {
         </form>
 
         <div className="mt-5 flex items-center justify-between text-sm">
-          <button type="button" onClick={resend} className="font-medium text-gold-600 hover:text-gold-700">
+          <button type="button" onClick={resend} className="font-medium text-gold-700 transition-colors duration-200 hover:text-gold-600">
             Resend code
           </button>
           <button
@@ -183,12 +183,12 @@ export default function SignupPage() {
       <OAuthButtons onSelect={oauth} />
 
       <div className="my-5 flex items-center gap-3 text-xs text-faint">
-        <span className="h-px flex-1 bg-cream-300" /> or with your details
-        <span className="h-px flex-1 bg-cream-300" />
+        <span className="h-px flex-1 bg-hair" /> or with your details
+        <span className="h-px flex-1 bg-hair" />
       </div>
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
@@ -243,7 +243,7 @@ export default function SignupPage() {
 
       <p className="mt-6 text-center text-sm text-muted">
         Already have an account?{" "}
-        <Link href="/login" className="font-semibold text-gold-600 hover:text-gold-700">
+        <Link href="/login" className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
           Sign in
         </Link>
       </p>

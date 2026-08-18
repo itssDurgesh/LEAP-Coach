@@ -22,7 +22,7 @@ export default function PublicProfilePage() {
 
 function Stat({ icon: Icon, value, label }: { icon: typeof Award; value: React.ReactNode; label: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-hair bg-card p-4">
+    <div className="flex items-center gap-3 rounded-3xl border border-hair bg-card p-5">
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-surface-2 text-gold-600">
         <Icon className="h-5 w-5" />
       </span>
@@ -77,7 +77,7 @@ function Profile() {
               <Avatar src={user.avatarUrl} name={user.name} size={96} className="shrink-0 shadow-card ring-4 ring-card" />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="font-heading text-2xl font-bold text-heading">{user.name}</h1>
+                  <h1 className="font-heading text-display-sm font-bold leading-tight text-heading">{user.name}</h1>
                   {isAdmin ? (
                     <Badge variant="navy">Admin</Badge>
                   ) : (

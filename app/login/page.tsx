@@ -56,12 +56,12 @@ export default function LoginPage() {
       <OAuthButtons onSelect={onOAuth} />
 
       <div className="my-5 flex items-center gap-3 text-xs text-faint">
-        <span className="h-px flex-1 bg-cream-300" /> or sign in with email
-        <span className="h-px flex-1 bg-cream-300" />
+        <span className="h-px flex-1 bg-hair" /> or sign in with email
+        <span className="h-px flex-1 bg-hair" />
       </div>
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
@@ -102,7 +102,7 @@ export default function LoginPage() {
           />
         </Field>
         <div className="-mt-2 text-right">
-          <Link href="/forgot-password" className="text-xs font-semibold text-gold-600 hover:text-gold-700">
+          <Link href="/forgot-password" className="text-xs font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
             Forgot password?
           </Link>
         </div>
@@ -112,14 +112,14 @@ export default function LoginPage() {
       </form>
 
       {!supabaseMode && (
-        <div className="mt-6 rounded-xl border border-hair bg-surface-2 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-faint">Quick demo sign-in</p>
+        <div className="mt-6 rounded-2xl border border-hair bg-surface-2 p-5">
+          <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">Quick demo sign-in</p>
           <div className="mt-2.5 flex flex-wrap gap-2">
             {demoRoles.map((d) => (
               <button
                 key={d.role}
                 onClick={() => go(DEMO_ACCOUNTS[d.role])}
-                className="rounded-lg border border-hair bg-card px-3 py-1.5 text-sm font-medium text-heading transition-colors hover:border-gold-300 hover:bg-gold-50"
+                className="rounded-full border border-hair bg-card px-3.5 py-1.5 font-heading text-sm font-semibold text-heading transition-all duration-200 hover:border-gold-500 hover:bg-gold-500 hover:text-navy-900"
               >
                 {d.label}
               </button>
@@ -130,7 +130,7 @@ export default function LoginPage() {
 
       <p className="mt-6 text-center text-sm text-muted">
         New to LEAP Coach?{" "}
-        <Link href="/signup" className="font-semibold text-gold-600 hover:text-gold-700">
+        <Link href="/signup" className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
           Create an account
         </Link>
       </p>

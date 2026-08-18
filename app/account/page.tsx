@@ -114,7 +114,7 @@ function Account() {
     <div className="mx-auto max-w-3xl space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-heading text-3xl font-bold text-heading">Account settings</h1>
+          <h1 className="font-heading text-display-sm font-bold leading-tight text-heading">Account settings</h1>
           <p className="mt-1.5 text-muted">Manage your profile and personal information.</p>
         </div>
         <Link href={`/u/${u.username ?? u.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-gold-600 hover:text-gold-700">
