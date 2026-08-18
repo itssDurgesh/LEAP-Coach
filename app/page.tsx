@@ -56,7 +56,7 @@ export default async function Home() {
         <HomeHowItWorks />
 
         {/* ── Featured programs ── */}
-        <section className="bg-surface py-20 sm:py-28">
+        <section className="bg-surface py-16 sm:py-20">
           <Container width="wide">
             <Reveal className="flex flex-wrap items-end justify-between gap-6">
               <div className="max-w-xl">

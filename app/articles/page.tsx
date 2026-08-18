@@ -26,7 +26,7 @@ function Articles() {
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
+    <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         eyebrow="From the desk"
         title="Articles"

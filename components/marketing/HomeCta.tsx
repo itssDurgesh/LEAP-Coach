@@ -10,17 +10,17 @@ export function HomeCta() {
       <div className="pointer-events-none absolute inset-0 texture-rules opacity-[0.07]" aria-hidden />
       <div className="pointer-events-none absolute inset-0 texture-grain opacity-[0.16] mix-blend-overlay" aria-hidden />
 
-      <Container width="prose" className="relative py-24 text-center sm:py-32">
+      <Container width="prose" className="relative py-14 text-center sm:py-20">
         <Reveal>
           <h2 className="text-balance font-heading text-display font-extrabold leading-[1.05] text-white">
             Ready to become a{" "}
             <span className="text-gradient-gold-hero">high performance star</span>?
           </h2>
-          <p className="mx-auto mt-6 max-w-lg text-base leading-relaxed text-cream-100/70 sm:text-lg">
+          <p className="mx-auto mt-5 max-w-lg text-base leading-relaxed text-cream-100/70 sm:text-lg">
             Join LEAP Coach today and start your first lesson in minutes.
           </p>
 
-          <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">
             <Link
               href="/signup"
               className={buttonClasses({

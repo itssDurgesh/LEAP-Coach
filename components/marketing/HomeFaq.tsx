@@ -18,7 +18,7 @@ export function HomeFaq() {
   if (!list.length) return null;
 
   return (
-    <section className="bg-card py-20 sm:py-28">
+    <section className="bg-card py-16 sm:py-20">
       <Container width="wide">
         <div className="grid gap-12 lg:grid-cols-12 lg:gap-16">
           <Reveal className="lg:col-span-4">

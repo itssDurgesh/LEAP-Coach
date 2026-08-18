@@ -65,7 +65,7 @@ function CatalogContent() {
   const hasFilters = category !== "all" || duration !== "any" || selectedTracks.length > 0 || search.trim();
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Catalog"
         title="Explore coaching topics"

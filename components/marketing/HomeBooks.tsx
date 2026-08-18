@@ -15,7 +15,7 @@ export function HomeBooks() {
   if (!list.length) return null;
 
   return (
-    <section id="books" className="bg-surface py-20 sm:py-28">
+    <section id="books" className="bg-surface py-16 sm:py-20">
       <Container width="wide">
         <Reveal className="max-w-2xl">
           <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.16em] text-gold-600">

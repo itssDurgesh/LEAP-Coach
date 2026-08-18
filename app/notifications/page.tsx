@@ -64,7 +64,7 @@ function Notifications() {
   const empty = mine.length === 0 && myAnnouncements.length === 0 && upcomingSessions.length === 0;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
+    <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         eyebrow="Inbox"
         title="Notifications"

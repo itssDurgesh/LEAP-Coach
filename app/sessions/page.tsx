@@ -24,7 +24,7 @@ function Sessions() {
     .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Live"
         title="Live sessions"

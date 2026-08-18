@@ -16,7 +16,7 @@ export function Panel({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("rounded-3xl border border-hair bg-card", padded && "p-6", className)}>
+    <div className={cn("rounded-3xl border border-hair bg-card", padded && "p-5", className)}>
       {children}
     </div>
   );

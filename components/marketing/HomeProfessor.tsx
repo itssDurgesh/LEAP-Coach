@@ -15,7 +15,7 @@ const socials = [
 
 export function HomeProfessor() {
   return (
-    <section id="about" className="bg-surface py-20 sm:py-28">
+    <section id="about" className="bg-surface py-16 sm:py-20">
       <Container width="wide">
         <div className="grid gap-12 lg:grid-cols-12 lg:gap-14">
           {/* ── Portrait ── */}
@@ -91,8 +91,8 @@ export function HomeProfessor() {
 
       {/* ── Pull quote ──
           Full-bleed dark band at display scale, replacing the gold gradient box. */}
-      <Reveal className="mt-20 sm:mt-28">
-        <div className="relative overflow-hidden bg-navy-950 py-20 dark:bg-card sm:py-28">
+      <Reveal className="mt-16 sm:mt-20">
+        <div className="relative overflow-hidden bg-navy-950 py-16 dark:bg-card sm:py-20">
           <div className="pointer-events-none absolute inset-0 texture-grain opacity-[0.16] mix-blend-overlay" aria-hidden />
           <Container width="prose" className="relative">
             <span aria-hidden className="block font-heading text-6xl leading-none text-gold-500">

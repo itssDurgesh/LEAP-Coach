@@ -23,10 +23,10 @@ export function PageHeader({
             {eyebrow}
           </p>
         )}
-        <h1 className="mt-2 text-balance font-heading text-display-sm font-bold leading-tight text-heading">
+        <h1 className="mt-1.5 text-balance font-heading text-display-sm font-bold leading-tight text-heading">
           {title}
         </h1>
-        {description && <p className="mt-3 max-w-xl leading-relaxed text-muted">{description}</p>}
+        {description && <p className="mt-2 max-w-xl leading-relaxed text-muted">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2.5">{actions}</div>}
     </header>

@@ -49,7 +49,7 @@ function MyTopics() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Your library"
         title="My topics"
@@ -58,25 +58,25 @@ function MyTopics() {
       />
 
       {/* ── Plan / catalog summary ── */}
-      <Panel padded={false} className="px-6 py-7">
-        <div className="grid gap-y-6 sm:grid-cols-3">
+      <Panel padded={false} className="px-5 py-5">
+        <div className="grid gap-y-5 sm:grid-cols-3">
           {summary.map((s) => (
             <div
               key={s.label}
               className="border-l border-hair pl-5 first:border-l-0 first:pl-0 sm:pl-7 sm:first:pl-0"
             >
               <s.icon className="h-4 w-4 text-gold-600" />
-              <p className="mt-3 font-heading text-xl font-bold leading-none text-heading">
+              <p className="mt-2.5 font-heading text-xl font-bold leading-none text-heading">
                 {s.value}
               </p>
-              <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.12em] text-faint">
+              <p className="mt-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-faint">
                 {s.label}
               </p>
             </div>
           ))}
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-hair pt-5">
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-hair pt-4">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-faint">
               Your catalogs

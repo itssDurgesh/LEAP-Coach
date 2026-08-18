@@ -122,9 +122,9 @@ function DashboardContent() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* ── Welcome banner ── */}
-      <section className="relative overflow-hidden rounded-3xl bg-navy-950 p-6 text-white dark:bg-card sm:p-9">
+      <section className="relative overflow-hidden rounded-3xl bg-navy-950 p-6 text-white dark:bg-card sm:p-8">
         {/* Structural texture instead of a blurred corner blob */}
         <div className="pointer-events-none absolute inset-0 texture-rules opacity-[0.07]" aria-hidden />
         <div
@@ -132,7 +132,7 @@ function DashboardContent() {
           aria-hidden
         />
 
-        <div className="relative flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between lg:gap-12">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="border-white/20 bg-white/10 text-cream-100">
@@ -146,7 +146,7 @@ function DashboardContent() {
             <h1 className="mt-4 text-balance font-heading text-display-sm font-bold leading-tight">
               Welcome back, {firstName}
             </h1>
-            <p className="mt-3 max-w-lg leading-relaxed text-cream-100/70">
+            <p className="mt-3 max-w-2xl leading-relaxed text-cream-100/70">
               You&rsquo;ve watched {totals.done} of {totals.all || 0} videos across your coaching
               topics. Keep going — your next milestone is not far off.
             </p>
@@ -174,9 +174,24 @@ function DashboardContent() {
             </div>
           </div>
 
-          <div className="shrink-0 self-center rounded-3xl bg-white/[0.07] p-5 ring-1 ring-white/15 backdrop-blur">
-            <ProgressRing value={overallPct} size={120} stroke={10} label="Overall" />
+          <div className="shrink-0 self-center rounded-3xl bg-white/[0.07] p-4 ring-1 ring-white/15 backdrop-blur">
+            <ProgressRing value={overallPct} size={104} stroke={9} label="Overall" />
           </div>
+        </div>
+
+        {/* Stats live inside the banner rather than in a second full-width panel. */}
+        <div className="relative mt-8 grid grid-cols-3 gap-4 border-t border-white/10 pt-6">
+          {stats.map((s) => (
+            <div key={s.label} className="min-w-0">
+              <p className="font-heading text-xl font-bold leading-none tabular-nums text-white sm:text-2xl">
+                {s.value}
+                {s.suffix && <span className="ml-1 text-xs font-medium text-cream-100/50">{s.suffix}</span>}
+              </p>
+              <p className="mt-2 text-[10px] font-medium uppercase leading-tight tracking-[0.08em] text-cream-100/50 sm:tracking-[0.12em] sm:text-[11px]">
+                {s.label}
+              </p>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -198,25 +213,6 @@ function DashboardContent() {
           <ArrowRight className="h-5 w-5 shrink-0 text-gold-600 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
         </Link>
       )}
-
-      {/* ── Stats row ── */}
-      <div className="grid grid-cols-2 gap-y-6 rounded-3xl border border-hair bg-card px-6 py-7 lg:grid-cols-3">
-        {stats.map((s) => (
-          <div
-            key={s.label}
-            className="border-l border-hair pl-5 [&:nth-child(2n+1)]:border-l-0 [&:nth-child(2n+1)]:pl-0 lg:pl-7 lg:[&:nth-child(2n+1)]:border-l lg:[&:nth-child(2n+1)]:pl-7 lg:[&:nth-child(3n+1)]:border-l-0 lg:[&:nth-child(3n+1)]:pl-0"
-          >
-            <s.icon className="h-4 w-4 text-gold-600" />
-            <p className="mt-3 font-heading text-display-sm font-bold leading-none tabular-nums text-heading">
-              {s.value}
-              {s.suffix && <span className="ml-1 text-sm font-medium text-faint">{s.suffix}</span>}
-            </p>
-            <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.12em] text-faint">
-              {s.label}
-            </p>
-          </div>
-        ))}
-      </div>
 
       <div className="grid gap-8 lg:grid-cols-3">
         {/* ── Main column ── */}

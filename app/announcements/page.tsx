@@ -28,7 +28,7 @@ function Announcements() {
     );
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
+    <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         eyebrow="From the team"
         title="Announcements"

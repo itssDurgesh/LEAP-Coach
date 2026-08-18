@@ -67,7 +67,7 @@ export function HomeHowItWorks() {
   const scaleY = useTransform(scrollYProgress, [0, 1], [0, 1]);
 
   return (
-    <section id="how" className="bg-card py-20 sm:py-28">
+    <section id="how" className="bg-card py-16 sm:py-20">
       <Container width="wide">
         <Reveal className="max-w-2xl">
           <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.16em] text-gold-600">
