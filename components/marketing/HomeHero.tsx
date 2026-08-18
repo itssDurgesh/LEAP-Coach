@@ -64,7 +64,10 @@ export function HomeHero({ initialContent }: { initialContent?: SiteContent | nu
           variants={container}
           initial={reduce ? false : "hidden"}
           animate="show"
-          className="grid items-center gap-12 pb-14 pt-28 lg:grid-cols-12 lg:gap-10 lg:pb-20 lg:pt-36"
+          // items-start, not items-center: the mock + its pull quote makes the right
+          // column much taller, and centering pushed the copy down into the middle of
+          // the viewport, leaving a dead band under the nav.
+          className="grid items-start gap-12 pb-14 pt-24 lg:grid-cols-12 lg:gap-10 lg:pb-20 lg:pt-32"
         >
           {/* ── Copy ── */}
           <div className="lg:col-span-6 xl:col-span-6">
