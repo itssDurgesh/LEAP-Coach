@@ -1,3 +1,5 @@
+import Image from "next/image";
+import { canOptimize } from "@/lib/images";
 import { cn } from "@/lib/utils";
 
 interface AvatarProps {
@@ -30,8 +32,16 @@ export function Avatar({ src, name, size = 40, className, ring = true }: AvatarP
       style={{ width: size, height: size, fontSize: size * 0.38 }}
     >
       {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name ?? "avatar"} width={size} height={size} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+        // Avatar URLs are admin/user supplied and can point at any host, so anything
+        // outside our own Storage bucket renders unoptimized rather than throwing.
+        <Image
+          src={src}
+          alt={name ?? "avatar"}
+          width={size}
+          height={size}
+          unoptimized={!canOptimize(src)}
+          className="h-full w-full object-cover"
+        />
       ) : (
         initialsOf(name)
       )}

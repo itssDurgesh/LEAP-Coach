@@ -68,11 +68,29 @@ const config: Config = {
         heading: ["var(--font-outfit)", "system-ui", "sans-serif"],
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],
       },
+      // ── Editorial display ramp ──
+      // Fluid (clamp) so the hero and section heads scale continuously instead of
+      // stepping at breakpoints. The gap between `display-lg` and a 2xl body heading
+      // is what creates hierarchy — the old flat 3xl/4xl scale had almost none.
+      fontSize: {
+        "display-sm": ["clamp(1.75rem, 1.3rem + 2.2vw, 2.5rem)", { lineHeight: "1.08", letterSpacing: "-0.02em" }],
+        display: ["clamp(2.25rem, 1.5rem + 3.6vw, 3.5rem)", { lineHeight: "1.03", letterSpacing: "-0.025em" }],
+        "display-lg": ["clamp(2.75rem, 1.35rem + 6vw, 5.25rem)", { lineHeight: "0.98", letterSpacing: "-0.03em" }],
+        // Section numerals on the "how it works" spine
+        numeral: ["clamp(3rem, 1.5rem + 6.5vw, 6.5rem)", { lineHeight: "0.82", letterSpacing: "-0.04em" }],
+      },
+      transitionTimingFunction: {
+        "out-expo": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "out-back": "cubic-bezier(0.34, 1.4, 0.64, 1)",
+      },
       boxShadow: {
         card: "0 1px 3px rgba(20,33,61,0.05), 0 8px 24px rgba(20,33,61,0.06)",
         "card-hover": "0 4px 12px rgba(20,33,61,0.10), 0 18px 44px rgba(20,33,61,0.12)",
         gold: "0 8px 24px rgba(212,155,30,0.28)",
         navy: "0 10px 30px rgba(8,18,37,0.30)",
+        // Floating nav pill + hero mockup layering
+        pill: "0 1px 2px rgba(8,18,37,0.04), 0 8px 30px rgba(8,18,37,0.10)",
+        lift: "0 2px 4px rgba(8,18,37,0.04), 0 12px 28px rgba(8,18,37,0.10), 0 36px 68px rgba(8,18,37,0.09)",
       },
       borderRadius: {
         xl: "0.875rem",
@@ -99,12 +117,17 @@ const config: Config = {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-8px)" },
         },
+        marquee: {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.5s cubic-bezier(0.16,1,0.3,1) forwards",
         "fade-in": "fade-in 0.6s ease-out forwards",
         "scale-in": "scale-in 0.4s cubic-bezier(0.16,1,0.3,1) forwards",
         float: "float 6s ease-in-out infinite",
+        marquee: "marquee 42s linear infinite",
       },
     },
   },

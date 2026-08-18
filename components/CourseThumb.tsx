@@ -1,4 +1,6 @@
+import Image from "next/image";
 import { Briefcase, GraduationCap, Rocket, LucideIcon } from "lucide-react";
+import { canOptimize } from "@/lib/images";
 import { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -41,8 +43,16 @@ export function CourseThumb({
   if (src) {
     return (
       <div className={cn("relative overflow-hidden bg-surface-2", rounded, className)}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt={title ?? "cover"} width={640} height={360} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+        {/* Covers are admin-pasted and can point at any host, so anything outside our
+            own Storage bucket renders unoptimized rather than throwing. */}
+        <Image
+          src={src}
+          alt={title ?? "cover"}
+          fill
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+          unoptimized={!canOptimize(src)}
+          className="object-cover"
+        />
         {showTitle && title && (
           <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-navy-950/75 via-navy-950/10 to-transparent p-4">
             <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-medium capitalize text-white backdrop-blur">

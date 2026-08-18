@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { BookOpen, ExternalLink } from "lucide-react";
+import { canOptimize } from "@/lib/images";
 import { Badge } from "@/components/ui/Badge";
 import { useApp } from "@/lib/store/AppProvider";
 
@@ -31,8 +33,14 @@ export function HomeBooks() {
               {/* Cover */}
               <div className="relative h-36 w-24 shrink-0 overflow-hidden rounded-lg shadow-card">
                 {b.coverUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={b.coverUrl} alt={b.title} width={96} height={144} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                  <Image
+                    src={b.coverUrl}
+                    alt={b.title}
+                    fill
+                    sizes="96px"
+                    unoptimized={!canOptimize(b.coverUrl)}
+                    className="object-cover"
+                  />
                 ) : (
                   <div className="grid h-full w-full place-items-center bg-gradient-to-br from-navy-700 to-navy-900 p-2 text-center">
                     <BookOpen className="h-7 w-7 text-gold-400" />

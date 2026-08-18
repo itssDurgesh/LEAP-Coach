@@ -18,6 +18,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { SiteNav } from "@/components/marketing/SiteNav";
+import { SmoothScroll } from "@/components/motion/SmoothScroll";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { FeaturedCourses } from "@/components/marketing/FeaturedCourses";
 import { HomeHero } from "@/components/marketing/HomeHero";
@@ -79,6 +80,8 @@ export default async function Home() {
 
   return (
     <div className="min-h-screen bg-surface">
+      {/* Momentum scrolling + smoothed #anchor jumps, marketing pages only. */}
+      <SmoothScroll />
       <SiteNav overlay />
 
       {/* ── Hero (admin-editable) ── */}
