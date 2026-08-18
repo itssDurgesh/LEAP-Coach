@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, useReducedMotion, AnimatePresence } from "motion/react";
-import { Bot, Check, Sparkles } from "lucide-react";
+import { Bot, Sparkles } from "lucide-react";
 import { HeroMedia } from "@/components/HeroMedia";
 import { ProfessorPhoto } from "@/components/ProfessorPhoto";
 import { Typewriter } from "@/components/marketing/Typewriter";
@@ -120,19 +120,6 @@ export function HeroProductMock({
         </div>
       </div>
 
-      {/* Floating checkpoint chip — the one place a little motion is worth it. */}
-      <div
-        className="absolute -left-3 bottom-16 hidden animate-float items-center gap-2.5 rounded-2xl bg-white p-3 shadow-lift sm:flex lg:-left-8"
-        style={{ animationDelay: "1.2s" }}
-      >
-        <span className="grid h-8 w-8 place-items-center rounded-xl bg-green-100 text-green-700">
-          <Check className="h-4 w-4" strokeWidth={3} />
-        </span>
-        <div>
-          <p className="font-heading text-xs font-bold leading-tight text-navy-900">Checkpoint passed</p>
-          <p className="text-[11px] leading-tight text-navy-500">AI-graded · instant feedback</p>
-        </div>
-      </div>
     </div>
   );
 }

@@ -68,10 +68,10 @@ export function HomeHero({ initialContent }: { initialContent?: SiteContent | nu
         >
           {/* ── Copy ── */}
           <div className="lg:col-span-6 xl:col-span-6">
-            <motion.div variants={item} className="flex items-center gap-3">
-              <span className="h-px w-7 shrink-0 bg-gold-500" aria-hidden />
-              <p className="font-heading text-[10.5px] font-semibold uppercase leading-relaxed tracking-[0.16em] text-cream-100/85 sm:text-xs sm:tracking-[0.2em]">
-                L·E·A·P
+            <motion.div variants={item} className="flex items-start gap-3.5">
+              <span className="mt-3 h-px w-7 shrink-0 bg-gold-500 sm:mt-4" aria-hidden />
+              <p className="font-heading text-sm font-semibold uppercase leading-relaxed tracking-[0.1em] text-cream-100/90 sm:text-base sm:leading-relaxed sm:tracking-[0.13em]">
+                <span className="text-white">L·E·A·P</span>
                 <span className="mx-2 text-gold-400" aria-hidden>
                   /
                 </span>

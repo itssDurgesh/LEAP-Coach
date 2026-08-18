@@ -73,11 +73,11 @@ const config: Config = {
       // stepping at breakpoints. The gap between `display-lg` and a 2xl body heading
       // is what creates hierarchy — the old flat 3xl/4xl scale had almost none.
       fontSize: {
-        "display-sm": ["clamp(1.75rem, 1.3rem + 2.2vw, 2.5rem)", { lineHeight: "1.08", letterSpacing: "-0.02em" }],
-        display: ["clamp(2.25rem, 1.5rem + 3.6vw, 3.5rem)", { lineHeight: "1.03", letterSpacing: "-0.025em" }],
-        "display-lg": ["clamp(2.75rem, 1.35rem + 6vw, 5.25rem)", { lineHeight: "0.98", letterSpacing: "-0.03em" }],
+        "display-sm": ["clamp(1.5rem, 1.25rem + 1.3vw, 2rem)", { lineHeight: "1.12", letterSpacing: "-0.018em" }],
+        display: ["clamp(1.875rem, 1.4rem + 2.1vw, 2.75rem)", { lineHeight: "1.08", letterSpacing: "-0.022em" }],
+        "display-lg": ["clamp(2.25rem, 1.5rem + 3.2vw, 3.5rem)", { lineHeight: "1.04", letterSpacing: "-0.026em" }],
         // Section numerals on the "how it works" spine
-        numeral: ["clamp(3rem, 1.5rem + 6.5vw, 6.5rem)", { lineHeight: "0.82", letterSpacing: "-0.04em" }],
+        numeral: ["clamp(2.5rem, 1.6rem + 3.8vw, 4.25rem)", { lineHeight: "0.85", letterSpacing: "-0.035em" }],
       },
       transitionTimingFunction: {
         "out-expo": "cubic-bezier(0.16, 1, 0.3, 1)",
