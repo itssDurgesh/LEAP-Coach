@@ -56,10 +56,9 @@ export function PricingClient({ initialPricing }: { initialPricing: PricingTiers
       <SiteNav />
 
       <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute -top-24 right-10 h-80 w-80 rounded-full bg-gold-300/30 blur-3xl" />
         <div className="relative mx-auto max-w-7xl px-5 py-16 text-center sm:px-8">
           <Badge variant="gold">Pricing</Badge>
-          <h1 className="mt-4 font-heading text-4xl font-bold text-heading">Simple, transparent pricing</h1>
+          <h1 className="mt-4 text-balance font-heading text-display font-bold text-heading">Simple, transparent pricing</h1>
           <p className="mx-auto mt-3 max-w-xl text-muted">
             Buy a single topic, unlock a whole category, or get everything with the All-Access Pass.
           </p>
@@ -74,7 +73,7 @@ export function PricingClient({ initialPricing }: { initialPricing: PricingTiers
       <section className="mx-auto max-w-5xl px-5 pb-20 sm:px-8">
         <div className="grid items-start gap-6 md:grid-cols-2">
           {/* Per-topic */}
-          <div className="rounded-3xl border border-hair bg-card p-8 shadow-card">
+          <div className="rounded-3xl border border-hair bg-card p-8">
             <span className="grid h-12 w-12 place-items-center rounded-2xl bg-surface-2 text-heading">
               <BookOpen className="h-6 w-6" />
             </span>
@@ -187,7 +186,7 @@ export function PricingClient({ initialPricing }: { initialPricing: PricingTiers
           <h2 className="text-center font-heading text-2xl font-bold text-heading">Frequently asked questions</h2>
           <div className="mt-6 space-y-3">
             {faqs.map((f) => (
-              <div key={f.q} className="rounded-2xl border border-hair bg-card p-5">
+              <div key={f.q} className="rounded-3xl border border-hair bg-card p-5">
                 <p className="font-heading font-semibold text-heading">{f.q}</p>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted">{f.a}</p>
               </div>

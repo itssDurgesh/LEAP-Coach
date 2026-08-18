@@ -97,7 +97,6 @@ export function TeamDirectory() {
             key={f.id}
             className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-hair bg-card p-8 text-center shadow-card"
           >
-            <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-gold-300/20 blur-2xl" />
             <Avatar src={f.photoUrl} name={f.name} size={150} className="relative mx-auto ring-4 ring-gold-200" />
             <div className="relative mt-4">
               <Badge variant="gold">{groupLabel(f.group)}</Badge>
@@ -140,7 +139,7 @@ export function TeamDirectory() {
               {items.map((m) => (
                 <div
                   key={m.id}
-                  className="w-full max-w-sm rounded-2xl border border-hair bg-card p-6 text-center shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover"
+                  className="w-full max-w-sm rounded-3xl border border-hair bg-card p-6 text-center shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover"
                 >
                   <Avatar src={m.photoUrl} name={m.name} size={96} className="mx-auto" />
                   <h3 className="mt-4 font-heading text-lg font-semibold text-heading">{m.name}</h3>
