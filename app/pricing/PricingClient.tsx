@@ -150,7 +150,7 @@ export function PricingClient({ initialPricing }: { initialPricing: PricingTiers
               })}
             </div>
 
-            <p className="mt-5 font-heading text-3xl font-bold text-heading">
+            <p className="mt-5 font-heading text-display-sm font-bold leading-none text-heading">
               {selected.length ? formatINR(bundleAmount) : formatINR(pricing.cat1)}
               <span className="text-sm font-medium text-faint">
                 {" "}

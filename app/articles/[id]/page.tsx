@@ -65,7 +65,7 @@ function ArticleReader() {
           </div>
         )}
         <div className="p-6 sm:p-8">
-          <h1 className="font-heading text-3xl font-bold leading-tight text-heading">{article.title}</h1>
+          <h1 className="text-balance font-heading text-display-sm font-bold leading-tight text-heading">{article.title}</h1>
 
           <div className="mt-4 flex items-center gap-3 border-b border-hair pb-5">
             <Avatar src={author?.avatarUrl} name={article.authorName} size={40} />
