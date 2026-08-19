@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Linkedin, Lock, Mail, MapPin, Phone, Youtube } from "lucide-react";
+import { ArrowRight, Linkedin, Mail, MapPin, Phone, Youtube } from "lucide-react";
 import { Container } from "@/components/marketing/Container";
 import { Logo } from "@/components/ui/Logo";
 
@@ -157,12 +157,6 @@ export function SiteFooter() {
             >
               Contact support
             </a>
-            <Link
-              href="/admin/login"
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-cream-100/75 transition-colors duration-200 hover:border-gold-400 hover:text-gold-400"
-            >
-              <Lock className="h-3 w-3" /> Admin access
-            </Link>
           </div>
         </div>
       </Container>

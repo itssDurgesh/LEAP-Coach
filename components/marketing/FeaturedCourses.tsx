@@ -50,7 +50,7 @@ function CourseCardLink({ course }: { course: Course }) {
         <div className="mt-auto flex items-center justify-between border-t border-hair pt-4 text-sm">
           <span className="inline-flex items-center gap-1.5 font-medium text-heading">
             <Star className="h-4 w-4 fill-gold-500 text-gold-500" />
-            {course.rating.toFixed(1)}
+            {course.ratingCount > 0 ? course.rating.toFixed(1) : "New"}
           </span>
           <span className="font-heading text-base font-bold text-heading">
             {course.price === 0 ? "Free" : formatINR(course.price)}

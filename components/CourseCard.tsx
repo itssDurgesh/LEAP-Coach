@@ -59,7 +59,7 @@ export function CourseCard({ course, enrolled, progressPct, href }: CourseCardPr
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5 tabular-nums">
             <Star className="h-3.5 w-3.5 fill-gold-500 text-gold-500" />
-            {course.rating.toFixed(1)}
+            {course.ratingCount > 0 ? course.rating.toFixed(1) : "New"}
           </span>
           <span className="inline-flex items-center gap-1.5 tabular-nums">
             <Clock className="h-3.5 w-3.5" /> {formatDuration(duration)}

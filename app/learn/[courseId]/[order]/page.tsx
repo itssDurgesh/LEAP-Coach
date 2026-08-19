@@ -31,7 +31,7 @@ import { VideoComments } from "@/components/discussion/VideoComments";
 import { useApp } from "@/lib/store/AppProvider";
 import { useRequireLearner } from "@/components/app/guards";
 import { cn, formatClock, timeAgo } from "@/lib/utils";
-import { downloadNotesPdf } from "@/lib/pdf";
+import { downloadNotesPdf, downloadLessonNotesPdf } from "@/lib/pdf";
 import { Course, Video } from "@/lib/types";
 
 export default function PlayerPage() {
@@ -133,17 +133,31 @@ function Player({ course, video }: { course: Course; video: Video }) {
 
   const myNotes = notesFor(video.id);
 
-  function downloadNotes() {
-    const body =
-      `LEAP Coach — Class Notes\n${course.title}\nVideo ${video.order}: ${video.title}\n\n` +
-      `${video.summary}\n\n${video.transcript}\n`;
-    const blob = new Blob([body], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = (video.notesPdfName ?? `${course.slug}-session-${video.order}-notes.pdf`).replace(/\.pdf$/, ".txt");
-    a.click();
-    URL.revokeObjectURL(url);
+  /**
+   * Class-notes download.
+   *
+   * Prefers the file the admin actually uploaded for this lesson (PDF/DOCX/etc,
+   * served with its real name and extension). Only when no file exists do we
+   * generate a PDF from the summary + transcript. The previous version ignored the
+   * upload entirely and always produced a text/plain blob renamed to .txt.
+   */
+  async function downloadNotes() {
+    if (video.notesPdfUrl) {
+      const a = document.createElement("a");
+      a.href = video.notesPdfUrl;
+      a.download = video.notesPdfName ?? `${course.slug}-session-${video.order}-notes`;
+      a.rel = "noopener";
+      a.click();
+      return;
+    }
+    await downloadLessonNotesPdf(
+      course.title,
+      video.order,
+      video.title,
+      video.summary,
+      video.transcript,
+      video.notesPdfName ?? `${course.slug}-session-${video.order}-notes`,
+    );
   }
 
   const discussionCount = videoCommentsFor(video.id).length;

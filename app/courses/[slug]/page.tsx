@@ -166,8 +166,11 @@ function CourseDetail() {
             {[
               {
                 label: "Rating",
-                value: course.rating.toFixed(1),
-                sub: `${course.ratingCount} ratings`,
+                value: course.ratingCount > 0 ? course.rating.toFixed(1) : "New",
+                sub:
+                  course.ratingCount > 0
+                    ? `${course.ratingCount} ${course.ratingCount === 1 ? "rating" : "ratings"}`
+                    : "no ratings yet",
                 icon: Star,
               },
               {
@@ -546,8 +549,17 @@ function CourseDetail() {
             <div className="mt-5 flex items-center gap-3 rounded-2xl bg-surface-2 p-4 text-sm">
               <Award className="h-5 w-5 shrink-0 text-gold-600" />
               <span className="text-muted">
-                Rated <span className="font-heading font-bold text-heading">{course.rating.toFixed(1)}</span> by{" "}
-                {course.ratingCount} learners
+                {course.ratingCount > 0 ? (
+                  <>
+                    Rated{" "}
+                    <span className="font-heading font-bold text-heading">
+                      {course.rating.toFixed(1)}
+                    </span>{" "}
+                    by {course.ratingCount} {course.ratingCount === 1 ? "learner" : "learners"}
+                  </>
+                ) : (
+                  "Not rated yet — be the first to review this topic"
+                )}
               </span>
             </div>
           </div>

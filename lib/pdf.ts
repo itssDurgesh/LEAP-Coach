@@ -123,3 +123,93 @@ export async function downloadNotesPdf(course: Course, notes: Note[], learnerNam
 
   doc.save(`${course.slug}-my-notes.pdf`);
 }
+
+/**
+ * Class notes for a single lesson, as a real PDF.
+ *
+ * Used when a lesson has no admin-uploaded notes file. The player previously
+ * generated a text/plain blob and renamed the extension from .pdf to .txt, so the
+ * "Download" button never produced the document it promised.
+ */
+export async function downloadLessonNotesPdf(
+  courseTitle: string,
+  videoOrder: number,
+  videoTitle: string,
+  summary: string,
+  transcript: string,
+  fileName: string,
+): Promise<void> {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 48;
+  const contentW = pageW - margin * 2;
+  let y = margin;
+
+  const page = () => {
+    doc.addPage();
+    y = margin;
+  };
+  const room = (h: number) => {
+    if (y + h > pageH - margin) page();
+  };
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(...GOLD);
+  doc.text("LEAP COACH · CLASS NOTES", margin, y);
+  y += 22;
+
+  doc.setFontSize(18);
+  doc.setTextColor(...NAVY);
+  for (const line of doc.splitTextToSize(videoTitle, contentW) as string[]) {
+    room(24);
+    doc.text(line, margin, y);
+    y += 22;
+  }
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(...FAINT);
+  doc.text(`${courseTitle} · Video ${videoOrder}`, margin, y);
+  y += 24;
+
+  if (summary) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(...NAVY);
+    room(18);
+    doc.text("Summary", margin, y);
+    y += 16;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.setTextColor(...INK);
+    for (const line of doc.splitTextToSize(summary, contentW) as string[]) {
+      room(15);
+      doc.text(line, margin, y);
+      y += 15;
+    }
+    y += 12;
+  }
+
+  if (transcript) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(...NAVY);
+    room(18);
+    doc.text("Transcript", margin, y);
+    y += 16;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.setTextColor(...INK);
+    for (const line of doc.splitTextToSize(transcript, contentW) as string[]) {
+      room(15);
+      doc.text(line, margin, y);
+      y += 15;
+    }
+  }
+
+  doc.save(fileName.replace(/\.[^.]+$/, "") + ".pdf");
+}

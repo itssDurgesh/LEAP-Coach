@@ -127,7 +127,7 @@ function DashboardContent() {
             <Badge variant="neutral">{tier.label}</Badge>
           </div>
           <h1 className="mt-2.5 font-heading text-display-sm font-bold leading-tight text-heading">
-            Welcome back, {firstName}
+            Welcome back, {firstName} Coachee
           </h1>
           <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted">
             You&rsquo;ve watched {totals.done} of {totals.all || 0} videos across your coaching
