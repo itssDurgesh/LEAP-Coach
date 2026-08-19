@@ -151,6 +151,17 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
+        {/* Framer Motion renders its `initial` state into the HTML, so scroll-reveal
+            elements (the hero h1 among ~37 of them) ship as opacity:0 and only become
+            visible once JS animates them. With scripting unavailable that content
+            would never appear, so force it visible in that case. */}
+        <noscript>
+          <style
+            dangerouslySetInnerHTML={{
+              __html: '[style*="opacity:0"]{opacity:1!important;transform:none!important;filter:none!important}',
+            }}
+          />
+        </noscript>
       </head>
       <body className="font-sans antialiased">
         <ThemeProvider>
