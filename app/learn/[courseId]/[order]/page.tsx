@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/Field";
 import { MockVideoPlayer } from "@/components/learn/MockVideoPlayer";
 import { MuxVideoPlayer } from "@/components/learn/MuxVideoPlayer";
 import { LeapChat } from "@/components/learn/LeapChat";
+import { RatingModal } from "@/components/learn/RatingModal";
 import { VideoComments } from "@/components/discussion/VideoComments";
 import { useApp } from "@/lib/store/AppProvider";
 import { useRequireLearner } from "@/components/app/guards";
@@ -84,11 +85,39 @@ function Player({ course, video }: { course: Course; video: Video }) {
     addNote,
     deleteNote,
     videoCommentsFor,
+    isCourseComplete,
+    myRatingFor,
   } = useApp();
 
   const [bottomTab, setBottomTab] = React.useState<"notes" | "transcript" | "resources" | "discussion">("transcript");
   const [rightTab, setRightTab] = React.useState<"chat" | "notes">("chat");
   const [noteText, setNoteText] = React.useState("");
+  const [rateOpen, setRateOpen] = React.useState(false);
+  const promptedRef = React.useRef(false);
+
+  // Prompt for a rating once the last video/checkpoint lands — once per learner per
+  // topic, remembered so finishing another lesson later doesn't re-open it.
+  // Re-rating stays available from the topic page.
+  //
+  // Deliberately synchronous with no setTimeout. Two earlier versions lost the
+  // prompt to effect churn: deps included the currentUser object (new identity each
+  // render), and the cleanup cancelled the pending timeout while the ref guard
+  // stopped it ever being rescheduled. Primitive deps + no timer = nothing to cancel.
+  const complete = isCourseComplete(course.id);
+  const alreadyRated = !!myRatingFor(course.id);
+  const learnerId = currentUser?.id;
+  React.useEffect(() => {
+    if (!complete || alreadyRated || !learnerId || promptedRef.current) return;
+    const key = `leap-rated-prompt:${learnerId}:${course.id}`;
+    try {
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, "1");
+    } catch {
+      /* private mode — fall through and show it */
+    }
+    promptedRef.current = true;
+    setRateOpen(true);
+  }, [complete, alreadyRated, learnerId, course.id]);
 
   const courseNotes = notesForCourse(course.id);
 
@@ -476,6 +505,8 @@ function Player({ course, video }: { course: Course; video: Video }) {
           </aside>
         </div>
       </main>
+
+      <RatingModal course={course} open={rateOpen} onClose={() => setRateOpen(false)} />
     </div>
   );
 }

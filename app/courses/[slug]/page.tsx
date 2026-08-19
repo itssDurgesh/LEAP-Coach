@@ -23,6 +23,7 @@ import { AppShell } from "@/components/app/AppShell";
 import { CourseThumb } from "@/components/CourseThumb";
 import { CourseCard } from "@/components/CourseCard";
 import { CheckoutModal } from "@/components/CheckoutModal";
+import { RatingModal } from "@/components/learn/RatingModal";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClasses } from "@/components/ui/Button";
@@ -63,9 +64,12 @@ function CourseDetail() {
     progress,
     enrollments,
     notesForCourse,
+    isCourseComplete,
+    myRatingFor,
   } = useApp();
 
   const [checkout, setCheckout] = React.useState(false);
+  const [rateOpen, setRateOpen] = React.useState(false);
   const course = getCourseBySlug(params.slug);
 
   if (!course) {
@@ -96,6 +100,8 @@ function CourseDetail() {
   const report = currentUser ? buildTopicReport(course, currentUser.id, submissions, progress, enrollment) : null;
   const earnedCredit = currentUser ? topicCredit(course, currentUser.id, submissions).credit : 0;
   const myNotes = currentUser ? notesForCourse(course.id) : [];
+  const myRating = myRatingFor(course.id);
+  const topicComplete = isCourseComplete(course.id);
 
   function handleEnroll() {
     if (!currentUser) return;
@@ -264,6 +270,17 @@ function CourseDetail() {
                     {prog.completed > 0 ? "Continue learning" : "Start course"}
                     <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
                   </Link>
+                  {topicComplete && (
+                    <Button
+                      variant="outline"
+                      size="md"
+                      className="mt-2.5 w-full"
+                      onClick={() => setRateOpen(true)}
+                    >
+                      <Star className={cn("h-4 w-4", myRating && "fill-gold-500 text-gold-500")} />
+                      {myRating ? `Your rating · ${myRating.stars}/5` : "Rate this topic"}
+                    </Button>
+                  )}
                   {expiresAt && (
                     <p className="mt-2.5 text-center text-xs text-faint">
                       Access valid until {fmtDate(expiresAt)}
@@ -557,6 +574,8 @@ function CourseDetail() {
         onClose={() => setCheckout(false)}
         onComplete={() => router.push(`/learn/${course.id}/1`)}
       />
+
+      <RatingModal course={course} open={rateOpen} onClose={() => setRateOpen(false)} />
     </div>
   );
 }

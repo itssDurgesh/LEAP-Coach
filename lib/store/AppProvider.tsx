@@ -10,6 +10,7 @@ import {
   CommunityPost,
   Coupon,
   Course,
+  CourseRating,
   DailyTip,
   Enrollment,
   Faq,
@@ -130,6 +131,7 @@ interface AppState {
   progress: VideoProgress[];
   submissions: Submission[];
   notes: Note[];
+  courseRatings: CourseRating[];
   coupons: Coupon[];
   payments: Payment[];
   pricing: PricingTiers;
@@ -159,6 +161,7 @@ function seedState(): AppState {
     progress: seedProgress,
     submissions: seedSubmissions,
     notes: seedNotes,
+    courseRatings: [],
     coupons: seedCoupons,
     payments: [],
     pricing: DEFAULT_PRICING,
@@ -171,7 +174,7 @@ function emptyState(): AppState {
     users: [], courses: [], tracks: DEFAULT_TRACKS, tips: [], sessions: [], resources: [],
     community: [], comments: [], videoComments: [], notifications: [], teamMembers: [], books: [], articles: [],
     announcements: [], faqs: [], privacyPolicy: DEFAULT_PRIVACY_POLICY,
-    siteContent: DEFAULT_SITE_CONTENT, enrollments: [], progress: [], submissions: [], notes: [], coupons: [],
+    siteContent: DEFAULT_SITE_CONTENT, enrollments: [], progress: [], submissions: [], notes: [], courseRatings: [], coupons: [],
     payments: [], pricing: DEFAULT_PRICING, currentUserId: null,
   };
 }
@@ -261,6 +264,11 @@ interface AppContextValue extends AppState {
   // notes
   notesFor(videoId: string, userId?: string): Note[];
   notesForCourse(courseId: string, userId?: string): Note[];
+  // ratings — one per learner per topic; the DB trigger recomputes course.rating
+  myRatingFor(courseId: string, userId?: string): CourseRating | undefined;
+  /** True once every video AND every gated checkpoint in the topic is done. */
+  isCourseComplete(courseId: string, userId?: string): boolean;
+  submitCourseRating(courseId: string, stars: number, review?: string): void;
   addNote(videoId: string, text: string): void;
   deleteNote(noteId: string): void;
   // community
@@ -1047,6 +1055,55 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         return state.notes
           .filter((n) => n.userId === who(userId) && videoIds.has(n.videoId))
           .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)); // oldest first across the topic
+      },
+      myRatingFor(courseId, userId) {
+        const uidNow = userId ?? currentUser?.id;
+        if (!uidNow) return undefined;
+        return state.courseRatings.find((r) => r.courseId === courseId && r.userId === uidNow);
+      },
+      isCourseComplete(courseId, userId) {
+        const uidNow = userId ?? currentUser?.id;
+        if (!uidNow) return false;
+        const course = state.courses.find((c) => c.id === courseId);
+        if (!course || !course.videos.length) return false;
+        const allVideos = course.videos.every((v) =>
+          state.progress.some((p) => p.userId === uidNow && p.videoId === v.id && p.completed),
+        );
+        if (!allVideos) return false;
+        // A topic is not finished while a checkpoint is still unpassed.
+        return course.assignments.every((a) =>
+          state.submissions.some((sub) => sub.userId === uidNow && sub.assignmentId === a.id && sub.passed),
+        );
+      },
+      submitCourseRating(courseId, stars, review) {
+        if (!currentUser) return;
+        const clamped = Math.max(1, Math.min(5, Math.round(stars)));
+        const existing = state.courseRatings.find(
+          (r) => r.courseId === courseId && r.userId === currentUser.id,
+        );
+        const rating: CourseRating = {
+          id: existing?.id ?? uid("rating"),
+          userId: currentUser.id,
+          courseId,
+          stars: clamped,
+          review: review?.trim() ? review.trim() : null,
+          createdAt: existing?.createdAt ?? new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setState((s) => ({
+          ...s,
+          courseRatings: [...s.courseRatings.filter((r) => r.id !== rating.id), rating],
+          // Mirror the aggregate locally so the UI updates at once. Supabase recomputes
+          // the authoritative value via trigger and the next loadAll overwrites this.
+          courses: s.courses.map((c) => {
+            if (c.id !== courseId) return c;
+            const others = s.courseRatings.filter((r) => r.courseId === courseId && r.id !== rating.id);
+            const all = [...others, rating];
+            const avg = all.reduce((sum, r) => sum + r.stars, 0) / all.length;
+            return { ...c, rating: Math.round(avg * 100) / 100, ratingCount: all.length };
+          }),
+        }));
+        if (sb) fire(db.upsertCourseRating(sb, rating));
       },
       addNote(videoId, text) {
         if (!currentUser || !text.trim()) return;
