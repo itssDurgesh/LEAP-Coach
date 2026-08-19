@@ -7,11 +7,8 @@ import { cn } from "@/lib/utils";
  * Plays the looping, muted, autoplaying hero clip.
  *
  * The source is the bundled public/professor-hero.mp4, hardcoded on purpose so it
- * starts immediately with no CDN round-trip. It used to read
- * NEXT_PUBLIC_HERO_VIDEO_URL first, but that pointed at a Supabase "public-assets"
- * bucket which does not exist — every request came back NoSuchBucket, the video
- * never loaded, and the old still-image fallback was what actually rendered. That
- * env var is now unused and can be deleted.
+ * starts immediately with no CDN round-trip. The file is laid out faststart (moov
+ * before mdat) so playback begins without downloading the whole clip.
  *
  * There is deliberately NO still-image fallback: if the clip fails, the element
  * stays transparent and the container's own gradient shows through.

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ExternalLink, Instagram, Linkedin, Youtube } from "lucide-react";
 import { Container } from "@/components/marketing/Container";
-import { HomeProfessorStats } from "@/components/marketing/HomeProfessorStats";
+import { HomeProfessorStats } from "@/components/marketing/home/HomeProfessorStats";
 import { ProfessorPhoto } from "@/components/ProfessorPhoto";
 import { Reveal } from "@/components/motion/Reveal";
 import { buttonClasses } from "@/components/ui/button-variants";

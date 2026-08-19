@@ -6,7 +6,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { ArrowRight } from "lucide-react";
 import { Container } from "@/components/marketing/Container";
 import { Typewriter } from "@/components/marketing/Typewriter";
-import { HeroProductMock } from "@/components/marketing/HeroProductMock";
+import { HeroProductMock } from "@/components/marketing/home/HeroProductMock";
 import { PROFESSOR } from "@/lib/professor";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { useApp } from "@/lib/store/AppProvider";
