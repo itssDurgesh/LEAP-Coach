@@ -13,7 +13,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     if (!hydrated) return;
-    if (!currentUser) router.replace("/login");
+    // Signed-out visitors arriving from the public nav (e.g. "Topics") get the
+    // signup page — they are far more likely to be new than returning.
+    if (!currentUser) router.replace("/signup");
     else if (currentUser.isAdmin) router.replace("/admin");
     else if (!currentUser.role) router.replace("/select-role");
   }, [hydrated, currentUser, router]);
@@ -29,7 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-surface">
       <AppHeader />
-      <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8">{children}</main>
+      <main className="mx-auto max-w-[88rem] px-5 py-8 sm:px-8">{children}</main>
     </div>
   );
 }

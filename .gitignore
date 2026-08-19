@@ -23,7 +23,9 @@ yarn-error.log*
 .env*.local
 
 # large media (host on CDN instead of git)
-public/professor-hero.mp4
+# NOTE: public/professor-hero.mp4 is now tracked on purpose — the Supabase
+# "public-assets" bucket the CDN URL pointed at does not exist (NoSuchBucket),
+# so the hero video ships with the app instead.
 
 # Claude
 .claude

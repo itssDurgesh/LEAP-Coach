@@ -10,13 +10,7 @@ import { Field, Input, PasswordInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { useApp } from "@/lib/store/AppProvider";
 import { homeFor } from "@/lib/store/routes";
-import { DEMO_ACCOUNTS } from "@/lib/mock/seed";
 
-const demoRoles = [
-  { role: "student", label: "Student" },
-  { role: "professional", label: "Professional" },
-  { role: "entrepreneur", label: "Entrepreneur" },
-] as const;
 
 export default function LoginPage() {
   const { signIn, oauthSignIn, supabaseMode } = useApp();
@@ -47,7 +41,7 @@ export default function LoginPage() {
       const r = await oauthSignIn(provider);
       if (!r.ok) setError(r.error ?? "Couldn't start sign-in. Please try again.");
     } else {
-      go(DEMO_ACCOUNTS.professional);
+      setError("Google sign-in isn't configured.");
     }
   }
 
@@ -56,12 +50,12 @@ export default function LoginPage() {
       <OAuthButtons onSelect={onOAuth} />
 
       <div className="my-5 flex items-center gap-3 text-xs text-faint">
-        <span className="h-px flex-1 bg-cream-300" /> or sign in with email
-        <span className="h-px flex-1 bg-cream-300" />
+        <span className="h-px flex-1 bg-hair" /> or sign in with email
+        <span className="h-px flex-1 bg-hair" />
       </div>
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
@@ -102,7 +96,7 @@ export default function LoginPage() {
           />
         </Field>
         <div className="-mt-2 text-right">
-          <Link href="/forgot-password" className="text-xs font-semibold text-gold-600 hover:text-gold-700">
+          <Link href="/forgot-password" className="text-xs font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
             Forgot password?
           </Link>
         </div>
@@ -111,26 +105,10 @@ export default function LoginPage() {
         </Button>
       </form>
 
-      {!supabaseMode && (
-        <div className="mt-6 rounded-xl border border-hair bg-surface-2 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-faint">Quick demo sign-in</p>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            {demoRoles.map((d) => (
-              <button
-                key={d.role}
-                onClick={() => go(DEMO_ACCOUNTS[d.role])}
-                className="rounded-lg border border-hair bg-card px-3 py-1.5 text-sm font-medium text-heading transition-colors hover:border-gold-300 hover:bg-gold-50"
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       <p className="mt-6 text-center text-sm text-muted">
         New to LEAP Coach?{" "}
-        <Link href="/signup" className="font-semibold text-gold-600 hover:text-gold-700">
+        <Link href="/signup" className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
           Create an account
         </Link>
       </p>

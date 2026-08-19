@@ -3,9 +3,9 @@
 import * as React from "react";
 import { Search, SlidersHorizontal, X, TrendingUp } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
+import { PageHeader } from "@/components/app/PageHeader";
 import { CourseCard } from "@/components/CourseCard";
 import { Input, Select } from "@/components/ui/Field";
-import { Badge } from "@/components/ui/Badge";
 import { useApp } from "@/lib/store/AppProvider";
 import { Role, courseCategories } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -65,21 +65,20 @@ function CatalogContent() {
   const hasFilters = category !== "all" || duration !== "any" || selectedTracks.length > 0 || search.trim();
 
   return (
-    <div className="space-y-7">
-      <div>
-        <h1 className="font-heading text-3xl font-bold text-heading">Explore Coaching Topics</h1>
-        <p className="mt-1.5 text-muted">
-          Curated for your path. These programs build authentic, high-performance leadership.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Catalog"
+        title="Explore coaching topics"
+        description="Curated for your path. These programs build authentic, high-performance leadership."
+      />
 
-      {/* Trending strip */}
+      {/* ── Trending strip ── */}
       {trending.length > 0 && (
         <section>
-          <h2 className="mb-3 flex items-center gap-2 font-heading text-lg font-bold text-heading">
+          <h2 className="mb-5 flex items-center gap-2 font-heading text-xl font-bold text-heading">
             <TrendingUp className="h-5 w-5 text-orange-500" /> Trending now
           </h2>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {trending.slice(0, 3).map((c) => (
               <CourseCard key={c.id} course={c} enrolled={isEnrolled(c.id)} />
             ))}
@@ -87,8 +86,8 @@ function CatalogContent() {
         </section>
       )}
 
-      {/* Filters */}
-      <div className="rounded-2xl border border-hair bg-card p-4 shadow-card sm:p-5">
+      {/* ── Filters ── */}
+      <div className="rounded-3xl border border-hair bg-card p-5 sm:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
@@ -109,16 +108,16 @@ function CatalogContent() {
         </div>
 
         {/* Category pills */}
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-5 flex flex-wrap gap-2 border-t border-hair pt-5">
           {categories.map((cat) => (
             <button
               key={cat.id}
               onClick={() => setCategory(cat.id)}
               className={cn(
-                "rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
+                "rounded-full px-4 py-1.5 font-heading text-sm font-semibold transition-all duration-200",
                 category === cat.id
-                  ? "bg-navy-800 text-white"
-                  : "bg-surface-2 text-heading hover:bg-surface-2",
+                  ? "bg-gold-500 text-navy-900"
+                  : "bg-surface-2 text-heading hover:bg-gold-100 dark:hover:bg-gold-500/15",
               )}
             >
               {cat.label}
@@ -127,8 +126,8 @@ function CatalogContent() {
         </div>
 
         {/* Leadership track chips */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-faint">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 font-heading text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">
             <SlidersHorizontal className="h-3.5 w-3.5" /> Tracks
           </span>
           {tracks.map((t) => (
@@ -136,10 +135,10 @@ function CatalogContent() {
               key={t.id}
               onClick={() => toggleTrack(t.id)}
               className={cn(
-                "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                "rounded-full border px-3 py-1 text-xs font-medium transition-all duration-200",
                 selectedTracks.includes(t.id)
-                  ? "border-gold-300 bg-gold-50 text-gold-700"
-                  : "border-hair bg-card text-muted hover:border-navy-200",
+                  ? "border-gold-500 bg-gold-500 text-navy-900"
+                  : "border-hair bg-card text-muted hover:border-gold-400 hover:text-heading",
               )}
             >
               {t.label}
@@ -148,11 +147,11 @@ function CatalogContent() {
         </div>
       </div>
 
-      {/* Results */}
+      {/* ── Results ── */}
       <section>
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-5 flex items-center justify-between gap-4">
           <p className="text-sm text-muted">
-            <span className="font-semibold text-heading">{filtered.length}</span>{" "}
+            <span className="font-heading font-bold tabular-nums text-heading">{filtered.length}</span>{" "}
             {filtered.length === 1 ? "topic" : "topics"}
           </p>
           {hasFilters && (
@@ -163,7 +162,7 @@ function CatalogContent() {
                 setDuration("any");
                 setSelectedTracks([]);
               }}
-              className="inline-flex items-center gap-1 text-sm font-medium text-gold-600 hover:text-gold-700"
+              className="inline-flex items-center gap-1.5 font-heading text-sm font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600"
             >
               <X className="h-4 w-4" /> Clear filters
             </button>
@@ -171,15 +170,15 @@ function CatalogContent() {
         </div>
 
         {filtered.length ? (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map((c) => (
               <CourseCard key={c.id} course={c} enrolled={isEnrolled(c.id)} />
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-hair bg-card py-16 text-center">
-            <p className="font-heading text-lg font-semibold text-heading">No topics match your filters</p>
-            <p className="mt-1 text-sm text-muted">Try widening your search or clearing filters.</p>
+          <div className="rounded-3xl border border-dashed border-hair bg-card py-20 text-center">
+            <p className="font-heading text-lg font-bold text-heading">No topics match your filters</p>
+            <p className="mt-1.5 text-sm text-muted">Try widening your search or clearing filters.</p>
           </div>
         )}
       </section>

@@ -105,3 +105,68 @@ body {
     height: 6px;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────
+   Lenis smooth scroll
+   Scoped by the classes Lenis stamps on <html>, so this only affects pages that
+   actually mount <SmoothScroll/> (the public marketing pages). Admin and in-app
+   pages keep native scrolling and the `scroll-behavior: smooth` set above.
+   ────────────────────────────────────────────────────────────── */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+/* Scoped to `.lenis` (present for as long as Lenis is mounted), NOT `.lenis-smooth`
+   — that one is transient, applied only while a smooth scroll is mid-flight, so
+   keying off it would leave native smooth-scroll fighting Lenis the rest of the time. */
+html.lenis {
+  scroll-behavior: auto !important;
+}
+.lenis [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+@layer utilities {
+  /* Fine film grain. This replaces the corner blur-blobs as the texture on dark
+     panels — blobs read as template output, grain reads as print. Apply to an
+     absolutely-positioned overlay div. */
+  .texture-grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Hairline column rules — structural texture for section backgrounds. */
+  .texture-rules {
+    background-image: linear-gradient(to right, var(--hair) 1px, transparent 1px);
+    background-size: 25% 100%;
+  }
+
+  /* Soft edges for the marquee / edge-bleed carousels. */
+  .mask-fade-x {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  }
+
+  /* Outlined numerals for the "how it works" spine. */
+  .text-stroke {
+    -webkit-text-stroke: 1.5px currentColor;
+    color: transparent;
+  }
+
+  /* Optical alignment for large display type set flush-left. */
+  .hang-punctuation {
+    hanging-punctuation: first last;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-float {
+    animation: none !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}

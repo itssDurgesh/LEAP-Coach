@@ -7,6 +7,7 @@ import {
   CommunityPost,
   Coupon,
   Course,
+  CourseRating,
   DailyTip,
   Enrollment,
   Faq,
@@ -37,6 +38,7 @@ const mapTip = (r: Row): DailyTip => ({ id: r.id, text: r.text, author: r.author
 const mapResource = (r: Row): RecommendedResource => ({ id: r.id, title: r.title, type: r.type, author: r.author, blurb: r.blurb, targetRole: r.target_role, accent: r.accent });
 const mapQuestion = (r: Row): Question => ({ id: r.id, type: r.type, prompt: r.prompt, options: r.options ?? [], correctAnswer: r.correct_answer, explanation: r.explanation });
 const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, transcript: r.transcript ?? "", summary: r.summary ?? "", notesPdfName: r.notes_pdf_url ?? undefined, notesPdfUrl: r.notes_file_url ?? null, resources: r.resources ?? [] });
+const mapCourseRating = (r: Row): CourseRating => ({ id: r.id, userId: r.user_id, courseId: r.course_id, stars: r.stars, review: r.review ?? null, createdAt: r.created_at, updatedAt: r.updated_at ?? null });
 const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.course_id, enrolledAt: r.enrolled_at, completedAt: r.completed_at });
 const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at });
 const mapNote = (r: Row): Note => ({ id: r.id, userId: r.user_id, videoId: r.video_id, text: r.text, createdAt: r.created_at });
@@ -145,6 +147,7 @@ export interface LoadedData {
   progress: VideoProgress[];
   submissions: Submission[];
   notes: Note[];
+  courseRatings: CourseRating[];
   coupons: Coupon[];
   payments: Payment[];
   pricing: PricingTiers | null;
@@ -158,7 +161,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     profiles, purchases, tracks, courses, , , ,
     tips, resources, sessions, attendees, enrollments, progress, submissions, notes, posts, likes, coupons,
     categoryPasses, pricingRows, comments, commentLikes, notifications, teamMembers, books, siteRows, articleRows, paymentRows,
-    videoCommentRows, videoCommentLikeRows, announcementRows, faqRows, sitePageRows,
+    videoCommentRows, videoCommentLikeRows, announcementRows, faqRows, sitePageRows, courseRatingRows,
   ] = await Promise.all([
     rows(sb.from("profiles").select("*")),
     rows(sb.from("course_purchases").select("*")),
@@ -198,6 +201,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     rows(sb.from("announcements").select("*")),
     rows(sb.from("faqs").select("*")),
     rows(sb.from("site_pages").select("*")),
+    rows(sb.from("course_ratings").select("*")),
   ]);
 
   const purchasesByUser = group(purchases, (p) => p.user_id);
@@ -258,6 +262,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     progress: progress.map(mapProgress),
     submissions: submissions.map(mapSubmission),
     notes: notes.map(mapNote),
+    courseRatings: courseRatingRows.map(mapCourseRating),
     coupons: coupons.map(mapCoupon),
     payments: paymentRows.map(mapPayment).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     pricing: pricingRows[0]
@@ -324,6 +329,24 @@ export const insertSubmission = (sb: SupabaseClient, s: Submission) =>
     answers: s.answers, score: s.score, passed: s.passed, feedback: s.feedback,
     attempt_number: s.attemptNumber, submitted_at: s.submittedAt,
   });
+
+/**
+ * Upsert on (user_id, course_id): re-rating a topic replaces the learner's row
+ * rather than stacking duplicates. The DB trigger recomputes courses.rating.
+ */
+export const upsertCourseRating = (sb: SupabaseClient, r: CourseRating) =>
+  sb.from("course_ratings").upsert(
+    {
+      id: r.id,
+      user_id: r.userId,
+      course_id: r.courseId,
+      stars: r.stars,
+      review: r.review ?? null,
+      created_at: r.createdAt,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,course_id" },
+  );
 
 export const insertNote = (sb: SupabaseClient, n: Note) =>
   sb.from("user_notes").insert({ id: n.id, user_id: n.userId, video_id: n.videoId, text: n.text, created_at: n.createdAt });

@@ -81,7 +81,7 @@ export default function ForgotPasswordPage() {
       }
     >
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
@@ -172,7 +172,7 @@ export default function ForgotPasswordPage() {
               type="button"
               onClick={() => void sendCode(true)}
               disabled={busy}
-              className="font-semibold text-gold-600 hover:text-gold-700 disabled:opacity-50"
+              className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600 disabled:opacity-50"
             >
               Resend code
             </button>
@@ -185,7 +185,7 @@ export default function ForgotPasswordPage() {
                 setError("");
                 setNotice("");
               }}
-              className="font-semibold text-gold-600 hover:text-gold-700"
+              className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600"
             >
               Use a different email
             </button>
@@ -207,7 +207,7 @@ export default function ForgotPasswordPage() {
 
       <p className="mt-6 text-center text-sm text-muted">
         Remembered it?{" "}
-        <Link href="/login" className="font-semibold text-gold-600 hover:text-gold-700">
+        <Link href="/login" className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
           Back to sign in
         </Link>
       </p>

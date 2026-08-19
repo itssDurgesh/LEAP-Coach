@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Input, Textarea, Field } from "@/components/ui/Field";
 import { useApp } from "@/lib/store/AppProvider";
 import { Article, ArticleImage, articleExcerpt } from "@/lib/types";
+import { uploadMedia } from "@/lib/supabase/storage";
 
 export default function AdminArticlesPage() {
   return (
@@ -174,9 +175,7 @@ function ArticleForm({
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => set({ coverUrl: String(reader.result) });
-    reader.readAsDataURL(file);
+    void uploadMedia(file, "article-covers").then((r) => set({ coverUrl: r.url }));
   }
 
   // Drop a picture into the body at the caret: store it in `images` and splice a short
@@ -202,9 +201,7 @@ function ArticleForm({
   function onPickInlineImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => insertImage(String(reader.result));
-    reader.readAsDataURL(file);
+    void uploadMedia(file, "article-images").then((r) => insertImage(r.url));
     e.target.value = ""; // allow re-uploading the same file
   }
 

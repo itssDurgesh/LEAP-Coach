@@ -106,13 +106,13 @@ export default function AboutPage() {
 
       {/* ── Hero ── */}
       <section className="relative overflow-hidden bg-gradient-to-b from-navy-900 via-navy-900 to-navy-950 dark:from-card dark:via-card dark:to-surface">
-        <div className="pointer-events-none absolute -top-24 right-0 h-96 w-96 rounded-full bg-gold-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute -left-24 top-44 h-80 w-80 rounded-full bg-navy-600/40 blur-3xl" />
+        <div className="pointer-events-none absolute inset-0 texture-rules opacity-[0.07]" aria-hidden />
+        <div className="pointer-events-none absolute inset-0 texture-grain opacity-[0.15] mix-blend-overlay" aria-hidden />
         <div className="relative mx-auto max-w-4xl px-5 py-20 text-center sm:px-8 lg:py-28">
           <p className="font-heading text-sm font-semibold uppercase tracking-[0.16em] text-gold-400">
             About · L·E·A·P Coach
           </p>
-          <h1 className="mt-4 font-heading text-4xl font-extrabold leading-[1.08] text-white sm:text-5xl">
+          <h1 className="mt-4 text-balance font-heading text-display font-extrabold text-white">
             Creating <span className="text-gradient-gold">High-Performance Stars</span>
           </h1>
           <p className="mt-5 text-lg leading-relaxed text-cream-100/80">
@@ -142,7 +142,7 @@ export default function AboutPage() {
         <div className="grid gap-12 lg:grid-cols-[1fr_0.9fr] lg:items-start">
           <div>
             <Badge variant="gold">What is LEAP Coach?</Badge>
-            <h2 className="mt-4 font-heading text-3xl font-bold text-heading sm:text-4xl">
+            <h2 className="mt-4 text-balance font-heading text-display font-bold text-heading">
               Leadership excellence, available 24/7
             </h2>
             <div className="mt-5 space-y-4 leading-relaxed text-muted">
@@ -199,7 +199,7 @@ export default function AboutPage() {
         <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8">
           <div className="mx-auto max-w-2xl text-center">
             <Badge variant="navy">Why LEAP Coach?</Badge>
-            <h2 className="mt-4 font-heading text-3xl font-bold text-heading sm:text-4xl">
+            <h2 className="mt-4 text-balance font-heading text-display font-bold text-heading">
               The gap nobody else is filling
             </h2>
             <p className="mt-3 text-muted">
@@ -226,7 +226,6 @@ export default function AboutPage() {
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Vision */}
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-800 to-navy-950 dark:from-surface-2 dark:to-card p-8 text-white shadow-navy sm:p-10">
-            <div className="pointer-events-none absolute -right-10 -top-10 h-44 w-44 rounded-full bg-gold-500/20 blur-2xl" />
             <span className="grid h-12 w-12 place-items-center rounded-2xl bg-white/10 text-gold-400">
               <Compass className="h-6 w-6" />
             </span>
@@ -264,7 +263,7 @@ export default function AboutPage() {
       <section className="bg-card">
         <div className="mx-auto max-w-5xl px-5 py-20 text-center sm:px-8">
           <Badge variant="gold">Wisdom from many sources</Badge>
-          <h2 className="mt-4 font-heading text-3xl font-bold text-heading sm:text-4xl">
+          <h2 className="mt-4 text-balance font-heading text-display font-bold text-heading">
             Lessons drawn from across disciplines
           </h2>
           <p className="mt-3 text-muted">
@@ -314,8 +313,8 @@ export default function AboutPage() {
       {/* ── CTA ── */}
       <section className="mx-auto max-w-7xl px-5 pb-20 sm:px-8">
         <div className="relative overflow-hidden rounded-3xl bg-navy-900 dark:bg-card px-6 py-14 text-center sm:px-12">
-          <div className="pointer-events-none absolute -right-16 -top-16 h-72 w-72 rounded-full bg-gold-500/20 blur-3xl" />
-          <h2 className="relative font-heading text-3xl font-bold text-white sm:text-4xl">
+          <div className="pointer-events-none absolute inset-0 texture-grain opacity-[0.16] mix-blend-overlay" aria-hidden />
+          <h2 className="relative text-balance font-heading text-display font-bold text-white">
             Ready to begin your LEAP?
           </h2>
           <p className="relative mx-auto mt-3 max-w-xl text-cream-100/75">

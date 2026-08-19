@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,13 +11,21 @@ interface LogoProps {
   href?: string | null;
   variant?: "default" | "light";
   size?: "sm" | "md" | "lg";
+  /** Set on the header logo so it isn't lazy-loaded above the fold. */
+  priority?: boolean;
 }
 
 const markSize = { sm: "h-8 w-8", md: "h-10 w-10", lg: "h-14 w-14" };
 const iconSize = { sm: "h-5 w-5", md: "h-6 w-6", lg: "h-8 w-8" };
 const textSize = { sm: "text-base", md: "text-lg", lg: "text-[1.7rem]" };
 
-export function Logo({ className, href = "/", variant = "default", size = "md" }: LogoProps) {
+export function Logo({
+  className,
+  href = "/",
+  variant = "default",
+  size = "md",
+  priority = false,
+}: LogoProps) {
   const [imgOk, setImgOk] = React.useState(true);
   const onDark = variant === "light";
 
@@ -35,12 +44,12 @@ export function Logo({ className, href = "/", variant = "default", size = "md" }
       {imgOk ? (
         // object-contain, not cover: the mark is square with its own white plate, so
         // covering a non-square box would crop the ring and the star off the edges.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <Image
           src="/logo-mark.png"
           alt="LEAP Coach"
-          width={256}
-          height={256}
+          width={128}
+          height={128}
+          priority={priority}
           className="h-full w-full rounded-xl bg-white object-contain"
           onError={() => setImgOk(false)}
         />

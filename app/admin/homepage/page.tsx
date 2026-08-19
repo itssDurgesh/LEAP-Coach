@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Input, Textarea, Field } from "@/components/ui/Field";
 import { useApp } from "@/lib/store/AppProvider";
 import { Book, SiteContent, SiteStat } from "@/lib/types";
+import { uploadMedia } from "@/lib/supabase/storage";
 
 export default function AdminHomepagePage() {
   return (
@@ -317,9 +318,7 @@ function BookForm({ book, onSave, onCancel }: { book: Book; onSave: (b: Book) =>
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => set({ coverUrl: String(reader.result) });
-    reader.readAsDataURL(file);
+    void uploadMedia(file, "book-covers").then((r) => set({ coverUrl: r.url }));
   }
 
   return (

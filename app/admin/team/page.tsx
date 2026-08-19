@@ -13,6 +13,7 @@ import { useApp } from "@/lib/store/AppProvider";
 import { resolveTeam } from "@/lib/team";
 import { TeamMember, TEAM_GROUPS } from "@/lib/types";
 import { normalizeExternalUrl } from "@/lib/utils";
+import { uploadMedia } from "@/lib/supabase/storage";
 
 const blank = (order: number): TeamMember => ({
   id: `tm_${Date.now()}`,
@@ -136,9 +137,7 @@ function MemberForm({
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => set({ photoUrl: String(reader.result) });
-    reader.readAsDataURL(file);
+    void uploadMedia(file, "team").then((r) => set({ photoUrl: r.url }));
   }
 
   const bioWords = wordCount(form.bio);

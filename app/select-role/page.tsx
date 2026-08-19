@@ -76,7 +76,7 @@ export default function SelectRolePage() {
 
       <main className="mx-auto max-w-5xl px-5 py-10 sm:px-8 sm:py-16">
         <div className="mx-auto max-w-2xl text-center animate-fade-up">
-          <h1 className="font-heading text-3xl font-bold text-heading sm:text-4xl">
+          <h1 className="text-balance font-heading text-display font-bold leading-tight text-heading">
             Welcome, {firstName}! Choose your path
           </h1>
           <p className="mt-3 text-muted">
@@ -92,10 +92,10 @@ export default function SelectRolePage() {
               <button
                 key={role.id}
                 onClick={() => choose(role.id)}
-                className="group relative overflow-hidden rounded-2xl border border-hair bg-card p-7 text-left shadow-card transition-all duration-300 hover:-translate-y-1 hover:border-gold-300 hover:shadow-card-hover"
+                className="group relative overflow-hidden rounded-3xl border border-hair bg-card p-7 text-left transition-all duration-300 ease-out-expo hover:-translate-y-1.5 hover:border-gold-300 hover:shadow-lift"
               >
                 <div className={`absolute inset-x-0 top-0 h-1.5 ${accents[role.id]}`} />
-                <span className="grid h-14 w-14 place-items-center rounded-2xl bg-surface-2 text-heading transition-colors group-hover:bg-gold-100 group-hover:text-gold-600">
+                <span className="grid h-14 w-14 place-items-center rounded-2xl bg-surface-2 text-heading transition-colors duration-300 group-hover:bg-gold-500 group-hover:text-navy-900">
                   <Icon className="h-7 w-7" />
                 </span>
                 <h3 className="mt-5 font-heading text-xl font-bold text-heading">{role.label}</h3>

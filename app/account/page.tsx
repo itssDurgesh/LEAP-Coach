@@ -15,6 +15,7 @@ import { useApp } from "@/lib/store/AppProvider";
 import { Gender, User, tierForCredits } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
 import { isUsernameAvailable, normalizeUsername } from "@/lib/username";
+import { uploadMedia } from "@/lib/supabase/storage";
 
 const GENDERS: { v: Gender; l: string }[] = [
   { v: "male", l: "Male" },
@@ -84,9 +85,7 @@ function Account() {
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => set({ avatarUrl: String(reader.result) });
-    reader.readAsDataURL(file);
+    void uploadMedia(file, "avatars").then((r) => set({ avatarUrl: r.url }));
   }
 
   function save(e: React.FormEvent) {
@@ -114,7 +113,7 @@ function Account() {
     <div className="mx-auto max-w-3xl space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-heading text-3xl font-bold text-heading">Account settings</h1>
+          <h1 className="font-heading text-display-sm font-bold leading-tight text-heading">Account settings</h1>
           <p className="mt-1.5 text-muted">Manage your profile and personal information.</p>
         </div>
         <Link href={`/u/${u.username ?? u.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-gold-600 hover:text-gold-700">

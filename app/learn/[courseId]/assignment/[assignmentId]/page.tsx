@@ -150,15 +150,15 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
 
   return (
     <div className="min-h-screen bg-surface">
-      <header className="sticky top-0 z-30 border-b border-hair bg-surface/90 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4 sm:px-6">
+      <header className="sticky top-0 z-30 border-b border-hair bg-surface/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-3xl items-center justify-between gap-4 px-4 sm:px-6">
           <Link
             href={`/courses/${course.slug}`}
-            className="inline-flex items-center gap-2 text-sm font-medium text-muted hover:text-heading"
+            className="inline-flex shrink-0 items-center gap-2 font-heading text-sm font-semibold text-muted transition-colors duration-200 hover:text-heading"
           >
             <X className="h-5 w-5" /> Exit
           </Link>
-          <p className="truncate text-sm font-semibold text-heading">{course.title}</p>
+          <p className="min-w-0 truncate font-heading text-sm font-bold text-heading">{course.title}</p>
           <Logo href="/dashboard" size="sm" className="hidden sm:inline-flex" />
         </div>
       </header>
@@ -178,7 +178,7 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
               <Badge variant="navy">
                 <ClipboardCheck className="h-3.5 w-3.5" /> Checkpoint · after video {assignment.afterVideoOrder}
               </Badge>
-              <h1 className="mt-3 font-heading text-3xl font-bold text-heading">AI-Graded Assignment</h1>
+              <h1 className="mt-3 font-heading text-display-sm font-bold leading-tight text-heading">AI-Graded Assignment</h1>
               <p className="mt-2 text-muted">
                 Answer each question. A wrong answer gets a hint from your LEAP AI tutor, and you have up to{" "}
                 {MAX_Q_ATTEMPTS} tries before the answer is shown. Getting it in your first one or two tries lifts
@@ -272,7 +272,7 @@ function QuestionCard({
                     onClick={() => onPick(opt)}
                     disabled={disabled}
                     className={cn(
-                      "flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-sm transition-colors",
+                      "flex items-center gap-3 rounded-2xl border-2 px-4 py-3.5 text-left text-sm transition-all duration-200",
                       showCorrect
                         ? "border-green-400 bg-green-50 text-heading dark:bg-green-500/10"
                         : isWrong
@@ -337,7 +337,7 @@ function QuestionCard({
                 </div>
               )}
               {st.hint && !st.hintLoading && (
-                <div className="flex items-start gap-2 rounded-xl border border-gold-200 bg-gold-50 px-3.5 py-2.5 text-sm text-heading dark:bg-gold-500/10">
+                <div className="flex items-start gap-2.5 rounded-2xl border border-gold-300 bg-gold-50 px-4 py-3 text-sm leading-relaxed text-heading dark:border-gold-500/25 dark:bg-gold-500/10">
                   <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-gold-600" />
                   <span>{st.hint}</span>
                 </div>

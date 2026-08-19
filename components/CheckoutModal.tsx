@@ -282,7 +282,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
             <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-gold-100 text-gold-600">
               <ClipboardList className="h-8 w-8" />
             </div>
-            <p className="mt-4 font-heading text-xl font-bold text-heading">Complete your profile first</p>
+            <p className="mt-4 font-heading text-xl font-bold leading-tight text-heading">Complete your profile first</p>
             <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
               Please add a few details before your first purchase, so we can issue a valid receipt and personalise your coaching.
             </p>
@@ -303,7 +303,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
               <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-100 text-amber-600">
                 <ShieldCheck className="h-8 w-8" strokeWidth={2.5} />
               </div>
-              <p className="mt-4 font-heading text-xl font-bold text-heading">Payment received</p>
+              <p className="mt-4 font-heading text-xl font-bold leading-tight text-heading">Payment received</p>
               <p className="mx-auto mt-1 max-w-xs text-sm text-muted">
                 We&apos;re finalizing your access. If it doesn&apos;t appear in a moment, our team has
                 been notified — your receipt is saved under Account. You won&apos;t be charged twice.
@@ -314,7 +314,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
               <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-amber-100 text-amber-600">
                 <ShieldCheck className="h-8 w-8" strokeWidth={2.5} />
               </div>
-              <p className="mt-4 font-heading text-xl font-bold text-heading">Payment being confirmed</p>
+              <p className="mt-4 font-heading text-xl font-bold leading-tight text-heading">Payment being confirmed</p>
               <p className="mx-auto mt-1 max-w-xs text-sm text-muted">
                 Razorpay accepted your payment, but we couldn&apos;t confirm it just yet. Your access
                 and receipt will appear automatically within a few minutes — please don&apos;t pay
@@ -326,7 +326,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
               <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-green-100 text-green-600">
                 <Check className="h-8 w-8" strokeWidth={3} />
               </div>
-              <p className="mt-4 font-heading text-xl font-bold text-heading">Payment successful!</p>
+              <p className="mt-4 font-heading text-xl font-bold leading-tight text-heading">Payment successful!</p>
               <p className="mt-1 text-sm text-muted">You now have access. Your receipt is saved under Account.</p>
             </div>
           )
@@ -334,7 +334,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
           <>
             <div className="space-y-3">
               {isBundle ? (
-                <div className="flex items-start gap-3 rounded-2xl border-2 border-gold-400 bg-gold-50 dark:bg-gold-500/10 p-4">
+                <div className="flex items-start gap-3.5 rounded-3xl border-2 border-gold-400 bg-gold-50 p-5 dark:bg-gold-500/10">
                   <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gold-100 text-gold-600">
                     <Layers className="h-5 w-5" />
                   </span>
@@ -366,8 +366,8 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
                       onClick={() => setPlan("course")}
                       disabled={!!forcePlan}
                       className={cn(
-                        "flex w-full items-start gap-3 rounded-2xl border-2 p-4 text-left transition-colors",
-                        plan === "course" ? "border-gold-400 bg-gold-50 dark:bg-gold-500/10" : "border-hair hover:border-faint",
+                        "flex w-full items-start gap-3.5 rounded-3xl border-2 p-5 text-left transition-all duration-200",
+                        plan === "course" ? "border-gold-400 bg-gold-50 dark:bg-gold-500/10" : "border-hair hover:border-gold-300",
                       )}
                     >
                       <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-surface-2 text-heading">
@@ -389,8 +389,8 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
                     onClick={() => setPlan("all")}
                     disabled={!!forcePlan}
                     className={cn(
-                      "relative flex w-full items-start gap-3 rounded-2xl border-2 p-4 text-left transition-colors",
-                      plan === "all" ? "border-gold-400 bg-gold-50 dark:bg-gold-500/10" : "border-hair hover:border-faint",
+                      "relative flex w-full items-start gap-3.5 rounded-3xl border-2 p-5 text-left transition-all duration-200",
+                      plan === "all" ? "border-gold-400 bg-gold-50 dark:bg-gold-500/10" : "border-hair hover:border-gold-300",
                     )}
                   >
                     <span className="absolute right-3 top-3">
@@ -420,7 +420,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
             {showCoupon && (
               <div className="mt-4">
                 {applied ? (
-                  <div className="flex items-center justify-between rounded-2xl border border-green-200 bg-green-50 p-3">
+                  <div className="flex items-center justify-between rounded-2xl border border-green-200 bg-green-50 p-3.5 dark:border-green-500/30 dark:bg-green-500/10">
                     <span className="flex items-center gap-2 text-sm font-medium text-green-700">
                       <Ticket className="h-4 w-4" />
                       <span className="font-mono font-semibold">{applied.code}</span> · {applied.discountPercent}% off applied
@@ -449,7 +449,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
                           }
                         }}
                         placeholder="Coupon code"
-                        className="flex-1 rounded-xl border border-hair bg-card px-3.5 py-2.5 font-mono text-sm uppercase text-heading placeholder:font-sans placeholder:normal-case placeholder:text-faint focus:border-gold-400 focus:outline-none focus:ring-2 focus:ring-gold-400/40"
+                        className="flex-1 rounded-xl border border-hair bg-card px-3.5 py-2.5 font-mono text-sm uppercase text-heading transition-colors duration-200 placeholder:font-sans placeholder:normal-case placeholder:text-faint focus:border-gold-400 focus:outline-none focus:ring-2 focus:ring-gold-400/40"
                       />
                       <Button type="button" variant="outline" onClick={applyCoupon} loading={applying} disabled={!couponInput.trim()}>
                         Apply
@@ -462,7 +462,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
             )}
 
             {/* Mock payment method */}
-            <div className="mt-5 rounded-2xl border border-hair bg-surface-2 p-4">
+            <div className="mt-6 rounded-3xl border border-hair bg-surface-2 p-5">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-heading">Pay with</span>
                 <span className="flex items-center gap-1 text-xs font-semibold text-muted">

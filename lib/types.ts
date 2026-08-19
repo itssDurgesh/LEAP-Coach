@@ -524,6 +524,17 @@ export interface Announcement {
 }
 
 // ── FAQ (admin-managed Q&A shown on the public /faq page) ──
+/** One learner's rating of one topic. Aggregated into courses.rating by a DB trigger. */
+export interface CourseRating {
+  id: string;
+  userId: string;
+  courseId: string;
+  stars: number; // 1–5
+  review?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
 export interface Faq {
   id: string;
   question: string;

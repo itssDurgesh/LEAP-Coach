@@ -18,7 +18,7 @@ export default function PrivacyPage() {
           <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gold-50 text-gold-600 dark:bg-gold-500/10">
             <ShieldCheck className="h-6 w-6" />
           </span>
-          <h1 className="font-heading text-3xl font-bold text-heading sm:text-4xl">Privacy Policy</h1>
+          <h1 className="font-heading text-display font-bold leading-tight text-heading">Privacy Policy</h1>
         </div>
 
         <div className="mt-8 space-y-6">
