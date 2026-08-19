@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { BookMarked, Sparkles, Layers } from "lucide-react";
+import { BookMarked } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { PageHeader } from "@/components/app/PageHeader";
 import { Panel } from "@/components/app/Panel";
+import { MetricStrip } from "@/components/app/MetricStrip";
 import { CourseCard } from "@/components/CourseCard";
 import { PlanBadge } from "@/components/app/PlanBadge";
 import { buttonClasses } from "@/components/ui/button-variants";
@@ -42,11 +43,6 @@ function MyTopics() {
       courseCategories(c).some((cat) => ownedCategories.includes(cat)),
   );
 
-  const summary = [
-    { label: "Current plan", value: plan.label, icon: Sparkles },
-    { label: "Catalogs unlocked", value: `${allAccess ? 3 : plan.categories} of 3`, icon: Layers },
-    { label: "Topics owned", value: String(owned.length), icon: BookMarked },
-  ];
 
   return (
     <div className="space-y-6">
@@ -58,51 +54,40 @@ function MyTopics() {
       />
 
       {/* ── Plan / catalog summary ── */}
-      <Panel padded={false} className="px-5 py-5">
-        <div className="grid gap-y-5 sm:grid-cols-3">
-          {summary.map((s) => (
-            <div
-              key={s.label}
-              className="border-l border-hair pl-5 first:border-l-0 first:pl-0 sm:pl-7 sm:first:pl-0"
-            >
-              <s.icon className="h-4 w-4 text-gold-600" />
-              <p className="mt-2.5 font-heading text-xl font-bold leading-none text-heading">
-                {s.value}
-              </p>
-              <p className="mt-1.5 text-[11px] font-medium uppercase tracking-[0.12em] text-faint">
-                {s.label}
-              </p>
-            </div>
-          ))}
-        </div>
+      <MetricStrip
+        metrics={[
+          { label: "Current plan", value: plan.label },
+          { label: "Catalogs unlocked", value: `${allAccess ? 3 : plan.categories} of 3` },
+          { label: "Topics owned", value: owned.length },
+        ]}
+      />
 
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-hair pt-4">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-faint">
-              Your catalogs
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-faint">
+            Your catalogs
+          </span>
+          {allAccess ? (
+            <span className="rounded-full bg-gold-500 px-3 py-1 font-heading text-xs font-bold text-navy-900">
+              All-access
             </span>
-            {allAccess ? (
-              <span className="rounded-full bg-gold-500 px-3 py-1 font-heading text-xs font-bold text-navy-900">
-                All-access
+          ) : ownedCategories.length > 0 ? (
+            ownedCategories.map((cat) => (
+              <span
+                key={cat}
+                className="rounded-full bg-surface-2 px-3 py-1 font-heading text-xs font-semibold text-heading"
+              >
+                {roleLabel(cat)}
               </span>
-            ) : ownedCategories.length > 0 ? (
-              ownedCategories.map((cat) => (
-                <span
-                  key={cat}
-                  className="rounded-full bg-surface-2 px-3 py-1 font-heading text-xs font-semibold text-heading"
-                >
-                  {roleLabel(cat)}
-                </span>
-              ))
-            ) : (
-              <span className="text-xs text-muted">None yet</span>
-            )}
-          </div>
-          <Link href="/pricing" className={buttonClasses({ variant: "outline", size: "sm" })}>
-            Upgrade plan
-          </Link>
+            ))
+          ) : (
+            <span className="text-xs text-muted">None yet</span>
+          )}
         </div>
-      </Panel>
+        <Link href="/pricing" className={buttonClasses({ variant: "outline", size: "sm" })}>
+          Upgrade plan
+        </Link>
+      </div>
 
       {owned.length === 0 ? (
         <Panel className="py-16 text-center">

@@ -4,8 +4,6 @@ import Link from "next/link";
 import {
   ArrowRight,
   BookOpen,
-  Award,
-  ClipboardCheck,
   Quote,
   Sparkles,
   BookMarked,
@@ -18,7 +16,7 @@ import { Panel } from "@/components/app/Panel";
 import { CourseCard } from "@/components/CourseCard";
 import { SessionCard } from "@/components/SessionCard";
 import { UpgradePlanCard } from "@/components/app/UpgradePlanCard";
-import { ProgressRing } from "@/components/ui/ProgressRing";
+import { MetricStrip } from "@/components/app/MetricStrip";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/button-variants";
 import { useApp } from "@/lib/store/AppProvider";
@@ -115,85 +113,65 @@ function DashboardContent() {
 
   const profileMissing = missingProfileFields(currentUser);
 
-  const stats = [
-    { icon: BookOpen, label: "Topics enrolled", value: enrolledCourses.length },
-    { icon: Award, label: tier.label, value: currentUser.learningCredits, suffix: "cr" },
-    { icon: ClipboardCheck, label: "Assignments passed", value: passedCount },
-  ];
 
   return (
     <div className="space-y-6">
-      {/* ── Welcome banner ── */}
-      <section className="relative overflow-hidden rounded-3xl bg-navy-950 p-6 text-white dark:bg-card sm:p-8">
-        {/* Structural texture instead of a blurred corner blob */}
-        <div className="pointer-events-none absolute inset-0 texture-rules opacity-[0.07]" aria-hidden />
-        <div
-          className="pointer-events-none absolute inset-0 texture-grain opacity-[0.15] mix-blend-overlay"
-          aria-hidden
-        />
-
-        <div className="relative flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between lg:gap-12">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="border-white/20 bg-white/10 text-cream-100">
-                Coachee
-              </Badge>
-              <Badge variant="gold" className="capitalize">{role}</Badge>
-              <Badge variant="outline" className="border-white/20 bg-white/10 text-cream-100">
-                {tier.label}
-              </Badge>
-            </div>
-            <h1 className="mt-4 text-balance font-heading text-display-sm font-bold leading-tight">
-              Welcome back, {firstName}
-            </h1>
-            <p className="mt-3 max-w-2xl leading-relaxed text-cream-100/70">
-              You&rsquo;ve watched {totals.done} of {totals.all || 0} videos across your coaching
-              topics. Keep going — your next milestone is not far off.
-            </p>
-            <div className="mt-7 flex flex-wrap gap-3">
-              {withProgress[0] && (
-                <Link
-                  href={`/courses/${withProgress[0].course.slug}`}
-                  className={buttonClasses({ variant: "primary", size: "md", className: "group" })}
-                >
-                  Continue learning
-                  <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
-                </Link>
-              )}
-              <Link
-                href="/courses"
-                className={buttonClasses({
-                  variant: "outline",
-                  size: "md",
-                  className:
-                    "border-white/25 bg-transparent text-white hover:border-white/40 hover:bg-white/10",
-                })}
-              >
-                Browse catalog
-              </Link>
-            </div>
+      {/* ── Header ──
+          Was a ~490px dark banner with the copy on the left and the progress ring
+          pinned to the far right, leaving a large hole between them. A dashboard
+          wants a compact masthead and immediately useful numbers instead. */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="gold" className="capitalize">{role}</Badge>
+            <Badge variant="neutral">{tier.label}</Badge>
           </div>
-
-          <div className="shrink-0 self-center rounded-3xl bg-white/[0.07] p-4 ring-1 ring-white/15 backdrop-blur">
-            <ProgressRing value={overallPct} size={104} stroke={9} label="Overall" />
-          </div>
+          <h1 className="mt-2.5 font-heading text-display-sm font-bold leading-tight text-heading">
+            Welcome back, {firstName}
+          </h1>
+          <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted">
+            You&rsquo;ve watched {totals.done} of {totals.all || 0} videos across your coaching
+            topics.
+          </p>
         </div>
 
-        {/* Stats live inside the banner rather than in a second full-width panel. */}
-        <div className="relative mt-8 grid grid-cols-3 gap-4 border-t border-white/10 pt-6">
-          {stats.map((s) => (
-            <div key={s.label} className="min-w-0">
-              <p className="font-heading text-xl font-bold leading-none tabular-nums text-white sm:text-2xl">
-                {s.value}
-                {s.suffix && <span className="ml-1 text-xs font-medium text-cream-100/50">{s.suffix}</span>}
-              </p>
-              <p className="mt-2 text-[10px] font-medium uppercase leading-tight tracking-[0.08em] text-cream-100/50 sm:tracking-[0.12em] sm:text-[11px]">
-                {s.label}
-              </p>
-            </div>
-          ))}
+        <div className="flex shrink-0 flex-wrap gap-2.5">
+          {withProgress[0] && (
+            <Link
+              href={`/courses/${withProgress[0].course.slug}`}
+              className={buttonClasses({ variant: "primary", size: "md", className: "group" })}
+            >
+              Continue learning
+              <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
+            </Link>
+          )}
+          <Link href="/courses" className={buttonClasses({ variant: "outline", size: "md" })}>
+            Browse catalog
+          </Link>
         </div>
-      </section>
+      </div>
+
+      {/* ── Metrics ── */}
+      <MetricStrip
+        cols={4}
+        metrics={[
+          {
+            label: "Overall progress",
+            value: `${overallPct}%`,
+            foot: (
+              <div className="h-1 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  className="h-full rounded-full bg-gold-500 transition-[width] duration-500 ease-out-expo"
+                  style={{ width: `${overallPct}%` }}
+                />
+              </div>
+            ),
+          },
+          { label: "Topics enrolled", value: enrolledCourses.length },
+          { label: tier.label, value: currentUser.learningCredits, unit: "cr" },
+          { label: "Assignments passed", value: passedCount },
+        ]}
+      />
 
       {/* ── Complete-your-profile nudge (required before any purchase/upgrade) ── */}
       {!isProfileComplete(currentUser) && (
