@@ -18,6 +18,17 @@ const supabaseHost = (() => {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // The hero clip is a fixed, versioned asset. Vercel serves /public with a
+  // revalidating cache header by default, so without this every repeat visitor
+  // re-validates 5.7MB. Immutable + 1 year means one download, ever.
+  async headers() {
+    return [
+      {
+        source: "/professor-hero.mp4",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+    ];
+  },
   images: {
     remotePatterns: supabaseHost
       ? [{ protocol: "https", hostname: supabaseHost }]
