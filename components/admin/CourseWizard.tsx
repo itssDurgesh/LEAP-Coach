@@ -25,6 +25,7 @@ import { Input, Textarea, Select, Field } from "@/components/ui/Field";
 import { useApp } from "@/lib/store/AppProvider";
 import { Course, Question, Role, ROLES, courseCategories, isOwner } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
+import { uploadMedia } from "@/lib/supabase/storage";
 
 interface DraftQuestion {
   tmpId: string;
@@ -75,10 +76,12 @@ interface Draft {
 const tmp = () => Math.random().toString(36).slice(2, 9);
 const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-function readFileAsDataUrl(file: File, onDone: (dataUrl: string) => void) {
-  const reader = new FileReader();
-  reader.onload = () => onDone(String(reader.result));
-  reader.readAsDataURL(file);
+/**
+ * Uploads to the `media` bucket and hands back a short public URL. Previously
+ * base64'd the file into the row, which loadAll then shipped to every user.
+ */
+function uploadThen(file: File, folder: string, onDone: (url: string, name: string) => void) {
+  void uploadMedia(file, folder).then((r) => onDone(r.url, r.name));
 }
 
 function newVideo(): DraftVideo {
@@ -359,7 +362,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                     <UploadButton
                       accept="image/*"
                       label="Upload image"
-                      onFile={(f) => readFileAsDataUrl(f, (url) => set({ thumbnailUrl: url }))}
+                      onFile={(f) => uploadThen(f, "course-thumbnails", (url) => set({ thumbnailUrl: url }))}
                     />
                     {draft.thumbnailUrl && (
                       <button type="button" onClick={() => set({ thumbnailUrl: null })} className="block text-xs text-faint hover:text-red-600">
@@ -492,7 +495,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                   <UploadButton
                     accept=".pdf,.doc,.docx,application/pdf"
                     label={v.notesPdfUrl ? "Replace" : "Upload"}
-                    onFile={(f) => readFileAsDataUrl(f, (url) => setVideo(i, { notesPdfUrl: url, notesPdfName: f.name }))}
+                    onFile={(f) => uploadThen(f, "class-notes", (url, name) => setVideo(i, { notesPdfUrl: url, notesPdfName: name }))}
                   />
                   {v.notesPdfUrl && <Badge variant="success"><Check className="h-3 w-3" /> Uploaded</Badge>}
                 </div>
@@ -545,7 +548,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                   <UploadButton
                     accept=".pdf,.doc,.docx,application/pdf"
                     label={draft.workbookUrl ? "Replace workbook" : "Upload workbook"}
-                    onFile={(f) => readFileAsDataUrl(f, (url) => set({ workbookUrl: url, workbookName: f.name }))}
+                    onFile={(f) => uploadThen(f, "workbooks", (url, name) => set({ workbookUrl: url, workbookName: name }))}
                   />
                   {draft.workbookName && (
                     <span className="inline-flex items-center gap-2 text-sm text-heading">

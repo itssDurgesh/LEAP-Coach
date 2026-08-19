@@ -15,6 +15,7 @@ import { useApp } from "@/lib/store/AppProvider";
 import { Gender, User, tierForCredits } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
 import { isUsernameAvailable, normalizeUsername } from "@/lib/username";
+import { uploadMedia } from "@/lib/supabase/storage";
 
 const GENDERS: { v: Gender; l: string }[] = [
   { v: "male", l: "Male" },
@@ -84,9 +85,7 @@ function Account() {
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => set({ avatarUrl: String(reader.result) });
-    reader.readAsDataURL(file);
+    void uploadMedia(file, "avatars").then((r) => set({ avatarUrl: r.url }));
   }
 
   function save(e: React.FormEvent) {
