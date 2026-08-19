@@ -10,7 +10,15 @@ interface TypewriterProps {
   startDelay?: number;
 }
 
-/** Types `text` out character-by-character with a blinking cursor. */
+/**
+ * Types `text` out character-by-character with a blinking cursor.
+ *
+ * Layout stability: the visible text is overlaid on an invisible copy of the FULL
+ * string, stacked in the same grid cell. Without that sizer the element grows one
+ * character at a time, so on narrower viewports the line re-wraps mid-animation and
+ * shoves everything below it down — a large, entirely avoidable CLS contribution on
+ * the landing hero. The box now occupies its final size from the first frame.
+ */
 export function Typewriter({ text, className, speed = 25, startDelay = 450 }: TypewriterProps) {
   const [count, setCount] = React.useState(0);
 
@@ -34,15 +42,20 @@ export function Typewriter({ text, className, speed = 25, startDelay = 450 }: Ty
   const done = count >= text.length;
 
   return (
-    <span className={className} aria-label={text}>
-      <span aria-hidden>{text.slice(0, count)}</span>
-      <span
-        aria-hidden
-        className={cn(
-          "ml-[1px] inline-block h-[1em] w-[2px] -translate-y-[1px] align-middle bg-gold-500",
-          done ? "animate-pulse" : "",
-        )}
-      />
+    <span className={cn("inline-grid align-bottom", className)} aria-label={text}>
+      {/* Sizer — reserves the final width and line count, never painted. */}
+      <span aria-hidden className="invisible col-start-1 row-start-1">
+        {text}
+      </span>
+      <span aria-hidden className="col-start-1 row-start-1">
+        {text.slice(0, count)}
+        <span
+          className={cn(
+            "ml-[1px] inline-block h-[1em] w-[2px] -translate-y-[1px] align-middle bg-gold-500",
+            done ? "animate-pulse" : "",
+          )}
+        />
+      </span>
     </span>
   );
 }

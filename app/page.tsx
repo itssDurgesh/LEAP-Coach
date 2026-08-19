@@ -21,10 +21,12 @@ import { buttonClasses } from "@/components/ui/button-variants";
 import { fetchSiteContentServer } from "@/lib/supabase/server";
 import { fetchPricing } from "@/lib/payments/pricing";
 
-// ISR: regenerate the landing periodically so admin homepage edits appear (within
-// ~30s) for fresh visitors, while staying fast/cached under load. In-session admins
-// see their edits live via the client store.
-export const revalidate = 30;
+// ISR: the landing awaits two Supabase round-trips (site content + pricing), so
+// every regeneration makes one visitor pay both queries plus a cold start — which
+// is what drove TTFB on `/`. Site content changes rarely, so 10 minutes trades a
+// little staleness for far fewer slow first-bytes. Admins still see their own
+// edits live via the client store, and /pricing stays force-dynamic.
+export const revalidate = 600;
 
 export default async function Home() {
   // Both read on the server so the hero and the price teaser render real values in the
