@@ -37,7 +37,6 @@ import {
 import { DEFAULT_TRACKS, DEFAULT_PRICING, DEFAULT_SITE_CONTENT, DEFAULT_PRIVACY_POLICY, courseCategories, isOwner, hasPermission } from "@/lib/types";
 import { courseAccessExpiry, isCourseAccessExpired } from "@/lib/access";
 import {
-  ADMIN_PASSWORD,
   seedArticles,
   seedBooks,
   seedComments,
@@ -787,13 +786,9 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           setHydrated(false);
           return { ok: true };
         }
-        const u = state.users.find(
-          (x) => x.email.toLowerCase() === email.trim().toLowerCase() && x.isAdmin,
-        );
-        if (!u) return { ok: false, error: "Not an admin account." };
-        if (password !== ADMIN_PASSWORD) return { ok: false, error: "Incorrect password." };
-        setState((s) => ({ ...s, currentUserId: u.id }));
-        return { ok: true, user: u };
+        // Mock mode has no seeded accounts and no password store, so there is
+        // nothing to authenticate against. Admin access requires real auth.
+        return { ok: false, error: "Admin sign-in requires Clerk and Supabase to be configured." };
       },
       async oauthSignIn(provider) {
         if (!realMode) return { ok: false, error: "Sign-in is not configured." };

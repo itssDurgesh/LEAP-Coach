@@ -10,13 +10,7 @@ import { Field, Input, PasswordInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { useApp } from "@/lib/store/AppProvider";
 import { homeFor } from "@/lib/store/routes";
-import { DEMO_ACCOUNTS } from "@/lib/mock/seed";
 
-const demoRoles = [
-  { role: "student", label: "Student" },
-  { role: "professional", label: "Professional" },
-  { role: "entrepreneur", label: "Entrepreneur" },
-] as const;
 
 export default function LoginPage() {
   const { signIn, oauthSignIn, supabaseMode } = useApp();
@@ -47,7 +41,7 @@ export default function LoginPage() {
       const r = await oauthSignIn(provider);
       if (!r.ok) setError(r.error ?? "Couldn't start sign-in. Please try again.");
     } else {
-      go(DEMO_ACCOUNTS.professional);
+      setError("Google sign-in isn't configured.");
     }
   }
 
@@ -111,22 +105,6 @@ export default function LoginPage() {
         </Button>
       </form>
 
-      {!supabaseMode && (
-        <div className="mt-6 rounded-2xl border border-hair bg-surface-2 p-5">
-          <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.14em] text-faint">Quick demo sign-in</p>
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            {demoRoles.map((d) => (
-              <button
-                key={d.role}
-                onClick={() => go(DEMO_ACCOUNTS[d.role])}
-                className="rounded-full border border-hair bg-card px-3.5 py-1.5 font-heading text-sm font-semibold text-heading transition-all duration-200 hover:border-gold-500 hover:bg-gold-500 hover:text-navy-900"
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       <p className="mt-6 text-center text-sm text-muted">
         New to LEAP Coach?{" "}
