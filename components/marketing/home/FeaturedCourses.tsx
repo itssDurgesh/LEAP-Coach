@@ -62,7 +62,7 @@ function CourseCardLink({ course }: { course: Course }) {
 }
 
 export function FeaturedCourses() {
-  const { courses } = useApp();
+  const { courses, hydrated } = useApp();
   const featured = pickFeatured(courses);
 
   const [emblaRef, emblaApi] = useEmblaCarousel({
@@ -85,6 +85,30 @@ export function FeaturedCourses() {
       emblaApi.off("select", sync).off("reInit", sync);
     };
   }, [emblaApi]);
+
+  // Courses live in the client store, so this renders the empty state first and then
+  // swaps in a full carousel row — a several-hundred-pixel reflow that CLS counts.
+  // Hold the row's height with a skeleton until the store is ready.
+  if (!hydrated) {
+    return (
+      <div className="mt-10 overflow-hidden" aria-hidden>
+        <div className="-ml-5 flex">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="min-w-0 shrink-0 grow-0 basis-[85%] pl-5 sm:basis-[55%] lg:basis-[38%] xl:basis-[31%]"
+            >
+              <div className="h-[22rem] w-full animate-pulse rounded-3xl border border-hair bg-surface-2" />
+            </div>
+          ))}
+        </div>
+        <div className="mt-8 flex items-center gap-2.5">
+          <div className="h-11 w-11 animate-pulse rounded-full bg-surface-2" />
+          <div className="h-11 w-11 animate-pulse rounded-full bg-surface-2" />
+        </div>
+      </div>
+    );
+  }
 
   if (!featured.length) {
     return (

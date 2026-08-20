@@ -77,7 +77,7 @@ function MemberLinks({ links, align = "center" }: { links?: TeamLinks; align?: "
 const groupLabel = (g: string) => TEAM_GROUPS.find((x) => x.id === g)?.label ?? g;
 
 export function TeamDirectory() {
-  const { teamMembers } = useApp();
+  const { teamMembers, hydrated } = useApp();
   const members = resolveTeam(teamMembers)
     .filter((m) => m.active)
     .sort((a, b) => a.order - b.order);
@@ -87,6 +87,40 @@ export function TeamDirectory() {
   const grouped = TEAM_GROUPS.filter((g) => g.id !== "founder")
     .map((g) => ({ group: g, items: rest.filter((m) => m.group === g.id) }))
     .filter((x) => x.items.length);
+
+  // The team list lives in the client store, so before hydration this component
+  // renders nothing and then injects a full directory — pushing the footer down by
+  // hundreds of pixels. That single reflow is what CLS measures. Holding the space
+  // with a same-shaped skeleton means the real cards replace it in place.
+  if (!hydrated) {
+    return (
+      <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8" aria-hidden>
+        <div className="flex flex-col items-center">
+          <div className="h-[26rem] w-full max-w-2xl animate-pulse rounded-3xl border border-hair bg-surface-2" />
+        </div>
+        <div className="flex justify-center">
+          <div className="my-10 h-12 w-px bg-gradient-to-b from-gold-300 to-hair" />
+        </div>
+        <div className="space-y-14">
+          {[0, 1].map((tier) => (
+            <div key={tier}>
+              <div className="flex justify-center">
+                <div className="h-8 w-40 animate-pulse rounded-full bg-surface-2" />
+              </div>
+              <div className="mt-8 grid justify-items-center gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="h-72 w-full max-w-sm animate-pulse rounded-3xl border border-hair bg-surface-2"
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
