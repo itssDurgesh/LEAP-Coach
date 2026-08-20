@@ -37,7 +37,7 @@ const mapTrack = (r: Row): LeadershipTrack => ({ id: r.id, label: r.label });
 const mapTip = (r: Row): DailyTip => ({ id: r.id, text: r.text, author: r.author, targetRole: r.target_role, active: r.active });
 const mapResource = (r: Row): RecommendedResource => ({ id: r.id, title: r.title, type: r.type, author: r.author, blurb: r.blurb, targetRole: r.target_role, accent: r.accent });
 const mapQuestion = (r: Row): Question => ({ id: r.id, type: r.type, prompt: r.prompt, options: r.options ?? [], correctAnswer: r.correct_answer, explanation: r.explanation });
-const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, transcript: r.transcript ?? "", summary: r.summary ?? "", notesPdfName: r.notes_pdf_url ?? undefined, notesPdfUrl: r.notes_file_url ?? null, resources: r.resources ?? [] });
+const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, transcript: r.transcript ?? "", summary: r.summary ?? "", notesPdfName: r.notes_pdf_url ?? undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
 const mapCourseRating = (r: Row): CourseRating => ({ id: r.id, userId: r.user_id, courseId: r.course_id, stars: r.stars, review: r.review ?? null, createdAt: r.created_at, updatedAt: r.updated_at ?? null });
 const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.course_id, enrolledAt: r.enrolled_at, completedAt: r.completed_at });
 const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at });
@@ -169,7 +169,18 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     // Whole course tree in ONE query via PostgREST embedding (was 4 separate fetches:
     // courses + videos + assignments + questions). videos/assignments/questions below
     // are kept as empty placeholders so the positional destructure stays aligned.
-    rows(sb.from("courses").select("*, videos(*), assignments(*, questions(*))")),
+    // videos(...) is enumerated rather than videos(*) so notes_file_url stays out
+    // of the bulk read. It holds the uploaded class-notes file, which is a base64
+    // data URL on older rows — 572KB on this project, 99.7% of the whole courses
+    // payload, downloaded by every user on every page load. The player fetches it
+    // for one video on demand instead (fetchVideoNotesUrl).
+    rows(
+      sb
+        .from("courses")
+        .select(
+          "*, videos(id,course_id,title,order_index,duration_seconds,mux_playback_id,transcript,summary,notes_pdf_url,resources), assignments(*, questions(*))",
+        ),
+    ),
     Promise.resolve([] as Row[]),
     Promise.resolve([] as Row[]),
     Promise.resolve([] as Row[]),
@@ -334,6 +345,12 @@ export const insertSubmission = (sb: SupabaseClient, s: Submission) =>
  * Upsert on (user_id, course_id): re-rating a topic replaces the learner's row
  * rather than stacking duplicates. The DB trigger recomputes courses.rating.
  */
+/** The class-notes file URL for ONE video — kept out of loadAll (see the courses select). */
+export async function fetchVideoNotesUrl(sb: SupabaseClient, videoId: string): Promise<string | null> {
+  const { data } = await sb.from("videos").select("notes_file_url").eq("id", videoId).maybeSingle();
+  return (data?.notes_file_url as string | null) ?? null;
+}
+
 export const upsertCourseRating = (sb: SupabaseClient, r: CourseRating) =>
   sb.from("course_ratings").upsert(
     {
@@ -376,7 +393,12 @@ export async function saveCourse(sb: SupabaseClient, c: Course) {
     await sb.from("videos").insert(c.videos.map((v) => ({
       id: v.id, course_id: c.id, title: v.title, order_index: v.order, duration_seconds: v.durationSeconds,
       mux_playback_id: v.muxPlaybackId, transcript: v.transcript, summary: v.summary,
-      notes_pdf_url: v.notesPdfName, notes_file_url: v.notesPdfUrl ?? null, resources: v.resources,
+      notes_pdf_url: v.notesPdfName,
+      // undefined = "not loaded, leave the stored value alone"; null = "clear it".
+      // Without this a course edit would wipe every notes file, because the bulk
+      // read no longer populates notesPdfUrl.
+      ...(v.notesPdfUrl === undefined ? {} : { notes_file_url: v.notesPdfUrl }),
+      resources: v.resources,
     })));
   await sb.from("assignments").delete().eq("course_id", c.id);
   for (const a of c.assignments) {

@@ -42,7 +42,8 @@ interface DraftVideo {
   durationMins: number;
   summary: string;
   notesPdfName: string;
-  notesPdfUrl: string | null;
+  /** undefined = not loaded (leave stored file alone) · null = clear it · string = set it. */
+  notesPdfUrl?: string | null;
   transcript: string;
 }
 interface DraftAssignment {
@@ -140,7 +141,8 @@ function toDraft(c: Course): Draft {
         durationMins: Math.round(v.durationSeconds / 60),
         summary: v.summary,
         notesPdfName: v.notesPdfName ?? "",
-        notesPdfUrl: v.notesPdfUrl ?? null,
+        notesPdfUrl: v.notesPdfUrl, // keep undefined as-is — see DraftVideo
+
         transcript: v.transcript,
       })),
     assignments: c.assignments
@@ -494,10 +496,12 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                   />
                   <UploadButton
                     accept=".pdf,.doc,.docx,application/pdf"
-                    label={v.notesPdfUrl ? "Replace" : "Upload"}
+                    // notesPdfUrl is not in the bulk read any more; the stored file NAME is,
+                    // so use that to decide whether a file already exists.
+                    label={v.notesPdfName ? "Replace" : "Upload"}
                     onFile={(f) => uploadThen(f, "class-notes", (url, name) => setVideo(i, { notesPdfUrl: url, notesPdfName: name }))}
                   />
-                  {v.notesPdfUrl && <Badge variant="success"><Check className="h-3 w-3" /> Uploaded</Badge>}
+                  {v.notesPdfName && <Badge variant="success"><Check className="h-3 w-3" /> Uploaded</Badge>}
                 </div>
               ))}
             </div>

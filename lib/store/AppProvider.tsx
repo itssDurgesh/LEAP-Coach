@@ -268,6 +268,8 @@ interface AppContextValue extends AppState {
   /** True once every video AND every gated checkpoint in the topic is done. */
   isCourseComplete(courseId: string, userId?: string): boolean;
   submitCourseRating(courseId: string, stars: number, review?: string): void;
+  /** Class-notes file URL for one video, fetched on demand (kept out of loadAll). */
+  videoNotesUrl(videoId: string): Promise<string | null>;
   addNote(videoId: string, text: string): void;
   deleteNote(noteId: string): void;
   // community
@@ -1099,6 +1101,18 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           }),
         }));
         if (sb) fire(db.upsertCourseRating(sb, rating));
+      },
+      async videoNotesUrl(videoId) {
+        // Already present (mock mode, or an admin who just uploaded in-session).
+        const known = getVideoById(videoId)?.video.notesPdfUrl;
+        if (known !== undefined) return known;
+        if (!sb) return null;
+        try {
+          return await db.fetchVideoNotesUrl(sb, videoId);
+        } catch (e) {
+          console.error("[supabase]", e);
+          return null;
+        }
       },
       addNote(videoId, text) {
         if (!currentUser || !text.trim()) return;

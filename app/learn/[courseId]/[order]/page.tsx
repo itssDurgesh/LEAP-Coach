@@ -85,6 +85,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
     addNote,
     deleteNote,
     videoCommentsFor,
+    videoNotesUrl,
     isCourseComplete,
     myRatingFor,
   } = useApp();
@@ -142,9 +143,12 @@ function Player({ course, video }: { course: Course; video: Video }) {
    * upload entirely and always produced a text/plain blob renamed to .txt.
    */
   async function downloadNotes() {
-    if (video.notesPdfUrl) {
+    // The URL is no longer part of the bulk store load, so resolve it for this one
+    // video first (returns immediately if it is already known).
+    const fileUrl = await videoNotesUrl(video.id);
+    if (fileUrl) {
       const a = document.createElement("a");
-      a.href = video.notesPdfUrl;
+      a.href = fileUrl;
       a.download = video.notesPdfName ?? `${course.slug}-session-${video.order}-notes`;
       a.rel = "noopener";
       a.click();
