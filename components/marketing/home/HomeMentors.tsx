@@ -1,5 +1,7 @@
 "use client";
 
+import * as React from "react";
+
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Container } from "@/components/marketing/Container";
@@ -12,7 +14,13 @@ import { TEAM_GROUPS } from "@/lib/types";
 const groupLabel = (g: string) => TEAM_GROUPS.find((x) => x.id === g)?.label ?? g;
 
 export function HomeMentors() {
-  const { teamMembers, siteContent } = useApp();
+  const { teamMembers, siteContent , ensureTeamPhotos } = useApp();
+
+  // Portraits are excluded from the bulk store load (2.4MB of base64 on this
+  // project); pull them in only on the surfaces that actually render them.
+  React.useEffect(() => {
+    void ensureTeamPhotos();
+  }, [ensureTeamPhotos]);
   const c = siteContent;
   // The founder gets a dedicated spotlight section below, so the strip shows the
   // rest of the featured team. It stays hidden until mentors are added.

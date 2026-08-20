@@ -77,7 +77,13 @@ function MemberLinks({ links, align = "center" }: { links?: TeamLinks; align?: "
 const groupLabel = (g: string) => TEAM_GROUPS.find((x) => x.id === g)?.label ?? g;
 
 export function TeamDirectory() {
-  const { teamMembers, hydrated } = useApp();
+  const { teamMembers, hydrated , ensureTeamPhotos } = useApp();
+
+  // Portraits are excluded from the bulk store load (2.4MB of base64 on this
+  // project); pull them in only on the surfaces that actually render them.
+  React.useEffect(() => {
+    void ensureTeamPhotos();
+  }, [ensureTeamPhotos]);
   const members = resolveTeam(teamMembers)
     .filter((m) => m.active)
     .sort((a, b) => a.order - b.order);

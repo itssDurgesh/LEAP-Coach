@@ -64,7 +64,7 @@ const mapProfile = (r: Row, purchases: PurchaseRow[] = [], passes: PassRow[] = [
   isAdmin: r.is_admin ?? false, permissions: r.permissions ?? null, createdAt: r.created_at, lastActiveAt: r.last_active_at,
 });
 const mapTeamMember = (r: Row): TeamMember => ({
-  id: r.id, name: r.name ?? "", title: r.title ?? "", group: r.member_group ?? "mentor", photoUrl: r.photo_url ?? null,
+  id: r.id, name: r.name ?? "", title: r.title ?? "", group: r.member_group ?? "mentor", photoUrl: r.photo_url === undefined ? undefined : (r.photo_url ?? null),
   bio: r.bio ?? "", vision: r.vision ?? null, links: r.links ?? {}, featured: r.featured ?? false,
   order: r.order_index ?? 0, active: r.active ?? true, createdAt: r.created_at,
 });
@@ -202,7 +202,14 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     Promise.resolve([] as Row[]),
     Promise.resolve([] as Row[]),
     rows(sb.from("notifications").select("*")),
-    rows(sb.from("team_members").select("*")),
+    // photo_url excluded: on this project four base64 portraits total 2.4MB, and
+    // the bulk store load runs on EVERY authenticated page even though team photos
+    // only appear on /team and the landing mentors strip. Fetched there on demand.
+    rows(
+      sb
+        .from("team_members")
+        .select("id,name,title,member_group,bio,vision,links,featured,order_index,active,created_at"),
+    ),
     rows(sb.from("books").select("*")),
     rows(sb.from("site_content").select("*")),
     rows(sb.from("articles").select("*")),
@@ -463,10 +470,18 @@ export const saveSiteContent = (sb: SupabaseClient, content: SiteContent) =>
 // ── team / mentors ──
 export const saveTeamMember = (sb: SupabaseClient, m: TeamMember) =>
   sb.from("team_members").upsert({
-    id: m.id, name: m.name, title: m.title, member_group: m.group, photo_url: m.photoUrl ?? null, bio: m.bio,
+    id: m.id, name: m.name, title: m.title, member_group: m.group, bio: m.bio,
+    // undefined = "not loaded, leave the stored photo alone"; null = "clear it".
+    ...(m.photoUrl === undefined ? {} : { photo_url: m.photoUrl }),
     vision: m.vision ?? null, links: m.links ?? {}, featured: m.featured, order_index: m.order, active: m.active,
     created_at: m.createdAt,
   });
+/** id -> photo_url for the team, fetched only by the pages that display portraits. */
+export async function fetchTeamPhotos(sb: SupabaseClient): Promise<Record<string, string | null>> {
+  const { data } = await sb.from("team_members").select("id,photo_url");
+  return Object.fromEntries((data ?? []).map((r: Row) => [r.id as string, (r.photo_url as string | null) ?? null]));
+}
+
 export const deleteTeamMember = (sb: SupabaseClient, id: string) => sb.from("team_members").delete().eq("id", id);
 
 // ── books ──

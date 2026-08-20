@@ -268,6 +268,8 @@ interface AppContextValue extends AppState {
   /** True once every video AND every gated checkpoint in the topic is done. */
   isCourseComplete(courseId: string, userId?: string): boolean;
   submitCourseRating(courseId: string, stars: number, review?: string): void;
+  /** Pull team portraits into the store — only the pages that render them call this. */
+  ensureTeamPhotos(): Promise<void>;
   /** Class-notes file URL for one video, fetched on demand (kept out of loadAll). */
   videoNotesUrl(videoId: string): Promise<string | null>;
   addNote(videoId: string, text: string): void;
@@ -1101,6 +1103,22 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           }),
         }));
         if (sb) fire(db.upsertCourseRating(sb, rating));
+      },
+      async ensureTeamPhotos() {
+        // Idempotent: once any member carries a resolved photo (string or null)
+        // rather than undefined, the fetch has already happened.
+        if (!sb) return;
+        if (state.teamMembers.length === 0) return;
+        if (state.teamMembers.every((m) => m.photoUrl !== undefined)) return;
+        try {
+          const photos = await db.fetchTeamPhotos(sb);
+          setState((s2) => ({
+            ...s2,
+            teamMembers: s2.teamMembers.map((m) => ({ ...m, photoUrl: photos[m.id] ?? null })),
+          }));
+        } catch (e) {
+          console.error("[supabase]", e);
+        }
       },
       async videoNotesUrl(videoId) {
         // Already present (mock mode, or an admin who just uploaded in-session).

@@ -42,7 +42,13 @@ export default function AdminTeamPage() {
 }
 
 function TeamAdmin() {
-  const { teamMembers, saveTeamMember, deleteTeamMember } = useApp();
+  const { teamMembers, saveTeamMember, deleteTeamMember, ensureTeamPhotos } = useApp();
+
+  // Portraits are not part of the bulk store load; the editor needs them to show
+  // the current photo (and so a save doesn't look like the photo vanished).
+  React.useEffect(() => {
+    void ensureTeamPhotos();
+  }, [ensureTeamPhotos]);
   const [editing, setEditing] = React.useState<TeamMember | null>(null);
 
   const sorted = [...resolveTeam(teamMembers)].sort((a, b) => a.order - b.order);
