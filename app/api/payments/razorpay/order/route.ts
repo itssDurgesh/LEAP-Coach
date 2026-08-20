@@ -6,6 +6,7 @@ import { isClerkConfigured } from "@/lib/clerk/config";
 import { parseJson } from "@/lib/api/validate";
 import { apiError, logError } from "@/lib/api/errors";
 import { enforceRate } from "@/lib/api/rate-limit";
+import { rejectIfBanned } from "@/lib/api/banned";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Throttle order creation per user (or per IP) to curb payment-endpoint abuse.
+  // A suspended account keeps a valid Clerk session until it reloads, so the
+  // client-side sign-out is not an authorization boundary.
+  const banned = await rejectIfBanned(userId);
+  if (banned) return banned;
+
   const limited = enforceRate(req, "payment", userId);
   if (limited) return limited;
 

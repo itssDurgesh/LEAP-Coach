@@ -5,6 +5,7 @@ import { isClerkConfigured } from "@/lib/clerk/config";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { apiError, logError } from "@/lib/api/errors";
 import { enforceRate } from "@/lib/api/rate-limit";
+import { rejectIfBanned } from "@/lib/api/banned";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,11 @@ export async function POST(req: Request) {
   if (!userId) return apiError(401, "Not authenticated.");
 
   // Throttle token minting per user to prevent link-token flooding.
+  // A suspended account keeps a valid Clerk session until it reloads, so the
+  // client-side sign-out is not an authorization boundary.
+  const banned = await rejectIfBanned(userId);
+  if (banned) return banned;
+
   const limited = enforceRate(req, "telegram", userId);
   if (limited) return limited;
 

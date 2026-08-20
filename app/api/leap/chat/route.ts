@@ -7,6 +7,7 @@ import { isClerkConfigured } from "@/lib/clerk/config";
 import { parseJson } from "@/lib/api/validate";
 import { apiError } from "@/lib/api/errors";
 import { enforceRate } from "@/lib/api/rate-limit";
+import { rejectIfBanned } from "@/lib/api/banned";
 
 export const runtime = "nodejs";
 
@@ -63,6 +64,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Throttle per user (or per IP) — prevents Gemini abuse, denial-of-wallet, and scraping.
+  // A suspended account keeps a valid Clerk session until it reloads, so the
+  // client-side sign-out is not an authorization boundary.
+  const banned = await rejectIfBanned(userId);
+  if (banned) return banned;
+
   const limited = enforceRate(req, "ai", userId);
   if (limited) return limited;
 
