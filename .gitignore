@@ -42,3 +42,7 @@ Docs
 
 # MS Office lock files (open Word/Excel docs)
 ~$*
+
+# Understand-Anything scratch (the graph itself is committed)
+.ua/.trash-*/
+.ua/intermediate/
