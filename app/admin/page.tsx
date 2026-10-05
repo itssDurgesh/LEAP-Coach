@@ -74,10 +74,10 @@ function Overview() {
   }, [learners, courses, enrollments]);
 
   const stats = [
-    { icon: Users, label: "Active users", value: activeUsers, live: `${activeThisWeek} active this week`, color: "text-navy-600 bg-navy-50" },
-    { icon: TrendingUp, label: "Avg. completion rate", value: `${completionRate}%`, sub: "across all enrollments", color: "text-green-600 bg-green-50" },
-    { icon: ClipboardCheck, label: "Assessments taken", value: submissions.length, sub: "all-time submissions", color: "text-gold-600 bg-gold-50" },
-    { icon: CalendarClock, label: "Lessons completed", value: lessonsCompleted, sub: "all-time, all learners", color: "text-orange-600 bg-orange-50" },
+    { icon: Users, label: "Active users", value: activeUsers, live: `${activeThisWeek} active this week`, color: "text-lv-peers-dark bg-lv-peers-tint" },
+    { icon: TrendingUp, label: "Avg. completion rate", value: `${completionRate}%`, sub: "across all enrollments", color: "text-lv-orgs-dark bg-lv-orgs-tint" },
+    { icon: ClipboardCheck, label: "Assessments taken", value: submissions.length, sub: "all-time submissions", color: "text-v2-gold-text bg-v2-gold-soft" },
+    { icon: CalendarClock, label: "Lessons completed", value: lessonsCompleted, sub: "all-time, all learners", color: "text-lv-people-dark bg-lv-people-tint" },
   ];
 
   return (
@@ -87,11 +87,11 @@ function Overview() {
         {stats.map((s) => (
           <Card key={s.label} padded>
             <div className="flex items-start justify-between">
-              <span className={cn("grid h-11 w-11 place-items-center rounded-xl", s.color)}>
+              <span className={cn("grid h-11 w-11 place-items-center rounded-[14px]", s.color)}>
                 <s.icon className="h-5 w-5" />
               </span>
               {s.live && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-lv-orgs-tint px-2.5 py-0.5 text-xs font-semibold text-lv-orgs-dark">
                   <span className="relative flex h-2 w-2">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
                     <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />

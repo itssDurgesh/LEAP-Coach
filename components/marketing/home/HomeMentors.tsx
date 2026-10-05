@@ -7,7 +7,10 @@ import { ArrowRight } from "lucide-react";
 import { Container } from "@/components/marketing/Container";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
 import { Avatar } from "@/components/ui/Avatar";
-import { buttonClasses } from "@/components/ui/button-variants";
+import { CARD, SectionHead, Tag } from "@/components/marketing/SectionHead";
+import { V2_AVATAR } from "@/components/v2/ui";
+import { v2Button } from "@/components/v2/button";
+import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/store/AppProvider";
 import { TEAM_GROUPS } from "@/lib/types";
 
@@ -31,19 +34,11 @@ export function HomeMentors() {
   if (!list.length) return null;
 
   return (
-    <section className="bg-card py-16 sm:py-20">
+    <section className="py-16 sm:py-20">
       <Container width="wide">
         <Reveal className="flex flex-wrap items-end justify-between gap-6">
-          <div className="max-w-xl">
-            <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.16em] text-gold-600">
-              Our team
-            </p>
-            <h2 className="mt-4 text-balance font-heading text-display font-bold text-heading">
-              {c.mentorsHeading}
-            </h2>
-            <p className="mt-4 text-base leading-relaxed text-muted">{c.mentorsSubheading}</p>
-          </div>
-          <Link href="/team" className={buttonClasses({ variant: "outline", size: "md", className: "group" })}>
+          <SectionHead tag="Our team" title={c.mentorsHeading} text={c.mentorsSubheading} />
+          <Link href="/team" className={v2Button("outline", "md", "group")}>
             View full team
             <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
           </Link>
@@ -54,16 +49,12 @@ export function HomeMentors() {
             <StaggerItem key={m.id}>
               <Link
                 href="/team"
-                className="group flex h-full flex-col rounded-3xl border border-hair bg-surface p-6 transition-all duration-300 ease-out-expo hover:-translate-y-1.5 hover:border-gold-300 hover:shadow-lift"
+                className={cn(CARD, "flex h-full flex-col items-start p-6 transition-all duration-300 ease-out-expo hover:-translate-y-1 hover:shadow-v2-lift")}
               >
-                <Avatar src={m.photoUrl} name={m.name} size={64} />
-                <h3 className="mt-5 font-heading text-base font-bold text-heading transition-colors duration-200 group-hover:text-gold-700">
-                  {m.name}
-                </h3>
-                <p className="mt-1 text-sm leading-relaxed text-muted">{m.title}</p>
-                <p className="mt-auto pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">
-                  {groupLabel(m.group)}
-                </p>
+                <Avatar src={m.photoUrl} name={m.name} size={64} className={V2_AVATAR} />
+                <h3 className="mt-5 font-heading text-lg font-semibold tracking-[-0.01em] text-heading">{m.name}</h3>
+                <p className="mt-1 pb-5 text-sm leading-5 text-v2-body">{m.title}</p>
+                <Tag className="mt-auto">{groupLabel(m.group)}</Tag>
               </Link>
             </StaggerItem>
           ))}

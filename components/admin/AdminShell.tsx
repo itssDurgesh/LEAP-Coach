@@ -21,7 +21,6 @@ import {
   LogOut,
   ExternalLink,
   Menu,
-  X,
   Loader2,
   Lock,
   LucideIcon,
@@ -79,8 +78,8 @@ export function AdminShell({
 
   if (!hydrated || !currentUser || !currentUser.isAdmin) {
     return (
-      <div className="grid min-h-screen place-items-center bg-navy-950">
-        <Loader2 className="h-6 w-6 animate-spin text-gold-400" />
+      <div className="app-v2 grid min-h-screen place-items-center bg-surface">
+        <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
       </div>
     );
   }
@@ -93,53 +92,67 @@ export function AdminShell({
 
   const isActive = (href: string) => (href === "/admin" ? pathname === "/admin" : pathname.startsWith(href));
 
+  // A navy card that floats on the page, in light and in dark (see `--v2-navy`).
   const sidebar = (
-    <div className="flex h-full flex-col bg-navy-950 dark:bg-[#15100a] text-cream-100">
-      <div className="px-5 py-5">
-        <Logo variant="light" href="/admin" />
+    <div className="flex h-full flex-col rounded-[28px] bg-v2-navy px-3 pb-3 pt-5 text-white">
+      <div className="px-2">
+        <Logo variant="light" href="/admin" plain />
       </div>
-      <nav className="flex-1 min-h-0 space-y-1 overflow-y-auto px-3">
+      <nav className="mt-4 flex-1 min-h-0 space-y-0.5 overflow-y-auto">
         {visibleNav.map((n) => (
           <Link
             key={n.href}
             href={n.href}
             onClick={() => setOpen(false)}
             className={cn(
-              "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+              "flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors",
               isActive(n.href)
-                ? "bg-gold-500 text-navy-900"
-                : "text-cream-100/70 hover:bg-white/10 hover:text-white",
+                ? "bg-[#E9B93E] text-navy-900"
+                : "text-v2-on-navy-muted hover:bg-white/10 hover:text-white",
             )}
           >
-            <n.icon className="h-4.5 w-4.5" />
-            <span className="flex-1">{n.label}</span>
+            <n.icon className="h-[18px] w-[18px] shrink-0" />
+            <span className="flex-1 truncate">{n.label}</span>
             {n.href === "/admin/approvals" && pendingCount > 0 && (
-              <span className="grid min-h-[18px] min-w-[18px] place-items-center rounded-full bg-gold-500 px-1 text-[10px] font-bold text-navy-900">
+              <span
+                className={cn(
+                  "grid min-h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[10px] font-bold",
+                  isActive(n.href) ? "bg-navy-900 text-white" : "bg-[#E9B93E] text-navy-900",
+                )}
+              >
                 {pendingCount}
               </span>
             )}
           </Link>
         ))}
       </nav>
-      <div className="border-t border-white/10 p-3">
+      <div className="mt-3 border-t border-white/[0.12] pt-1">
+        {/* The public site: the signed-in learner pages send admins straight back here (AppShell). */}
         <Link
-          href="/dashboard"
-          className="mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-cream-100/70 hover:bg-white/10 hover:text-white"
+          href="/"
+          target="_blank"
+          className="flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium text-v2-on-navy-muted hover:bg-white/10 hover:text-white"
         >
           <ExternalLink className="h-4 w-4" /> View learner site
         </Link>
-        <div className="flex items-center gap-2.5 rounded-xl px-3 py-2.5">
-          <Avatar src={currentUser.avatarUrl} name={currentUser.name} size={34} />
+        <div className="flex items-center gap-2.5 py-2 pl-3 pr-2">
+          <Avatar
+            src={currentUser.avatarUrl}
+            name={currentUser.name}
+            size={34}
+            ring={false}
+            className="ui-avatar-gold bg-[#E9B93E] font-sans font-bold text-navy-900"
+          />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-white">{currentUser.name}</p>
-            <p className="truncate text-xs text-cream-100/50">{owner ? "Owner" : "Sub-admin"}</p>
+            <p className="truncate text-xs text-v2-on-navy-muted">{owner ? "Owner" : "Sub-admin"}</p>
           </div>
           <button
             onClick={async () => {
               await signOut();
               router.push("/");
             }}
-            className="grid h-8 w-8 place-items-center rounded-lg text-cream-100/60 hover:bg-white/10 hover:text-white"
+            className="grid h-8 w-8 place-items-center rounded-[10px] text-v2-on-navy-muted hover:bg-white/10 hover:text-white"
             aria-label="Sign out"
           >
             <LogOut className="h-4 w-4" />
@@ -150,40 +163,44 @@ export function AdminShell({
   );
 
   return (
-    <div className="min-h-screen bg-surface lg:grid lg:grid-cols-[260px_1fr]">
+    // `app-v2` gives the version 2 colours and fonts; `admin-v2` restyles the shared
+    // Card / Button / Badge / field primitives for the admin panel (see globals.css).
+    <div className="app-v2 admin-v2 min-h-screen bg-surface font-sans text-heading lg:grid lg:grid-cols-[264px_1fr]">
       {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen lg:block">{sidebar}</aside>
+      <aside className="sticky top-0 hidden h-screen py-4 pl-4 lg:block">{sidebar}</aside>
 
       {/* Mobile sidebar */}
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-navy-950/50" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-0 h-full w-64">{sidebar}</div>
+          <div className="absolute left-0 top-0 h-full w-[272px] p-3">{sidebar}</div>
         </div>
       )}
 
-      <div className="flex min-h-screen flex-col">
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-hair bg-card px-5 py-3.5 sm:px-7">
-          <div className="flex items-center gap-3">
+      <div className="flex min-h-screen min-w-0 flex-col">
+        <header className="flex items-center justify-between gap-4 px-5 pb-1 pt-7 sm:px-6 lg:pr-8">
+          <div className="flex min-w-0 items-center gap-3">
             <button
               onClick={() => setOpen(true)}
-              className="grid h-9 w-9 place-items-center rounded-xl text-heading hover:bg-surface-2 lg:hidden"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-card text-heading shadow-v2-soft lg:hidden"
               aria-label="Menu"
             >
               <Menu className="h-5 w-5" />
             </button>
-            <div>
-              <h1 className="font-heading text-xl font-bold text-heading">{title}</h1>
-              {subtitle && <p className="text-sm text-muted">{subtitle}</p>}
+            <div className="min-w-0">
+              <h1 className="font-heading text-2xl font-bold leading-tight tracking-[-0.015em] text-heading sm:text-[32px] sm:leading-[38px]">
+                {title}
+              </h1>
+              {subtitle && <p className="mt-0.5 text-sm text-muted sm:text-[15px] sm:leading-6">{subtitle}</p>}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2.5">
             {allowed && actions}
-            <NotificationBell />
+            <NotificationBell buttonClassName="rounded-full bg-card shadow-v2-soft hover:bg-card" />
           </div>
         </header>
 
-        <main className="flex-1 p-5 sm:p-7">
+        <main className="flex-1 px-5 pb-8 pt-5 sm:px-6 lg:pr-8">
           {allowed ? (
             children
           ) : (

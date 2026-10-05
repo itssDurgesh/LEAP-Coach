@@ -13,11 +13,25 @@ interface LogoProps {
   size?: "sm" | "md" | "lg";
   /** Set on the header logo so it isn't lazy-loaded above the fold. */
   priority?: boolean;
+  /** Wordmark in a single colour (the signed-in learner header). */
+  plain?: boolean;
 }
 
 const markSize = { sm: "h-8 w-8", md: "h-10 w-10", lg: "h-14 w-14" };
 const iconSize = { sm: "h-5 w-5", md: "h-6 w-6", lg: "h-8 w-8" };
 const textSize = { sm: "text-base", md: "text-lg", lg: "text-[1.7rem]" };
+
+/**
+ * The mark alone on a round white plate. This is the face of the LEAP AI tutor
+ * wherever it appears. Size it with `className` (for example `h-10 w-10`).
+ */
+export function LogoMark({ className }: { className?: string }) {
+  return (
+    <span className={cn("grid shrink-0 place-items-center overflow-hidden rounded-full bg-white ring-1 ring-hair", className)}>
+      <Image src="/logo-mark.png" alt="" width={128} height={128} className="h-[82%] w-[82%] object-contain" />
+    </span>
+  );
+}
 
 export function Logo({
   className,
@@ -25,6 +39,7 @@ export function Logo({
   variant = "default",
   size = "md",
   priority = false,
+  plain = false,
 }: LogoProps) {
   const [imgOk, setImgOk] = React.useState(true);
   const onDark = variant === "light";
@@ -63,8 +78,8 @@ export function Logo({
     <span className={cn("inline-flex items-center gap-2", className)}>
       {mark}
       <span className={cn("font-heading font-bold leading-none tracking-tight", textSize[size])}>
-        <span className={cn("tracking-wide", onDark ? "text-white" : "text-heading")}>LEAP</span>
-        <span className="text-gold-500"> Coach</span>
+        <span className={cn(!plain && "tracking-wide", onDark ? "text-white" : "text-heading")}>LEAP</span>
+        <span className={plain ? (onDark ? "text-white" : "text-heading") : "text-gold-500"}> Coach</span>
       </span>
     </span>
   );

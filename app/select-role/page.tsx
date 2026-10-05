@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { GraduationCap, Briefcase, Rocket, ArrowRight, LucideIcon, Loader2 } from "lucide-react";
-import { Logo } from "@/components/ui/Logo";
+import { Brand } from "@/components/marketing/Brand";
 import { useApp } from "@/lib/store/AppProvider";
 import { ROLES, Role } from "@/lib/types";
 
@@ -12,10 +12,11 @@ const roleIcon: Record<Role, LucideIcon> = {
   professional: Briefcase,
   entrepreneur: Rocket,
 };
-const accents: Record<Role, string> = {
-  student: "bg-navy-600",
-  professional: "bg-gold-500",
-  entrepreneur: "bg-gradient-to-r from-gold-500 to-navy-600",
+// The same three colours the home page gives the paths.
+const looks: Record<Role, { tint: string; base: string }> = {
+  student: { tint: "bg-lv-self-tint", base: "bg-lv-self" },
+  professional: { tint: "bg-lv-people-tint", base: "bg-lv-people" },
+  entrepreneur: { tint: "bg-lv-peers-tint", base: "bg-lv-peers" },
 };
 
 export default function SelectRolePage() {
@@ -52,11 +53,11 @@ export default function SelectRolePage() {
 
   if (!hydrated || !currentUser || currentUser.role || currentUser.isAdmin) {
     return (
-      <div className="grid min-h-screen place-items-center bg-surface">
+      <div className="app-v2 grid min-h-screen place-items-center bg-surface font-sans text-heading">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
           {waiting && (
-            <p className="animate-fade-up text-sm text-muted">Setting up your account...</p>
+            <p className="animate-fade-up text-sm text-v2-body">Setting up your account...</p>
           )}
         </div>
       </div>
@@ -66,10 +67,10 @@ export default function SelectRolePage() {
   const firstName = currentUser.name.split(" ")[0];
 
   return (
-    <div className="min-h-screen bg-surface bg-grid">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
-        <Logo href={null} />
-        <button onClick={signOut} className="text-sm font-medium text-muted hover:text-heading">
+    <div className="app-v2 min-h-screen bg-surface font-sans text-heading">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5 text-[18px] sm:px-8">
+        <Brand />
+        <button onClick={signOut} className="rounded-full px-4 py-2 text-[13px] font-semibold text-heading transition-colors duration-200 hover:bg-surface-2">
           Sign out
         </button>
       </header>
@@ -79,28 +80,27 @@ export default function SelectRolePage() {
           <h1 className="text-balance font-heading text-display font-bold leading-tight text-heading">
             Welcome, {firstName}! Choose your path
           </h1>
-          <p className="mt-3 text-muted">
+          <p className="mt-3 text-base leading-6 text-v2-body">
             This personalizes your dashboard, catalog, and recommendations. You can explore other
             paths anytime.
           </p>
         </div>
 
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
+        <div className="mt-12 grid gap-5 md:grid-cols-3">
           {ROLES.map((role) => {
             const Icon = roleIcon[role.id];
             return (
               <button
                 key={role.id}
                 onClick={() => choose(role.id)}
-                className="group relative overflow-hidden rounded-3xl border border-hair bg-card p-7 text-left transition-all duration-300 ease-out-expo hover:-translate-y-1.5 hover:border-gold-300 hover:shadow-lift"
+                className={`group rounded-[24px] p-7 text-left transition-transform duration-300 ease-out-expo hover:-translate-y-1 ${looks[role.id].tint}`}
               >
-                <div className={`absolute inset-x-0 top-0 h-1.5 ${accents[role.id]}`} />
-                <span className="grid h-14 w-14 place-items-center rounded-2xl bg-surface-2 text-heading transition-colors duration-300 group-hover:bg-gold-500 group-hover:text-navy-900">
-                  <Icon className="h-7 w-7" />
+                <span className={`grid h-14 w-14 place-items-center rounded-full text-white ${looks[role.id].base}`}>
+                  <Icon className="h-7 w-7" strokeWidth={1.9} />
                 </span>
-                <h3 className="mt-5 font-heading text-xl font-bold text-heading">{role.label}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted">{role.tagline}</p>
-                <span className="mt-5 inline-flex items-center gap-1.5 font-heading text-sm font-semibold text-gold-600">
+                <h3 className="mt-5 font-heading text-xl font-semibold tracking-[-0.01em] text-heading">{role.label}</h3>
+                <p className="mt-2 text-sm leading-5 text-v2-body">{role.tagline}</p>
+                <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-heading">
                   Choose {role.label}
                   <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                 </span>

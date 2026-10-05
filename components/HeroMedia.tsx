@@ -4,32 +4,61 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Plays the looping, muted, autoplaying hero clip.
+ * Plays the looping, muted hero clip.
  *
  * The source is the bundled public/professor-hero.mp4, hardcoded on purpose so it
  * starts immediately with no CDN round-trip. The file is laid out faststart (moov
  * before mdat) so playback begins without downloading the whole clip.
  *
  * Loading is deferred until after first paint. The clip sits above the fold, and
- * with autoPlay + preload="auto" the browser pulled ~5.7MB in parallel with the
- * resources that decide FCP/LCP — so the hero text painted late while the video
- * hogged bandwidth. `src` is withheld until the main thread is idle, which keeps
- * the video out of the critical path without changing what the user eventually
- * sees (autoplay fires as soon as the source is attached and buffered).
+ * with an eager source the browser pulled it in parallel with the resources that
+ * decide FCP/LCP — so the hero text painted late while the video hogged bandwidth.
+ * `src` is withheld until the main thread is idle AND this copy is close to the
+ * viewport, so a copy further down the page (or one in a hidden layout) costs
+ * nothing until it is needed.
+ *
+ * Playback is driven from here rather than by the `autoplay` attribute. Browsers
+ * disagree on what that attribute means for a muted clip (Chrome plays it only
+ * while it is on screen, others play every copy all the time), and each copy ran
+ * on its own timeline: the hero paused mid-sentence while the copy in the lesson
+ * scene started again from zero. Now a copy plays only while it is on screen and
+ * picks up from wherever the previous copy was, so it reads as one video.
  *
  * There is deliberately NO still-image fallback: if the clip fails, the element
- * stays transparent and the container's own gradient shows through.
+ * stays transparent and the container's own background shows through.
  */
 const HERO_VIDEO = "/professor-hero.mp4";
 
+// The copy that played most recently. The next copy to come on screen continues from its position.
+let lastPlayed: HTMLVideoElement | null = null;
+
 export function HeroMedia({ className, src }: { className?: string; src?: string }) {
-  const [armed, setArmed] = React.useState(false);
+  const ref = React.useRef<HTMLVideoElement>(null);
+  const onScreen = React.useRef(false);
+  const [idle, setIdle] = React.useState(false);
+  const [near, setNear] = React.useState(false);
+  const armed = idle && near;
+
+  const sync = React.useCallback(() => {
+    const video = ref.current;
+    if (!video || !video.getAttribute("src")) return;
+    if (!onScreen.current) {
+      video.pause();
+      return;
+    }
+    if (lastPlayed && lastPlayed !== video && lastPlayed.isConnected && Math.abs(video.currentTime - lastPlayed.currentTime) > 0.2) {
+      video.currentTime = lastPlayed.currentTime;
+    }
+    lastPlayed = video;
+    // Muted playback needs no user gesture; a rejection only means the copy left the screen again.
+    video.play().catch(() => {});
+  }, []);
 
   React.useEffect(() => {
     let idleId: number | undefined;
     let timerId: ReturnType<typeof setTimeout> | undefined;
 
-    const arm = () => setArmed(true);
+    const arm = () => setIdle(true);
 
     // requestIdleCallback where available (Chrome/Edge/Firefox); the timeout keeps
     // it bounded so the clip still starts on a busy page. Safari falls back to a
@@ -46,16 +75,51 @@ export function HeroMedia({ className, src }: { className?: string; src?: string
     };
   }, []);
 
+  React.useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    // Fetch one screen ahead, so the first frame is ready before the copy scrolls in.
+    const loader = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setNear(true);
+          loader.disconnect();
+        }
+      },
+      { rootMargin: "100% 0px" },
+    );
+    // Start a little early, so the catch-up seek is over by the time the copy is in view.
+    const player = new IntersectionObserver(
+      ([entry]) => {
+        onScreen.current = entry.isIntersecting;
+        sync();
+      },
+      { rootMargin: "200px 0px" },
+    );
+    loader.observe(video);
+    player.observe(video);
+    return () => {
+      loader.disconnect();
+      player.disconnect();
+      if (lastPlayed === video) lastPlayed = null;
+    };
+  }, [sync]);
+
+  // The source has just been attached (or swapped): start it if this copy is on screen.
+  React.useEffect(() => {
+    if (armed) sync();
+  }, [armed, src, sync]);
+
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption
     <video
+      ref={ref}
       // No src until armed — an absent attribute means the browser fetches nothing.
       src={armed ? src || HERO_VIDEO : undefined}
-      autoPlay
       muted
       loop
       playsInline
-      preload="none"
+      preload="auto"
       className={cn("h-full w-full object-cover", className)}
     />
   );

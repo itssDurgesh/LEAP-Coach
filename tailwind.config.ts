@@ -63,6 +63,32 @@ const config: Config = {
         },
         success: "#22C55E",
         warning: "#F97316",
+        // ── Version 2 learner theme (values live in `.app-v2` in globals.css) ──
+        v2: {
+          body: "rgb(var(--v2-body) / <alpha-value>)",
+          "line-strong": "rgb(var(--v2-line-strong) / <alpha-value>)",
+          navy: "rgb(var(--v2-navy) / <alpha-value>)",
+          "navy-raised": "rgb(var(--v2-navy-raised) / <alpha-value>)",
+          "on-navy-muted": "rgb(var(--v2-on-navy-muted) / <alpha-value>)",
+          "gold-soft": "rgb(var(--v2-gold-soft) / <alpha-value>)",
+          "gold-text": "rgb(var(--v2-gold-text) / <alpha-value>)",
+          idea: "rgb(var(--v2-idea) / <alpha-value>)",
+          segment: "rgb(var(--v2-segment) / <alpha-value>)",
+          raised: "rgb(var(--v2-raised) / <alpha-value>)",
+          strong: "rgb(var(--v2-strong) / <alpha-value>)",
+          "on-strong": "rgb(var(--v2-on-strong) / <alpha-value>)",
+        },
+        // The six leadership levels: base colour, darker text shade, pale tint.
+        lv: Object.fromEntries(
+          ["self", "people", "upwards", "peers", "cultures", "orgs"].map((k) => [
+            k,
+            {
+              DEFAULT: `rgb(var(--lv-${k}) / <alpha-value>)`,
+              dark: `rgb(var(--lv-${k}-dark) / <alpha-value>)`,
+              tint: `rgb(var(--lv-${k}-tint) / <alpha-value>)`,
+            },
+          ]),
+        ),
       },
       fontFamily: {
         heading: ["var(--font-outfit)", "system-ui", "sans-serif"],
@@ -91,6 +117,11 @@ const config: Config = {
         // Floating nav pill + hero mockup layering
         pill: "0 1px 2px rgba(8,18,37,0.04), 0 8px 30px rgba(8,18,37,0.10)",
         lift: "0 2px 4px rgba(8,18,37,0.04), 0 12px 28px rgba(8,18,37,0.10), 0 36px 68px rgba(8,18,37,0.09)",
+        // Version 2 learner theme
+        "v2-card": "0 12px 32px rgba(12,27,54,0.08), 0 2px 4px rgba(12,27,54,0.04)",
+        "v2-soft": "0 2px 6px rgba(12,27,54,0.05)",
+        "v2-lift": "0 18px 36px rgba(12,27,54,0.16), 0 4px 8px rgba(12,27,54,0.06)",
+        "v2-gold": "0 8px 20px rgba(212,155,30,0.40)",
       },
       borderRadius: {
         xl: "0.875rem",

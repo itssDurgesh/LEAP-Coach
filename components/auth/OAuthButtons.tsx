@@ -20,7 +20,7 @@ export function OAuthButtons({ onSelect }: OAuthButtonsProps) {
     <button
       type="button"
       onClick={() => onSelect("google")}
-      className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-hair bg-card text-sm font-medium text-heading transition-colors hover:bg-surface-2"
+      className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-v2-line-strong bg-card text-[15px] font-semibold text-heading transition-colors duration-200 hover:border-heading"
     >
       <GoogleIcon /> Continue with Google
     </button>

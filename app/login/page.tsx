@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Mail, AlertCircle, ArrowRight } from "lucide-react";
-import { AuthShell } from "@/components/auth/AuthShell";
+import { AUTH_SUBMIT, AuthShell } from "@/components/auth/AuthShell";
 import { OAuthButtons } from "@/components/auth/OAuthButtons";
 import { Field, Input, PasswordInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
@@ -96,11 +96,11 @@ export default function LoginPage() {
           />
         </Field>
         <div className="-mt-2 text-right">
-          <Link href="/forgot-password" className="text-xs font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
+          <Link href="/forgot-password" className="text-xs font-semibold text-v2-gold-text hover:underline">
             Forgot password?
           </Link>
         </div>
-        <Button type="submit" className="w-full" loading={busy}>
+        <Button type="submit" className={AUTH_SUBMIT} loading={busy}>
           Sign in <ArrowRight className="h-4 w-4" />
         </Button>
       </form>
@@ -108,7 +108,7 @@ export default function LoginPage() {
 
       <p className="mt-6 text-center text-sm text-muted">
         New to LEAP Coach?{" "}
-        <Link href="/signup" className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
+        <Link href="/signup" className="font-semibold text-v2-gold-text hover:underline">
           Create an account
         </Link>
       </p>

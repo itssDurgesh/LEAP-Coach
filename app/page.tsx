@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { SiteNav } from "@/components/marketing/SiteNav";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { SmoothScroll } from "@/components/motion/SmoothScroll";
 import { Container } from "@/components/marketing/Container";
+import { SectionHead } from "@/components/marketing/SectionHead";
 import { Reveal } from "@/components/motion/Reveal";
 import { HomeHero } from "@/components/marketing/home/HomeHero";
-import { HomePaths } from "@/components/marketing/home/HomePaths";
+import { HomeStory } from "@/components/marketing/home/HomeStory";
 import { HomeHowItWorks } from "@/components/marketing/home/HomeHowItWorks";
 import { FeaturedCourses } from "@/components/marketing/home/FeaturedCourses";
 import { HomeStats } from "@/components/marketing/home/HomeStats";
@@ -17,7 +17,7 @@ import { HomeBooks } from "@/components/marketing/home/HomeBooks";
 import { HomePricingTeaser } from "@/components/marketing/home/HomePricingTeaser";
 import { HomeFaq } from "@/components/marketing/home/HomeFaq";
 import { HomeCta } from "@/components/marketing/home/HomeCta";
-import { buttonClasses } from "@/components/ui/button-variants";
+import { v2Button } from "@/components/v2/button";
 import { fetchSiteContentServer } from "@/lib/supabase/server";
 import { fetchPricing } from "@/lib/payments/pricing";
 
@@ -38,41 +38,32 @@ export default async function Home() {
   ]);
 
   return (
-    // overflow-x-hidden because the horizontal <Reveal> entrances translate up to
-    // 34px sideways; without it, elements near the viewport edge widen the document
-    // mid-animation and flash a horizontal scrollbar. The nav is fixed here, so this
-    // doesn't interfere with any sticky positioning.
-    <div className="min-h-screen overflow-x-hidden bg-surface">
+    // `app-v2` gives the page the version 2 colours and fonts (see globals.css).
+    // overflow-x-clip because the horizontal <Reveal> entrances translate up to 34px
+    // sideways; without it, elements near the viewport edge widen the document
+    // mid-animation and flash a horizontal scrollbar. It must be `clip`, not
+    // `hidden`: `hidden` turns this box into a scroll container, and the scroll
+    // story's stage could then no longer hold still (position: sticky).
+    <div className="app-v2 min-h-screen overflow-x-clip bg-surface font-sans text-heading">
       {/* Momentum scrolling + smoothed #anchor jumps, marketing pages only. */}
       <SmoothScroll />
-      <SiteNav overlay />
 
       <main>
-        {/* ── Hero (admin-editable) ── */}
+        {/* ── Opening, menu bar and hero (words are admin-editable) ── */}
         <HomeHero initialContent={initialContent} />
 
-        {/* ── Three learning paths ── */}
-        <HomePaths />
+        {/* ── How it works: three scenes, including the three learning paths ── */}
+        <HomeStory />
 
-        {/* ── How it works + capabilities ── */}
+        {/* ── What you get ── */}
         <HomeHowItWorks />
 
         {/* ── Featured programs ── */}
-        <section className="bg-surface py-16 sm:py-20">
+        <section className="py-16 sm:py-20">
           <Container width="wide">
             <Reveal className="flex flex-wrap items-end justify-between gap-6">
-              <div className="max-w-xl">
-                <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.16em] text-gold-600">
-                  Featured programs
-                </p>
-                <h2 className="mt-4 text-balance font-heading text-display font-bold text-heading">
-                  Learn from the best minds
-                </h2>
-              </div>
-              <Link
-                href="/courses"
-                className={buttonClasses({ variant: "outline", size: "md", className: "group" })}
-              >
+              <SectionHead tag="Featured programs" title="Learn from the best minds" />
+              <Link href="/courses" className={v2Button("outline", "md", "group")}>
                 View all topics
                 <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
               </Link>

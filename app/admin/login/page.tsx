@@ -72,7 +72,7 @@ export default function AdminLoginPage() {
             </Link>
           </div>
         )}
-        <Button type="submit" variant="navy" className="w-full">
+        <Button type="submit" variant="navy" size="lg" className="w-full">
           <ShieldCheck className="h-4 w-4" /> Enter Control Center
         </Button>
       </form>

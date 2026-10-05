@@ -2,15 +2,13 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, Upload, ExternalLink, Award, ReceiptText, ChevronDown, Send } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, ReceiptText, Send, Trophy, Upload } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
-import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
-import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Input, Textarea, Select, Field } from "@/components/ui/Field";
 import { Receipt, paymentItemLabel } from "@/components/payments/Receipt";
+import { PageHead, V2Card, V2_AVATAR, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
 import { Gender, User, tierForCredits } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
@@ -23,6 +21,11 @@ const GENDERS: { v: Gender; l: string }[] = [
   { v: "non_binary", l: "Non-binary" },
   { v: "prefer_not", l: "Prefer not to say" },
 ];
+
+// Version 2 look for the shared form fields: filled, softly rounded, no shadow.
+const FIELD = "rounded-[14px] bg-surface py-[11px] shadow-none";
+const CHIP = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold leading-[18px]";
+const HEADING = "font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading";
 
 export default function AccountPage() {
   return (
@@ -110,129 +113,136 @@ function Account() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-heading text-display-sm font-bold leading-tight text-heading">Account settings</h1>
-          <p className="mt-1.5 text-muted">Manage your profile and personal information.</p>
-        </div>
-        <Link href={`/u/${u.username ?? u.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-gold-600 hover:text-gold-700">
-          View public profile <ExternalLink className="h-4 w-4" />
-        </Link>
-      </header>
+    <div className="space-y-7">
+      <PageHead
+        title="Account settings"
+        description="Manage your profile and personal information."
+        actions={
+          <Link href={`/u/${u.username ?? u.id}`} className={v2Button("outline", "sm")}>
+            View public profile <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        }
+      />
 
-      {/* Summary strip */}
-      <Card padded>
-        <div className="flex flex-wrap items-center gap-4">
-          <Avatar src={form.avatarUrl} name={form.name} size={64} />
-          <div className="min-w-0 flex-1">
-            <p className="font-heading text-lg font-bold text-heading">{form.name || "Your name"}</p>
-            <p className="truncate text-sm text-muted">{u.email}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="navy" className="capitalize">{u.role}</Badge>
-            <Badge variant={tier.color}>
-              <Award className="h-3 w-3" /> {tier.label}
-            </Badge>
-            <Badge variant="gold">{u.learningCredits} cr</Badge>
-          </div>
-        </div>
-      </Card>
-
-      <form onSubmit={save}>
-        <Card padded className="space-y-5">
-          {/* Avatar */}
-          <div className="flex items-center gap-4">
-            <Avatar src={form.avatarUrl} name={form.name} size={72} />
-            <div className="flex-1 space-y-2">
-              <Field label="Avatar URL" hint="Paste a URL or upload an image.">
-                <Input value={form.avatarUrl} onChange={(e) => set({ avatarUrl: e.target.value })} placeholder="https://…" />
-              </Field>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_416px] lg:items-start">
+        <form onSubmit={save} className="min-w-0">
+          <V2Card className="space-y-5 p-6 sm:p-7">
+            <div className="flex flex-wrap items-center gap-4">
+              <Avatar src={form.avatarUrl} name={form.name} size={72} ring={false} className={V2_AVATAR} />
+              <div className="min-w-0 flex-1">
+                <p className={HEADING}>{form.name || "Your name"}</p>
+                <p className="mt-1 truncate text-[13px] font-medium text-muted">{u.email}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className={cn(CHIP, "bg-surface capitalize text-v2-body")}>{u.role}</span>
+                  <span className={cn(CHIP, "bg-v2-gold-soft text-v2-gold-text")}>
+                    <Trophy className="h-3.5 w-3.5" /> {tier.label} tier
+                  </span>
+                  <span className={cn(CHIP, "bg-surface text-v2-body")}>{u.learningCredits} credits</span>
+                </div>
+              </div>
               <input ref={fileRef} type="file" accept="image/*" onChange={onPickFile} className="hidden" />
-              <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-                <Upload className="h-4 w-4" /> Upload photo
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {form.avatarUrl && (
+                  <button type="button" onClick={() => set({ avatarUrl: "" })} className={v2Button("ghost", "sm")}>
+                    Remove photo
+                  </button>
+                )}
+                <button type="button" onClick={() => fileRef.current?.click()} className={v2Button("outline", "sm")}>
+                  <Upload className="h-3.5 w-3.5" /> Upload image
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Full name" required>
-              <Input value={form.name} onChange={(e) => set({ name: e.target.value })} required />
-            </Field>
-            <Field label="Email" hint="Email can't be changed here.">
-              <Input value={u.email} disabled />
-            </Field>
-          </div>
+            <div className="grid gap-x-4 gap-y-5 sm:grid-cols-2">
+              <Field label="Full name" required>
+                <Input value={form.name} onChange={(e) => set({ name: e.target.value })} required className={FIELD} />
+              </Field>
+              <Field label="Email" hint="Email can't be changed here.">
+                <Input value={u.email} disabled className={FIELD} />
+              </Field>
 
-          <Field
-            label="Username"
-            hint={
-              usernameLocked
-                ? "Your permanent @handle, used to tag you in discussions. It can't be changed."
-                : "Your unique @handle, used to tag you in the discussion board. Choose carefully — it can't be changed later."
-            }
-            error={unameError || undefined}
-          >
-            <Input
-              value={usernameLocked ? `@${u.username}` : form.username}
-              onChange={(e) => set({ username: e.target.value })}
-              placeholder="yourhandle"
-              disabled={usernameLocked}
-            />
-          </Field>
+              <Field
+                label="Username"
+                hint={
+                  usernameLocked
+                    ? "Your permanent @handle, used to tag you in discussions. It can't be changed."
+                    : "Your unique @handle, used to tag you in the discussion board. Choose carefully — it can't be changed later."
+                }
+                error={unameError || undefined}
+              >
+                <Input
+                  value={usernameLocked ? `@${u.username}` : form.username}
+                  onChange={(e) => set({ username: e.target.value })}
+                  placeholder="yourhandle"
+                  disabled={usernameLocked}
+                  className={FIELD}
+                />
+              </Field>
+              <Field label="Headline" hint="A short tagline shown on your profile.">
+                <Input
+                  value={form.headline}
+                  onChange={(e) => set({ headline: e.target.value })}
+                  placeholder="Engineering Manager · learning to lead"
+                  className={FIELD}
+                />
+              </Field>
 
-          <Field label="Headline" hint="A short tagline shown on your profile.">
-            <Input value={form.headline} onChange={(e) => set({ headline: e.target.value })} placeholder="Engineering Manager · learning to lead" />
-          </Field>
+              <Field label="About you" className="sm:col-span-2">
+                <Textarea
+                  value={form.bio}
+                  onChange={(e) => set({ bio: e.target.value })}
+                  className={cn(FIELD, "min-h-[88px]")}
+                  placeholder="A few lines about yourself…"
+                />
+              </Field>
 
-          <Field label="About you">
-            <Textarea value={form.bio} onChange={(e) => set({ bio: e.target.value })} className="min-h-[100px]" placeholder="A few lines about yourself…" />
-          </Field>
+              <Field label="Company / College">
+                <Input value={form.company} onChange={(e) => set({ company: e.target.value })} className={FIELD} />
+              </Field>
+              <Field label="Phone">
+                <Input value={form.phone} onChange={(e) => set({ phone: e.target.value })} className={FIELD} />
+              </Field>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Company / College">
-              <Input value={form.company} onChange={(e) => set({ company: e.target.value })} />
-            </Field>
-            <Field label="Phone">
-              <Input value={form.phone} onChange={(e) => set({ phone: e.target.value })} />
-            </Field>
-          </div>
+              <Field label="Age">
+                <Input type="number" min={1} value={form.age} onChange={(e) => set({ age: e.target.value })} className={FIELD} />
+              </Field>
+              <Field label="Gender">
+                <Select value={form.gender} onChange={(e) => set({ gender: e.target.value as Gender | "" })} className={FIELD}>
+                  <option value="">—</option>
+                  {GENDERS.map((g) => (
+                    <option key={g.v} value={g.v}>{g.l}</option>
+                  ))}
+                </Select>
+              </Field>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Age">
-              <Input type="number" min={1} value={form.age} onChange={(e) => set({ age: e.target.value })} />
-            </Field>
-            <Field label="Gender">
-              <Select value={form.gender} onChange={(e) => set({ gender: e.target.value as Gender | "" })}>
-                <option value="">—</option>
-                {GENDERS.map((g) => (
-                  <option key={g.v} value={g.v}>{g.l}</option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Region">
-              <Input value={form.region} onChange={(e) => set({ region: e.target.value })} />
-            </Field>
-          </div>
+              <Field label="Region">
+                <Input value={form.region} onChange={(e) => set({ region: e.target.value })} className={FIELD} />
+              </Field>
+              <Field label="Nationality">
+                <Input value={form.nationality} onChange={(e) => set({ nationality: e.target.value })} className={FIELD} />
+              </Field>
+            </div>
 
-          <Field label="Nationality">
-            <Input value={form.nationality} onChange={(e) => set({ nationality: e.target.value })} />
-          </Field>
-
-          <div className="flex items-center justify-end gap-3 border-t border-hair pt-4">
-            {saved && (
-              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700">
-                <Check className="h-4 w-4" /> Saved
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <span role="status" className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-lv-orgs-dark">
+                {saved && (
+                  <>
+                    <Check className="h-4 w-4" /> Saved
+                  </>
+                )}
               </span>
-            )}
-            <Button type="submit" disabled={!!unameError}>Save changes</Button>
-          </div>
-        </Card>
-      </form>
+              <button type="submit" disabled={!!unameError} className={v2Button("primary")}>
+                Save changes
+              </button>
+            </div>
+          </V2Card>
+        </form>
 
-      <TelegramConnect />
-
-      <PaymentReceipts />
+        <div className="min-w-0 space-y-6">
+          <TelegramConnect />
+          <PaymentReceipts />
+        </div>
+      </div>
     </div>
   );
 }
@@ -316,64 +326,63 @@ function TelegramConnect() {
   const disabled = configured === false; // mock mode / not signed in to a real backend
 
   return (
-    <Card padded className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-100 text-sky-600">
-            <Send className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="font-heading text-lg font-bold text-heading">LEAP Coach on Telegram</h2>
-            <p className="mt-0.5 text-sm text-muted">
-              Link your account to chat with your personal LEAP Coach bot. Ask about your courses, marks,
-              plan &amp; credits, and get notified about announcements, new topics, and mentions. It is
-              read-only and never changes your account.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={linked}
-          aria-label="Link Telegram"
-          disabled={disabled || busy}
-          onClick={() => { setError(null); if (!linked) setAskLink(true); else setAskUnlink(true); }}
-          className={cn(
-            "relative mt-1 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-            linked ? "bg-green-600" : "bg-surface-2",
-          )}
-        >
-          <span
-            className={cn(
-              "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
-              linked ? "translate-x-5" : "translate-x-0.5",
+    <V2Card className="space-y-3.5 p-6">
+      <div className="flex items-start gap-3.5">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-lv-peers-tint text-lv-peers-dark">
+          <Send className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
+          <h2 className={HEADING}>LEAP Coach on Telegram</h2>
+          <span className={cn(CHIP, "mt-1.5", linked ? "bg-lv-orgs-tint text-lv-orgs-dark" : "bg-surface text-v2-body")}>
+            {linked ? (
+              <>
+                <Check className="h-3.5 w-3.5" strokeWidth={3} /> Linked{tgUsername ? ` as @${tgUsername}` : ""}
+              </>
+            ) : (
+              "Not linked"
             )}
-          />
-        </button>
+          </span>
+        </div>
+      </div>
+
+      <p className="text-sm leading-5 text-v2-body">
+        Get reminders and answers about your account from the LEAP Coach bot. It is read-only and never changes your account.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-3">
+        {linked ? (
+          <>
+            <button
+              type="button"
+              onClick={() => window.open(`https://t.me/${botUsername}`, "_blank", "noopener,noreferrer")}
+              className={v2Button("strong", "sm")}
+            >
+              <Send className="h-3.5 w-3.5" /> Open chat
+            </button>
+            <button type="button" disabled={busy} onClick={() => { setError(null); setAskUnlink(true); }} className={v2Button("ghost", "sm")}>
+              Disconnect
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            disabled={disabled || busy}
+            onClick={() => { setError(null); setAskLink(true); }}
+            className={v2Button("strong", "sm")}
+          >
+            <Send className="h-3.5 w-3.5" /> Link Telegram
+          </button>
+        )}
+        <span className="text-[13px] font-medium text-muted">@{botUsername}</span>
       </div>
 
       {disabled && (
-        <p className="text-xs text-faint">Telegram linking becomes available once you&apos;re signed in and the app is connected to its database.</p>
-      )}
-      {linked && !pending && (
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700">
-            <Check className="h-4 w-4" /> Connected{tgUsername ? ` as @${tgUsername}` : ""}.
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => window.open(`https://t.me/${botUsername}`, "_blank", "noopener,noreferrer")}
-          >
-            <Send className="h-4 w-4" /> Open chat
-          </Button>
-        </div>
+        <p className="text-xs font-medium text-muted">Telegram linking becomes available once you&apos;re signed in and the app is connected to its database.</p>
       )}
       {pending && !linked && (
-        <p className="text-sm text-muted">Opened Telegram — press <b>Start</b> in the chat to finish linking…</p>
+        <p className="text-sm text-v2-body">Opened Telegram — press <b>Start</b> in the chat to finish linking…</p>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm font-medium text-lv-people-dark">{error}</p>}
 
       {/* Allow / Deny consent dialog */}
       <Modal open={askLink} onClose={() => setAskLink(false)} title="Link Telegram?">
@@ -390,8 +399,8 @@ function TelegramConnect() {
             Read-only access to your own account data. You can disconnect anytime from this page.
           </p>
           <div className="flex justify-end gap-3 pt-1">
-            <Button type="button" variant="outline" onClick={() => setAskLink(false)} disabled={busy}>Deny</Button>
-            <Button type="button" onClick={allow} disabled={busy}>{busy ? "Opening…" : "Allow & open Telegram"}</Button>
+            <button type="button" onClick={() => setAskLink(false)} disabled={busy} className={v2Button("outline", "sm")}>Deny</button>
+            <button type="button" onClick={allow} disabled={busy} className={v2Button("primary", "sm")}>{busy ? "Opening…" : "Allow & open Telegram"}</button>
           </div>
         </div>
       </Modal>
@@ -404,12 +413,12 @@ function TelegramConnect() {
             account. You can reconnect anytime.
           </p>
           <div className="flex justify-end gap-3 pt-1">
-            <Button type="button" variant="outline" onClick={() => setAskUnlink(false)} disabled={busy}>Cancel</Button>
-            <Button type="button" onClick={unlink} disabled={busy}>{busy ? "Disconnecting…" : "Disconnect"}</Button>
+            <button type="button" onClick={() => setAskUnlink(false)} disabled={busy} className={v2Button("outline", "sm")}>Cancel</button>
+            <button type="button" onClick={unlink} disabled={busy} className={v2Button("primary", "sm")}>{busy ? "Disconnecting…" : "Disconnect"}</button>
           </div>
         </div>
       </Modal>
-    </Card>
+    </V2Card>
   );
 }
 
@@ -420,50 +429,60 @@ function PaymentReceipts() {
   const [openId, setOpenId] = React.useState<string | null>(null);
 
   return (
-    <Card padded className="space-y-3">
-      <div className="flex items-center gap-2">
-        <ReceiptText className="h-5 w-5 text-gold-600" />
-        <h2 className="font-heading text-lg font-bold text-heading">Payment receipts</h2>
+    <V2Card className="p-6">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className={HEADING}>Payment receipts</h2>
+        {mine.length > 0 && (
+          <span className="text-[13px] font-medium text-muted">
+            {mine.length} {mine.length === 1 ? "receipt" : "receipts"}
+          </span>
+        )}
       </div>
       {!mine.length ? (
-        <p className="text-sm text-muted">Your receipts will appear here after a purchase.</p>
+        <p className="mt-3 text-sm text-v2-body">Your receipts will appear here after a purchase.</p>
       ) : (
-        <ul className="divide-y divide-hair">
-          {mine.map((p) => {
-            const title = p.courseId ? getCourse(p.courseId)?.title : undefined;
-            const open = openId === p.id;
-            return (
-              <li key={p.id} className="py-3">
-                <button
-                  onClick={() => setOpenId(open ? null : p.id)}
-                  className="flex w-full items-center justify-between gap-3 text-left"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium text-heading">{paymentItemLabel(p, title)}</span>
-                    <span className="block text-xs text-faint">
-                      {new Date(p.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+        <>
+          <ul className="mt-3 space-y-1">
+            {mine.map((p) => {
+              const title = p.courseId ? getCourse(p.courseId)?.title : undefined;
+              const open = openId === p.id;
+              return (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(open ? null : p.id)}
+                    aria-expanded={open}
+                    className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-3.5 rounded-[14px] p-2 text-left transition-colors duration-200 hover:bg-surface"
+                  >
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface text-heading">
+                      <ReceiptText className="h-[18px] w-[18px]" />
                     </span>
-                  </span>
-                  <span className="flex items-center gap-3">
-                    <span className="font-heading font-semibold text-heading">{formatINR(p.amountInr)}</span>
-                    <ChevronDown className={`h-4 w-4 text-faint transition-transform ${open ? "rotate-180" : ""}`} />
-                  </span>
-                </button>
-                {open && (
-                  <div className="mt-3">
-                    <Receipt payment={p} courseTitle={title} />
-                    <div className="mt-2 text-right">
-                      <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
-                        Print / Save PDF
-                      </Button>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold leading-5 text-heading">{paymentItemLabel(p, title)}</span>
+                      <span className="block text-xs font-medium text-muted">
+                        {new Date(p.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                      </span>
+                    </span>
+                    <span className="font-heading text-[15px] font-bold tracking-[-0.015em] text-heading">{formatINR(p.amountInr)}</span>
+                    <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted transition-transform duration-200", open && "rotate-180")} />
+                  </button>
+                  {open && (
+                    <div className="mt-2 pb-2">
+                      <Receipt payment={p} courseTitle={title} />
+                      <div className="mt-2 text-right">
+                        <button type="button" onClick={() => window.print()} className={v2Button("outline", "sm")}>
+                          Print / Save PDF
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-3 text-xs font-medium text-muted">Open a receipt to print it or save it as a PDF.</p>
+        </>
       )}
-    </Card>
+    </V2Card>
   );
 }

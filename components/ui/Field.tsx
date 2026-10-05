@@ -5,7 +5,7 @@ import { ChevronDown, Lock, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const fieldBase =
-  "w-full rounded-xl border border-hair bg-card px-4 py-2.5 text-sm text-heading placeholder:text-faint shadow-sm transition-colors focus:border-gold-400 focus:outline-none focus:ring-2 focus:ring-gold-400/40 disabled:cursor-not-allowed disabled:opacity-60";
+  "ui-field w-full rounded-xl border border-hair bg-card px-4 py-2.5 text-sm text-heading placeholder:text-faint shadow-sm transition-colors focus:border-gold-400 focus:outline-none focus:ring-2 focus:ring-gold-400/40 disabled:cursor-not-allowed disabled:opacity-60";
 
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   ({ className, ...props }, ref) => (

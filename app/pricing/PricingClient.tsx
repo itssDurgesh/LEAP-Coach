@@ -5,8 +5,8 @@ import Link from "next/link";
 import { Check, Crown, BookOpen, Sparkles, ShieldCheck, Layers } from "lucide-react";
 import { SiteNav } from "@/components/marketing/SiteNav";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
-import { Badge } from "@/components/ui/Badge";
-import { Button, buttonClasses } from "@/components/ui/Button";
+import { CARD, SectionHead, Tag } from "@/components/marketing/SectionHead";
+import { v2Button } from "@/components/v2/button";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { useApp } from "@/lib/store/AppProvider";
 import { Role, ROLES, bundlePrice, PricingTiers } from "@/lib/types";
@@ -52,63 +52,64 @@ export function PricingClient({ initialPricing }: { initialPricing: PricingTiers
   ];
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="app-v2 min-h-screen bg-surface font-sans text-heading">
       <SiteNav />
 
-      <section className="relative overflow-hidden">
-        <div className="relative mx-auto max-w-7xl px-5 py-16 text-center sm:px-8">
-          <Badge variant="gold">Pricing</Badge>
-          <h1 className="mt-4 text-balance font-heading text-display font-bold text-heading">Simple, transparent pricing</h1>
-          <p className="mx-auto mt-3 max-w-xl text-muted">
-            Buy a single topic, unlock a whole category, or get everything with the All-Access Pass.
-          </p>
-          {allAccess && (
-            <div className="mx-auto mt-6 inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
-              <ShieldCheck className="h-4 w-4" /> Your All-Access Pass is active
-            </div>
-          )}
-        </div>
+      <section className="mx-auto max-w-7xl px-5 pb-12 pt-14 text-center sm:px-8 lg:pt-20">
+        <SectionHead
+          center
+          as="h1"
+          tag="Pricing"
+          title="Simple, transparent pricing"
+          text="Buy a single topic, unlock a whole category, or get everything with the All-Access Pass."
+        />
+        {allAccess && (
+          <div className="mx-auto mt-6 inline-flex items-center gap-2 rounded-full bg-lv-orgs-tint px-4 py-2 text-sm font-semibold text-lv-orgs-dark">
+            <ShieldCheck className="h-4 w-4" /> Your All-Access Pass is active
+          </div>
+        )}
       </section>
 
       <section className="mx-auto max-w-5xl px-5 pb-20 sm:px-8">
-        <div className="grid items-start gap-6 md:grid-cols-2">
+        <div className="grid items-start gap-5 md:grid-cols-2">
           {/* Per-topic */}
-          <div className="rounded-3xl border border-hair bg-card p-8">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-surface-2 text-heading">
+          <div className={cn(CARD, "p-8")}>
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-lv-peers-tint text-lv-peers-dark">
               <BookOpen className="h-6 w-6" />
             </span>
-            <h2 className="mt-5 font-heading text-xl font-bold text-heading">Per-Topic</h2>
-            <p className="mt-1 text-sm text-muted">Buy a topic, keep it for a year.</p>
+            <h2 className="mt-5 font-heading text-xl font-semibold tracking-[-0.01em] text-heading">Per-Topic</h2>
+            <p className="mt-1 text-sm text-v2-body">Buy a topic, keep it for a year.</p>
             <p className="mt-5">
-              <span className="font-heading text-4xl font-bold text-heading">
+              <span className="font-heading text-4xl font-bold tracking-[-0.02em] text-heading">
                 {fromPrice ? `from ${formatINR(fromPrice)}` : "Free topics"}
               </span>
-              {fromPrice ? <span className="text-sm text-faint"> / topic</span> : null}
+              {fromPrice ? <span className="text-sm font-medium text-muted"> / topic</span> : null}
             </p>
-            <Link href="/courses" className={buttonClasses({ variant: "outline", size: "lg", className: "mt-6 w-full" })}>
+            <Link href="/courses" className={v2Button("outline", "md", "mt-6 w-full")}>
               Browse topics
             </Link>
-            <ul className="mt-6 space-y-3 text-sm text-muted">
+            <ul className="mt-6 space-y-3 text-sm text-v2-body">
               {perCourseIncludes.map((f) => (
                 <li key={f} className="flex items-center gap-2.5">
-                  <Check className="h-4 w-4 shrink-0 text-green-600" /> {f}
+                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-v2-gold-soft text-v2-gold-text">
+                    <Check className="h-3 w-3" strokeWidth={3} />
+                  </span>
+                  {f}
                 </li>
               ))}
             </ul>
           </div>
 
           {/* Category pass / bundle */}
-          <div className="relative rounded-3xl border-2 border-gold-400 bg-card p-8 shadow-gold">
-            <span className="absolute -top-3 left-8">
-              <Badge variant="trending">
-                <Sparkles className="h-3 w-3" /> Best value
-              </Badge>
-            </span>
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-gold-100 text-gold-600">
+          <div className="relative rounded-[24px] bg-card p-8 shadow-v2-lift ring-2 ring-[#E9B93E]">
+            <Tag className="absolute -top-3.5 left-8 bg-[#E9B93E] text-navy-800">
+              <Sparkles className="h-3 w-3" /> Best value
+            </Tag>
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-v2-gold-soft text-v2-gold-text">
               {selected.length >= 3 ? <Crown className="h-6 w-6" /> : <Layers className="h-6 w-6" />}
             </span>
-            <h2 className="mt-5 font-heading text-xl font-bold text-heading">Category Pass</h2>
-            <p className="mt-1 text-sm text-muted">
+            <h2 className="mt-5 font-heading text-xl font-semibold tracking-[-0.01em] text-heading">Category Pass</h2>
+            <p className="mt-1 text-sm text-v2-body">
               Unlock every topic in a category. Pick all three for the All-Access Pass.
             </p>
 
@@ -122,12 +123,12 @@ export function PricingClient({ initialPricing }: { initialPricing: PricingTiers
                     onClick={() => toggle(r.id)}
                     disabled={ownedAlready}
                     className={cn(
-                      "flex w-full items-center justify-between rounded-xl border-2 px-4 py-3 text-left text-sm transition-colors",
+                      "flex w-full items-center justify-between rounded-[14px] border px-4 py-3 text-left text-sm transition-colors duration-200",
                       ownedAlready
-                        ? "cursor-default border-green-200 bg-green-50 text-green-700"
+                        ? "cursor-default border-lv-orgs bg-lv-orgs-tint text-lv-orgs-dark"
                         : on
-                          ? "border-gold-400 bg-gold-50 dark:bg-gold-500/10 text-heading"
-                          : "border-hair text-heading hover:border-faint",
+                          ? "border-[#E9B93E] bg-v2-gold-soft text-heading ring-1 ring-[#E9B93E]"
+                          : "border-v2-line-strong text-heading hover:border-heading",
                     )}
                   >
                     <span className="font-medium">{r.label}</span>
@@ -138,8 +139,8 @@ export function PricingClient({ initialPricing }: { initialPricing: PricingTiers
                     ) : (
                       <span
                         className={cn(
-                          "grid h-5 w-5 place-items-center rounded-md border-2",
-                          on ? "border-gold-500 bg-gold-500 text-white" : "border-hair",
+                          "grid h-5 w-5 place-items-center rounded-full border-[1.5px]",
+                          on ? "border-[#E9B93E] bg-[#E9B93E] text-navy-800" : "border-v2-line-strong",
                         )}
                       >
                         {on && <Check className="h-3 w-3" strokeWidth={3} />}
@@ -152,29 +153,29 @@ export function PricingClient({ initialPricing }: { initialPricing: PricingTiers
 
             <p className="mt-5 font-heading text-display-sm font-bold leading-none text-heading">
               {selected.length ? formatINR(bundleAmount) : formatINR(pricing.cat1)}
-              <span className="text-sm font-medium text-faint">
+              <span className="font-sans text-sm font-medium tracking-normal text-muted">
                 {" "}
                 {selected.length >= 3 ? "· all categories" : selected.length === 2 ? "· 2 categories" : "/ category"}
               </span>
             </p>
 
             {allAccess ? (
-              <Button disabled className="mt-5 w-full" size="lg">
+              <button type="button" disabled className={v2Button("primary", "md", "mt-5 w-full")}>
                 <Check className="h-4 w-4" /> You have All-Access
-              </Button>
+              </button>
             ) : isLearner ? (
-              <Button
+              <button
+                type="button"
                 onClick={() => setCheckoutBundle(selected)}
                 disabled={selected.length === 0}
-                className="mt-5 w-full"
-                size="lg"
+                className={v2Button("primary", "md", "mt-5 w-full")}
               >
                 {selected.length === 0
                   ? "Select a category"
                   : `Get ${selected.length === 3 ? "All-Access" : `${selected.length}-category pass`}`}
-              </Button>
+              </button>
             ) : (
-              <Link href="/signup" className={buttonClasses({ variant: "primary", size: "lg", className: "mt-5 w-full" })}>
+              <Link href="/signup" className={v2Button("primary", "md", "mt-5 w-full")}>
                 Start your journey
               </Link>
             )}
@@ -183,12 +184,12 @@ export function PricingClient({ initialPricing }: { initialPricing: PricingTiers
 
         {/* FAQ */}
         <div className="mx-auto mt-16 max-w-3xl">
-          <h2 className="text-center font-heading text-2xl font-bold text-heading">Frequently asked questions</h2>
+          <h2 className="text-center font-heading text-2xl font-bold tracking-[-0.015em] text-heading">Frequently asked questions</h2>
           <div className="mt-6 space-y-3">
             {faqs.map((f) => (
-              <div key={f.q} className="rounded-3xl border border-hair bg-card p-5">
+              <div key={f.q} className="rounded-[20px] bg-card p-5 shadow-v2-soft sm:px-6">
                 <p className="font-heading font-semibold text-heading">{f.q}</p>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted">{f.a}</p>
+                <p className="mt-1.5 text-sm leading-5 text-v2-body">{f.a}</p>
               </div>
             ))}
           </div>

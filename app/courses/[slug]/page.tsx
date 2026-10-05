@@ -3,38 +3,27 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  Star,
-  Clock,
-  Users,
-  PlayCircle,
-  CheckCircle2,
-  Lock,
-  ClipboardCheck,
-  BookOpen,
-  Award,
-  Check,
-  ArrowRight,
-  FileText,
-  Download,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Award, Check, CheckCircle2, ClipboardCheck, Clock, Download, FileText, Lock, Play, Star } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { CourseThumb } from "@/components/CourseThumb";
-import { CourseCard } from "@/components/CourseCard";
 import { CheckoutModal } from "@/components/CheckoutModal";
 import { RatingModal } from "@/components/learn/RatingModal";
-import { Avatar } from "@/components/ui/Avatar";
-import { Badge } from "@/components/ui/Badge";
-import { Button, buttonClasses } from "@/components/ui/Button";
-import { ProgressBar } from "@/components/ui/ProgressBar";
-import { ProgressRing } from "@/components/ui/ProgressRing";
+import { TopicCard } from "@/components/v2/TopicCard";
+import { Bar, LevelChip, V2Card, v2Button } from "@/components/v2/ui";
+import { levelStyle } from "@/lib/levels";
+import { resumeTarget } from "@/lib/resume";
 import { useApp } from "@/lib/store/AppProvider";
-import { courseCategories } from "@/lib/types";
+import { courseCategories, ownsTopic } from "@/lib/types";
 import { buildTopicReport } from "@/lib/report";
 import { topicCredit, TOPIC_CREDIT_MAX } from "@/lib/credits";
 import { downloadNotesPdf } from "@/lib/pdf";
 import { cn, formatINR, formatDuration, formatClock } from "@/lib/utils";
+
+const ROW = "flex items-center gap-3.5 rounded-[14px] px-3 py-2.5";
+const DOT = "grid h-8 w-8 shrink-0 place-items-center rounded-full";
+const CHIP = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold leading-[18px]";
+const pad = (n: number) => String(n).padStart(2, "0");
+const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export default function CourseDetailPage() {
   return (
@@ -47,9 +36,11 @@ export default function CourseDetailPage() {
 function CourseDetail() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
+  const app = useApp();
   const {
     currentUser,
     courses,
+    tracks,
     getCourseBySlug,
     isEnrolled,
     hasAccess,
@@ -66,7 +57,7 @@ function CourseDetail() {
     notesForCourse,
     isCourseComplete,
     myRatingFor,
-  } = useApp();
+  } = app;
 
   const [checkout, setCheckout] = React.useState(false);
   const [rateOpen, setRateOpen] = React.useState(false);
@@ -75,8 +66,8 @@ function CourseDetail() {
   if (!course) {
     return (
       <div className="py-20 text-center">
-        <p className="font-heading text-xl font-bold text-heading">Topic not found</p>
-        <Link href="/courses" className={buttonClasses({ variant: "primary", size: "md", className: "mt-5" })}>
+        <p className="font-heading text-xl font-semibold text-heading">Topic not found</p>
+        <Link href="/courses" className={v2Button("primary", "md", "mt-5")}>
           Back to catalog
         </Link>
       </div>
@@ -87,7 +78,7 @@ function CourseDetail() {
   const access = hasAccess(course.id);
   const prog = courseProgress(course.id);
   const duration = course.videos.reduce((s, v) => s + v.durationSeconds, 0);
-  const resumeOrder = course.videos.find((v) => !isVideoCompleted(v.id))?.order ?? 1;
+  const resume = resumeTarget(course, app);
 
   // Access to a paid topic lapses one year after purchase (computed per entitlement —
   // à-la-carte topic, catalog pass, or all-access — whichever runs longest). When it
@@ -120,7 +111,7 @@ function CourseDetail() {
         (c.hashtags.some((h) => course.hashtags.includes(h)) ||
           courseCategories(c).some((x) => courseCategories(course).includes(x))),
     )
-    .slice(0, 3);
+    .slice(0, 4);
 
   // Build interleaved syllabus rows (videos + assignment checkpoints)
   const rows: Array<
@@ -136,231 +127,163 @@ function CourseDetail() {
       if (a) rows.push({ kind: "assignment", id: a.id, afterVideoOrder: a.afterVideoOrder });
     });
 
+
+  const s = levelStyle(course.tracks[0]);
+  // The first video the learner can open but has not finished.
+  const upNextOrder = enrolled
+    ? course.videos
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .find((v) => !isVideoCompleted(v.id) && isVideoUnlocked(course.id, v.order))?.order
+    : undefined;
+  // "8 videos" plus "2 checkpoints" when the topic has any.
+  const lessons = [count(course.videos.length, "video")];
+  if (course.assignments.length) lessons.push(count(course.assignments.length, "checkpoint"));
+  const sep = (
+    <span aria-hidden className="text-v2-on-navy-muted">
+      ·
+    </span>
+  );
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-7">
       <Link
         href="/courses"
-        className="group inline-flex items-center gap-2 font-heading text-sm font-semibold text-muted transition-colors duration-200 hover:text-heading"
+        className="group inline-flex items-center gap-2 text-sm font-semibold text-v2-body transition-colors duration-200 hover:text-heading"
       >
         <ArrowLeft className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:-translate-x-1" />
         Back to catalog
       </Link>
 
       {/* ── Hero ── */}
-      <div className="grid gap-8 lg:grid-cols-[1.6fr_1fr]">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="navy" className="capitalize">{course.category}</Badge>
-            <Badge variant="neutral">{course.level}</Badge>
-            {course.trending && <Badge variant="trending">Trending</Badge>}
-            {enrolled && <Badge variant="success"><Check className="h-3 w-3" strokeWidth={3} /> Enrolled</Badge>}
+      <div className="relative flex flex-col gap-8 overflow-hidden rounded-[24px] bg-v2-navy p-7 shadow-v2-card lg:flex-row lg:items-center">
+        {/* Decorative circles, clipped by the card. */}
+        <span aria-hidden className="pointer-events-none absolute -right-[150px] -top-[200px] h-[280px] w-[280px] rounded-full bg-gold-400/20" />
+        <span aria-hidden className="pointer-events-none absolute -bottom-[110px] -right-[60px] h-[180px] w-[180px] rounded-full bg-lv-self/30" />
+
+        <CourseThumb
+          accent={course.accent}
+          category={course.category}
+          title={course.title}
+          src={course.thumbnailUrl}
+          rounded="rounded-2xl"
+          className="relative aspect-[16/10] w-full shrink-0 lg:w-[360px]"
+        />
+
+        <div className="relative min-w-0 flex-1 space-y-3.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <LevelChip trackId={course.tracks[0]} tracks={tracks} />
+            {enrolled && (
+              <span className={cn(CHIP, "bg-v2-navy-raised text-white")}>
+                <Check className="h-3.5 w-3.5" strokeWidth={3} /> Enrolled
+              </span>
+            )}
+            {course.trending && <span className={cn(CHIP, "bg-[#E9B93E] text-navy-800")}>Trending</span>}
+            <span className="text-[13px] font-medium text-v2-on-navy-muted">{course.level}</span>
           </div>
 
-          <h1 className="mt-4 text-balance font-heading text-display-sm font-bold leading-tight text-heading">
-            {course.title}
-          </h1>
-          <p className="mt-4 max-w-2xl leading-[1.75] text-muted">{course.description}</p>
+          <h1 className="text-balance font-heading text-[32px] font-bold leading-[38px] tracking-[-0.015em] text-white">{course.title}</h1>
+          <p className="text-[15px] leading-6 text-v2-on-navy-muted">{course.description}</p>
 
-          {/* Meta as a ruled row */}
-          <div className="mt-6 grid grid-cols-2 gap-y-5 border-y border-hair py-5 sm:grid-cols-4">
-            {[
-              {
-                label: "Rating",
-                value: course.ratingCount > 0 ? course.rating.toFixed(1) : "New",
-                sub:
-                  course.ratingCount > 0
-                    ? `${course.ratingCount} ${course.ratingCount === 1 ? "rating" : "ratings"}`
-                    : "no ratings yet",
-                icon: Star,
-              },
-              {
-                label: "Enrolled",
-                value: course.enrolledCount.toLocaleString("en-IN"),
-                sub: "learners",
-                icon: Users,
-              },
-              { label: "Duration", value: formatDuration(duration), sub: "total", icon: Clock },
-              {
-                label: "Lessons",
-                value: String(course.videos.length),
-                sub: `${course.assignments.length} checkpoints`,
-                icon: BookOpen,
-              },
-            ].map((m) => (
-              <div
-                key={m.label}
-                className="border-l border-hair pl-4 [&:nth-child(2n+1)]:border-l-0 [&:nth-child(2n+1)]:pl-0 sm:pl-5 sm:[&:nth-child(2n+1)]:border-l sm:[&:nth-child(2n+1)]:pl-5 sm:[&:nth-child(4n+1)]:border-l-0 sm:[&:nth-child(4n+1)]:pl-0"
-              >
-                <m.icon className="h-4 w-4 text-gold-600" />
-                <p className="mt-2 font-heading text-lg font-bold leading-none tabular-nums text-heading">
-                  {m.value}
-                </p>
-                <p className="mt-1.5 text-xs text-faint">{m.sub}</p>
-              </div>
-            ))}
-          </div>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-medium leading-5 text-white">
+            <Star className="h-3.5 w-3.5 fill-gold-400 text-gold-400" />
+            {course.ratingCount > 0 ? `${course.rating.toFixed(1)} (${course.ratingCount})` : "New"}
+            {sep} {course.enrolledCount.toLocaleString("en-IN")} learners
+            {sep} {formatDuration(duration)}
+            {sep} {lessons.join(", ")}
+          </p>
 
-          {course.hashtags.length > 0 && (
-            <div className="mt-5 flex flex-wrap gap-2">
-              {course.hashtags.map((h) => (
-                <span
-                  key={h}
-                  className="rounded-full border border-hair px-3 py-1 text-xs font-medium text-muted"
-                >
-                  {h}
+          {expired ? (
+            <div className="pt-1">
+              <p className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Clock className="h-4 w-4 text-gold-400" /> Access expired
+              </p>
+              <p className="mt-1 text-[13px] font-medium text-v2-on-navy-muted">
+                Your 1-year access ended on {fmtDate(expiresAt!)}. Re-purchase to unlock this topic for another year.
+              </p>
+              <button type="button" onClick={() => setCheckout(true)} className={v2Button("primary", "md", "mt-4")}>
+                Renew · {formatINR(course.price)}
+              </button>
+            </div>
+          ) : enrolled ? (
+            <>
+              <div className="flex items-center gap-3">
+                <Bar pct={prog.pct} className="flex-1" trackClass="bg-v2-navy-raised" />
+                <span className="shrink-0 text-[13px] font-semibold text-white">
+                  {prog.completed} of {prog.total} videos
                 </span>
-              ))}
-            </div>
-          )}
-
-          <div className="mt-6 flex items-center gap-3.5">
-            <Avatar name={course.instructorName} size={44} />
-            <div className="min-w-0">
-              <p className="font-heading font-bold text-heading">{course.instructorName}</p>
-              <p className="truncate text-sm text-muted">{course.instructorTitle}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Access / enroll card ── */}
-        <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">
-          <div className="overflow-hidden rounded-3xl border border-hair bg-card shadow-lift">
-            <CourseThumb
-              accent={course.accent}
-              category={course.category}
-              src={course.thumbnailUrl}
-              rounded="rounded-none"
-              className="aspect-[16/9]"
-            />
-            <div className="p-6">
-              {expired ? (
-                <>
-                  <div className="flex items-center gap-3.5">
-                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-orange-100 text-orange-600">
-                      <Clock className="h-5 w-5" />
-                    </span>
-                    <div>
-                      <p className="font-heading font-bold text-heading">Access expired</p>
-                      <p className="text-sm text-muted">Your 1-year access ended on {fmtDate(expiresAt!)}.</p>
-                    </div>
-                  </div>
-                  <Button onClick={() => setCheckout(true)} size="lg" className="mt-5 w-full">
-                    Renew · {formatINR(course.price)}
-                  </Button>
-                  <p className="mt-2.5 text-center text-xs text-faint">
-                    Re-purchase to unlock this topic for another year.
-                  </p>
-                </>
-              ) : enrolled ? (
-                <>
-                  <div className="flex items-center gap-4">
-                    <ProgressRing value={prog.pct} size={72} stroke={7} />
-                    <div>
-                      <p className="font-heading font-bold text-heading">Your progress</p>
-                      <p className="text-sm text-muted">
-                        {prog.completed} of {prog.total} videos complete
-                      </p>
-                    </div>
-                  </div>
-                  <Link
-                    href={`/learn/${course.id}/${resumeOrder}`}
-                    className={buttonClasses({
-                      variant: "primary",
-                      size: "lg",
-                      className: "group mt-6 w-full",
-                    })}
-                  >
-                    {prog.completed > 0 ? "Continue learning" : "Start course"}
-                    <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-3 pt-1">
+                {resume.kind === "checkpoint" ? (
+                  <Link href={resume.href} className={v2Button("primary")}>
+                    <ClipboardCheck className="h-4 w-4" /> Take the checkpoint
                   </Link>
-                  {topicComplete && (
-                    <Button
-                      variant="outline"
-                      size="md"
-                      className="mt-2.5 w-full"
-                      onClick={() => setRateOpen(true)}
-                    >
-                      <Star className={cn("h-4 w-4", myRating && "fill-gold-500 text-gold-500")} />
-                      {myRating ? `Your rating · ${myRating.stars}/5` : "Rate this topic"}
-                    </Button>
-                  )}
-                  {expiresAt && (
-                    <p className="mt-2.5 text-center text-xs text-faint">
-                      Access valid until {fmtDate(expiresAt)}
-                    </p>
-                  )}
-                </>
+                ) : (
+                  // With every video watched, the button replays the topic from the start.
+                  <Link href={resume.kind === "video" ? resume.href : `/learn/${course.id}/1`} className={v2Button("primary")}>
+                    <Play className="h-4 w-4 fill-current" />
+                    {resume.kind !== "video" ? "Watch again" : prog.completed > 0 ? "Continue learning" : "Start topic"}
+                  </Link>
+                )}
+                {topicComplete && (
+                  <button type="button" onClick={() => setRateOpen(true)} className={v2Button("ghostOnNavy", "md", "px-3")}>
+                    <Star className={cn("h-4 w-4", myRating && "fill-gold-400 text-gold-400")} />
+                    {myRating ? `Your rating · ${myRating.stars}/5` : "Rate this topic"}
+                  </button>
+                )}
+                {expiresAt && <span className="text-[13px] font-medium text-v2-on-navy-muted">Access until {fmtDate(expiresAt)}</span>}
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-3 pt-1">
+              <span className="font-heading text-[32px] font-bold leading-[38px] tracking-[-0.015em] text-white">
+                {course.price === 0 ? "Free" : formatINR(course.price)}
+              </span>
+              <button type="button" onClick={handleEnroll} className={v2Button("primary")}>
+                {course.price === 0 || access ? "Enroll now" : `Enroll · ${formatINR(course.price)}`}
+              </button>
+              {access && course.price > 0 ? (
+                <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white">
+                  <Check className="h-4 w-4 text-gold-400" strokeWidth={3} /> Included in your All-Access Pass
+                </span>
               ) : (
-                <>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="font-heading text-display-sm font-bold leading-none text-heading">
-                      {course.price === 0 ? "Free" : formatINR(course.price)}
-                    </span>
-                    {course.price > 0 && <span className="text-sm text-faint">1 year of access</span>}
-                  </div>
-                  {access && course.price > 0 && (
-                    <p className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-green-600">
-                      <Check className="h-4 w-4" strokeWidth={3} /> Included in your All-Access Pass
-                    </p>
-                  )}
-                  <Button onClick={handleEnroll} size="lg" className="mt-5 w-full">
-                    {course.price === 0 || access ? "Enroll now" : `Enroll · ${formatINR(course.price)}`}
-                  </Button>
-                  <ul className="mt-6 space-y-3 border-t border-hair pt-5 text-sm text-muted">
-                    {[
-                      `${course.videos.length} video lessons`,
-                      `${course.assignments.length} AI-graded checkpoints`,
-                      "LEAP AI tutor on every video",
-                      "Class notes, transcripts & resources",
-                      course.price > 0 ? "1 year of access" : "Free — no expiry",
-                    ].map((f) => (
-                      <li key={f} className="flex items-start gap-2.5">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-green-600" strokeWidth={2.5} /> {f}
-                      </li>
-                    ))}
-                  </ul>
-                </>
+                course.price > 0 && <span className="text-[13px] font-medium text-v2-on-navy-muted">1 year of access</span>
               )}
             </div>
-          </div>
+          )}
         </div>
       </div>
 
       {/* ── Performance report — shown once the learner completes the whole topic ── */}
       {enrolled && report?.completed && (
-        <section className="rounded-3xl border border-gold-300 bg-gold-50 p-6 dark:border-gold-500/25 dark:bg-gold-500/10">
+        <section className="rounded-[24px] bg-v2-gold-soft p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-3">
-              <Badge variant="success">
+              <span className={cn(CHIP, "bg-lv-orgs-tint text-lv-orgs-dark")}>
                 <CheckCircle2 className="h-3.5 w-3.5" /> Topic completed
-              </Badge>
-              <h2 className="font-heading text-lg font-bold text-heading">Your performance report</h2>
+              </span>
+              <h2 className="font-heading text-xl font-semibold leading-[25px] tracking-[-0.015em] text-heading">Your performance report</h2>
               <div className="flex items-center gap-0.5">
                 {[1, 2, 3, 4, 5].map((n) => (
-                  <Star
-                    key={n}
-                    className={cn("h-4 w-4", n <= report.stars ? "fill-gold-500 text-gold-500" : "text-hair")}
-                  />
+                  <Star key={n} className={cn("h-4 w-4", n <= report.stars ? "fill-gold-400 text-gold-400" : "text-v2-line-strong")} />
                 ))}
-                <span className="ml-1.5 font-heading text-xs font-bold tabular-nums text-heading">
-                  {report.stars}.0 / 5
-                </span>
+                <span className="ml-1.5 text-xs font-bold tabular-nums text-heading">{report.stars}.0 / 5</span>
               </div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-gold-500 px-3 py-1 font-heading text-xs font-bold tabular-nums text-navy-900">
+              <span className={cn(CHIP, "bg-[#E9B93E] tabular-nums text-navy-800")}>
                 <Award className="h-3.5 w-3.5" /> {earnedCredit} / {TOPIC_CREDIT_MAX} credits
               </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
               onClick={() => downloadNotesPdf(course, myNotes, currentUser?.name)}
               disabled={!myNotes.length}
+              className={v2Button("outline", "sm")}
             >
-              <Download className="h-4 w-4" /> Download notes (PDF)
-            </Button>
+              <Download className="h-3.5 w-3.5" /> Download notes (PDF)
+            </button>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
               {
                 label: "Completed in",
@@ -377,92 +300,74 @@ function CourseDetail() {
                 value: report.questionsRated ? `${report.firstTwoTries}/${report.questionsRated}` : "—",
                 icon: CheckCircle2,
               },
-            ].map((s) => (
-              <div key={s.label} className="rounded-2xl bg-card p-4 ring-1 ring-hair">
-                <s.icon className="h-4 w-4 text-gold-600" />
-                <p className="mt-2.5 font-heading text-base font-bold tabular-nums text-heading">{s.value}</p>
-                <p className="mt-0.5 text-xs text-muted">{s.label}</p>
+            ].map((stat) => (
+              <div key={stat.label} className="rounded-2xl bg-card p-4">
+                <stat.icon className="h-4 w-4 text-v2-gold-text" />
+                <p className="mt-2.5 font-heading text-lg font-bold leading-6 tracking-[-0.015em] tabular-nums text-heading">{stat.value}</p>
+                <p className="mt-0.5 text-xs font-medium text-muted">{stat.label}</p>
               </div>
             ))}
           </div>
           {!myNotes.length && (
-            <p className="mt-4 text-xs text-faint">
-              Save notes while watching to export them all as a PDF here.
-            </p>
+            <p className="mt-4 text-xs font-medium text-v2-body">Save notes while watching to export them all as a PDF here.</p>
           )}
         </section>
       )}
 
-      {/* ── Syllabus / Roadmap ── */}
-      <section className="grid gap-10 lg:grid-cols-[1.6fr_1fr]">
-        <div className="min-w-0">
-          <div className="mb-5 flex items-end justify-between gap-4">
-            <h2 className="font-heading text-xl font-bold text-heading sm:text-2xl">
+      {/* ── Roadmap + side column ── */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_416px] lg:items-start">
+        <V2Card className="p-6">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="font-heading text-xl font-semibold leading-[25px] tracking-[-0.015em] text-heading">
               {enrolled ? "Your roadmap" : "Topic syllabus"}
             </h2>
-            <span className="shrink-0 text-sm tabular-nums text-faint">
-              {course.videos.length} videos
+            <span className="shrink-0 text-[13px] font-medium text-muted">
+              {lessons.join(" · ")}
             </span>
           </div>
 
-          {enrolled && (
-            <div className="mb-5 rounded-2xl border border-hair bg-card p-5">
-              <div className="mb-2.5 flex items-center justify-between text-sm">
-                <span className="font-medium uppercase tracking-[0.1em] text-faint">
-                  Overall progress
-                </span>
-                <span className="font-heading font-bold tabular-nums text-heading">{prog.pct}%</span>
-              </div>
-              <ProgressBar value={prog.pct} size="lg" />
-            </div>
-          )}
-
-          <div className="overflow-hidden rounded-3xl border border-hair bg-card">
+          <div className="mt-3.5 space-y-1">
             {rows.map((row) => {
               if (row.kind === "video") {
                 const video = course.videos.find((v) => v.order === row.order)!;
                 const done = enrolled && isVideoCompleted(video.id);
                 const open = enrolled && isVideoUnlocked(course.id, video.order);
-                const clickable = done || open;
-                const Tag = clickable ? Link : "div";
-                return (
-                  <Tag
-                    // @ts-expect-error polymorphic href
-                    href={clickable ? `/learn/${course.id}/${video.order}` : undefined}
-                    key={video.id}
-                    className={cn(
-                      "group flex items-center gap-4 border-b border-hair px-5 py-4 transition-colors duration-200 last:border-0",
-                      clickable ? "cursor-pointer hover:bg-surface-2" : "opacity-70",
-                    )}
-                  >
+                const next = video.order === upNextOrder;
+                const body = (
+                  <>
                     <span
                       className={cn(
-                        "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-colors duration-200",
-                        done
-                          ? "bg-green-100 text-green-600 dark:bg-green-500/15"
-                          : open
-                            ? "bg-gold-100 text-gold-700 group-hover:bg-gold-500 group-hover:text-navy-900 dark:bg-gold-500/15"
-                            : "bg-surface-2 text-faint",
+                        DOT,
+                        done ? cn(s.base, s.on) : open ? "bg-[#E9B93E] text-navy-800" : "bg-surface-2 text-xs font-semibold text-muted",
                       )}
                     >
-                      {done ? (
-                        <CheckCircle2 className="h-5 w-5" />
-                      ) : open ? (
-                        <PlayCircle className="h-5 w-5" />
-                      ) : (
-                        <Lock className="h-4 w-4" />
-                      )}
+                      {done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : open ? <Play className="h-3 w-3 fill-current" /> : pad(video.order)}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
-                        Video {video.order}
+                      <p className="truncate text-sm font-semibold leading-5 text-heading">{video.title}</p>
+                      <p className="text-xs font-medium text-muted">
+                        Video {pad(video.order)} &nbsp;·&nbsp; {formatClock(video.durationSeconds)}
                       </p>
-                      <p className="mt-0.5 truncate font-medium text-heading">{video.title}</p>
                     </div>
-                    <span className="shrink-0 text-sm tabular-nums text-faint">
-                      {formatClock(video.durationSeconds)}
-                    </span>
-                  </Tag>
+                    {done ? (
+                      <span className="shrink-0 text-xs font-medium text-muted">Watched</span>
+                    ) : (
+                      next && <span className={cn(CHIP, "bg-[#E9B93E] text-navy-800")}>Up next</span>
+                    )}
+                  </>
+                );
+                return done || open ? (
+                  <Link
+                    key={video.id}
+                    href={`/learn/${course.id}/${video.order}`}
+                    className={cn(ROW, "transition-colors duration-200", next ? "bg-v2-gold-soft" : "hover:bg-surface")}
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <div key={video.id} className={ROW}>
+                    {body}
+                  </div>
                 );
               }
 
@@ -470,111 +375,123 @@ function CourseDetail() {
               const unlocked = enrolled && assignmentUnlocked(row.id);
               const res = assignmentResult(row.id);
               return (
-                <div
-                  key={row.id}
-                  className="flex items-center gap-4 border-b border-hair bg-surface-2/60 px-5 py-4 last:border-0"
-                >
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-navy-900 text-gold-400 dark:bg-surface-2">
-                    <ClipboardCheck className="h-5 w-5" />
+                <div key={row.id} className={cn(ROW, "bg-surface")}>
+                  <span className={cn(DOT, "bg-v2-gold-soft text-v2-gold-text")}>
+                    <ClipboardCheck className="h-4 w-4" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
-                      Checkpoint · after video {row.afterVideoOrder}
-                    </p>
-                    <p className="mt-0.5 font-medium text-heading">AI-graded assignment</p>
+                    <p className="text-sm font-semibold leading-5 text-heading">Checkpoint: AI-graded assignment</p>
+                    <p className="text-xs font-medium text-muted">After video {pad(row.afterVideoOrder)}</p>
                   </div>
                   {res.passed ? (
-                    <Badge variant="success">Passed {res.bestScore}%</Badge>
+                    <span className={cn(CHIP, "bg-lv-orgs-tint text-lv-orgs-dark")}>
+                      <Check className="h-3.5 w-3.5" strokeWidth={3} /> Passed {res.bestScore}%
+                    </span>
                   ) : unlocked ? (
-                    <Link
-                      href={`/learn/${course.id}/assignment/${row.id}`}
-                      className={buttonClasses({ variant: "navy", size: "sm" })}
-                    >
+                    <Link href={`/learn/${course.id}/assignment/${row.id}`} className={v2Button("strong", "sm")}>
                       {res.attempts > 0 ? "Retry" : "Start"}
                     </Link>
                   ) : (
-                    <Badge variant="neutral"><Lock className="h-3 w-3" /> Locked</Badge>
+                    <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted">
+                      <Lock className="h-3 w-3" /> Locked
+                    </span>
                   )}
                 </div>
               );
             })}
           </div>
+        </V2Card>
+
+        <div className="min-w-0 space-y-6">
+          {/* What enrolling includes, for learners who have not joined yet. */}
+          {!enrolled && !expired && (
+            <V2Card className="p-6">
+              <h2 className="font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading">What you get</h2>
+              <ul className="mt-3.5 space-y-2.5 text-sm leading-5 text-v2-body">
+                {[
+                  `${course.videos.length} video lessons`,
+                  `${course.assignments.length} AI-graded checkpoints`,
+                  "LEAP AI tutor on every video",
+                  "Class notes, transcripts & resources",
+                  course.price > 0 ? "1 year of access" : "Free — no expiry",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2.5">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-lv-orgs-dark" strokeWidth={2.5} /> {f}
+                  </li>
+                ))}
+              </ul>
+            </V2Card>
+          )}
+
+          <V2Card className="space-y-3.5 p-6">
+            <div className="flex items-center gap-3.5">
+              <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-v2-strong font-heading text-lg font-bold tracking-[-0.015em] text-v2-on-strong">
+                {course.instructorInitials}
+              </span>
+              <div className="min-w-0">
+                <p className="font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading">{course.instructorName}</p>
+                <p className="mt-0.5 text-xs font-medium text-muted">{course.instructorTitle}</p>
+              </div>
+            </div>
+            {course.instructorBio && <p className="text-sm leading-5 text-v2-body">{course.instructorBio}</p>}
+            <p className="flex items-center gap-1.5 text-[13px] font-semibold leading-5 text-heading">
+              <Star className="h-3.5 w-3.5 shrink-0 fill-gold-400 text-gold-600" />
+              {course.ratingCount > 0
+                ? `Rated ${course.rating.toFixed(1)} by ${count(course.ratingCount, "learner")}`
+                : "Not rated yet — be the first to review this topic"}
+            </p>
+          </V2Card>
 
           {course.workbookUrl && (
-            <div className="mt-5 flex flex-wrap items-center gap-4 rounded-3xl border border-gold-300 bg-gold-50 p-5 dark:border-gold-500/25 dark:bg-gold-500/10">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gold-500 text-navy-900">
-                <FileText className="h-5 w-5" />
+            <V2Card className="flex items-center gap-4 p-5">
+              <span className="flex h-[72px] w-[60px] shrink-0 flex-col items-center justify-center gap-1 rounded-[14px] bg-lv-people-tint text-lv-people-dark">
+                <FileText className="h-[22px] w-[22px]" />
+                <span className="text-[10.5px] font-bold uppercase tracking-[0.06em]">
+                  {course.workbookName?.includes(".") ? course.workbookName.split(".").pop() : "File"}
+                </span>
               </span>
               <div className="min-w-0 flex-1">
-                <p className="font-heading font-bold text-heading">Final workbook</p>
-                <p className="text-sm text-muted">
-                  {access
-                    ? "Download and complete your final workbook (PDF / DOCX)."
-                    : "Enroll to unlock the final workbook."}
+                <p className="font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading">Final workbook</p>
+                <p className="mt-1 text-xs font-medium text-muted">
+                  {access ? "Complete it once you finish the videos." : "Enroll to unlock the final workbook."}
                 </p>
               </div>
               {access ? (
-                <a
-                  href={course.workbookUrl}
-                  download={course.workbookName ?? "workbook"}
-                  className={buttonClasses({ variant: "primary", size: "sm" })}
-                >
-                  <Download className="h-4 w-4" /> Download
+                <a href={course.workbookUrl} download={course.workbookName ?? "workbook"} className={v2Button("outline", "sm")}>
+                  <Download className="h-3.5 w-3.5" /> Download
                 </a>
               ) : (
-                <Badge variant="neutral">
+                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted">
                   <Lock className="h-3 w-3" /> Locked
-                </Badge>
+                </span>
               )}
+            </V2Card>
+          )}
+
+          {course.hashtags.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {course.hashtags.map((h) => (
+                <span key={h} className="rounded-full border border-hair bg-card px-3 py-1.5 text-xs font-semibold leading-[18px] text-v2-body">
+                  {h}
+                </span>
+              ))}
             </div>
           )}
         </div>
-
-        {/* ── Instructor bio ── */}
-        <div className="min-w-0">
-          <h2 className="mb-5 font-heading text-xl font-bold text-heading sm:text-2xl">
-            Your instructor
-          </h2>
-          <div className="rounded-3xl border border-hair bg-card p-6">
-            <div className="flex items-center gap-3.5">
-              <Avatar name={course.instructorName} size={52} />
-              <div className="min-w-0">
-                <p className="font-heading text-lg font-bold text-heading">{course.instructorName}</p>
-                <p className="truncate text-sm text-muted">{course.instructorTitle}</p>
-              </div>
-            </div>
-            <p className="mt-5 border-t border-hair pt-5 text-sm leading-[1.75] text-muted">
-              {course.instructorBio}
-            </p>
-            <div className="mt-5 flex items-center gap-3 rounded-2xl bg-surface-2 p-4 text-sm">
-              <Award className="h-5 w-5 shrink-0 text-gold-600" />
-              <span className="text-muted">
-                {course.ratingCount > 0 ? (
-                  <>
-                    Rated{" "}
-                    <span className="font-heading font-bold text-heading">
-                      {course.rating.toFixed(1)}
-                    </span>{" "}
-                    by {course.ratingCount} {course.ratingCount === 1 ? "learner" : "learners"}
-                  </>
-                ) : (
-                  "Not rated yet — be the first to review this topic"
-                )}
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
+      </div>
 
       {/* ── Recommended ── */}
       {recommended.length > 0 && (
         <section>
-          <h2 className="mb-5 font-heading text-xl font-bold text-heading sm:text-2xl">
-            You might also like
-          </h2>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <h2 className="font-heading text-2xl font-bold leading-[30px] tracking-[-0.015em] text-heading">You might also like</h2>
+            <Link href="/courses" className={v2Button("outline", "sm")}>
+              Browse catalog <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          <div className="mt-5 grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
             {recommended.map((c) => (
-              <CourseCard key={c.id} course={c} enrolled={isEnrolled(c.id)} />
+              <TopicCard key={c.id} course={c} tracks={tracks} owned={!!currentUser && ownsTopic(currentUser, c, isEnrolled(c.id))} />
             ))}
           </div>
         </section>

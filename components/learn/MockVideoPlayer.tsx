@@ -88,9 +88,11 @@ export function MockVideoPlayer({
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-navy-950/70 via-navy-950/25 to-navy-950/40" />
 
-        <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1.5 text-xs backdrop-blur-md">
-          <span className="font-heading font-semibold text-white">{course.instructorName}</span>
-          <span className="text-cream-100/60"> · Video {video.order}</span>
+        <div className="absolute left-5 top-5 flex items-center gap-2.5">
+          <span className="rounded-full bg-black/45 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-md">
+            Video {String(video.order).padStart(2, "0")}
+          </span>
+          <span className="text-[13px] font-medium text-white/85">{course.instructorName}</span>
         </div>
         {alreadyCompleted && !ended && (
           <div className="absolute right-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-green-500/90 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-md">

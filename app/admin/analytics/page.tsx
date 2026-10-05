@@ -21,11 +21,11 @@ import { Card } from "@/components/ui/Card";
 import { useApp } from "@/lib/store/AppProvider";
 import { ROLES } from "@/lib/types";
 
-const GOLD = "#D49B1E";
-const NAVY = "#16305C";
+const GOLD = "#E9B93E";
+const NAVY = "rgb(var(--v2-strong))";
 const NAVY_LIGHT = "#2F4D8A";
-const GREEN = "#22C55E";
-const ORANGE = "#F97316";
+const GREEN = "rgb(var(--lv-orgs))";
+const ORANGE = "rgb(var(--lv-people))";
 
 export default function AnalyticsPage() {
   return (

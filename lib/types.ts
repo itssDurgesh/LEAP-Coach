@@ -295,6 +295,23 @@ export function courseCategories(c: Pick<Course, "category" | "categories">): Ro
   return c.categories && c.categories.length ? c.categories : [c.category];
 }
 
+/**
+ * A topic is the learner's own when they enrolled in it, bought it à-la-carte,
+ * hold a category pass that covers it, or are on the all-access plan.
+ */
+export function ownsTopic(
+  u: Pick<User, "subscriptionPlan" | "ownedCourseIds" | "ownedCategories">,
+  c: Pick<Course, "id" | "category" | "categories" | "published">,
+  enrolled: boolean,
+): boolean {
+  return (
+    enrolled ||
+    u.ownedCourseIds.includes(c.id) ||
+    (u.subscriptionPlan === "all_access" && c.published) ||
+    courseCategories(c).some((cat) => (u.ownedCategories ?? []).includes(cat))
+  );
+}
+
 export interface DailyTip {
   id: string;
   text: string;

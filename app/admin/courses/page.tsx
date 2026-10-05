@@ -78,11 +78,11 @@ function Studio() {
         </h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           {[
-            { label: "Coaching topics", value: courses.length, tone: "text-navy-600" },
-            { label: "Total videos", value: totalVideos, tone: "text-green-600" },
-            { label: "Real uploads (Mux)", value: realVideos, tone: "text-gold-600" },
+            { label: "Coaching topics", value: courses.length, tone: "text-lv-peers-dark" },
+            { label: "Total videos", value: totalVideos, tone: "text-lv-orgs-dark" },
+            { label: "Real uploads (Mux)", value: realVideos, tone: "text-v2-gold-text" },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl border border-hair bg-surface-2 p-4">
+            <div key={s.label} className="rounded-2xl bg-v2-segment p-4">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className={`h-4 w-4 ${s.tone}`} />
                 <span className={`font-heading text-2xl font-bold ${s.tone}`}>{s.value}</span>

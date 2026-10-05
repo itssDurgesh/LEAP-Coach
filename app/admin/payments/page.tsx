@@ -225,15 +225,15 @@ function Dashboard() {
       )}
 
       {flagged.length > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50/70 px-4 py-3 text-sm text-heading dark:bg-red-500/5">
-          <span className="font-semibold text-red-600">{flagged.length} payment(s)</span> were captured but access
+        <div className="rounded-[14px] bg-lv-people-tint px-4 py-3 text-sm text-heading">
+          <span className="font-semibold text-lv-people-dark">{flagged.length} payment(s)</span> were captured but access
           wasn&apos;t granted. <strong>Retry grant</strong> gives the buyer what they paid for;{" "}
           {owner ? "use Refund only if it can't be fulfilled." : "ask an owner to refund if it can't be fulfilled."}
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-hair">
+      <div className="flex w-fit gap-1 rounded-full bg-surface-2 p-1">
         {[
           { id: "payments" as const, label: "Payments", icon: CreditCard, count: payments.length },
           { id: "subscriptions" as const, label: "Subscriptions", icon: UsersIcon, count: subscribers.length },
@@ -241,12 +241,12 @@ function Dashboard() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-              tab === t.id ? "border-gold-500 text-heading" : "border-transparent text-muted hover:text-heading"
+            className={`flex h-9 items-center gap-2 rounded-full px-4 text-sm font-semibold transition-colors ${
+              tab === t.id ? "bg-card text-heading shadow-v2-soft" : "text-muted hover:text-heading"
             }`}
           >
             <t.icon className="h-4 w-4" /> {t.label}
-            <span className="rounded-full bg-surface-2 px-1.5 text-xs text-muted">{t.count}</span>
+            <span className="rounded-full bg-v2-segment px-1.5 text-xs text-muted">{t.count}</span>
           </button>
         ))}
       </div>
@@ -274,7 +274,7 @@ function Dashboard() {
             <p className="text-sm text-muted">No payments match your filters.</p>
           </Card>
         ) : (
-          <Card>
+          <Card className="overflow-hidden">
             <ul className="divide-y divide-hair">
               {filteredPayments.map((p) => {
                 const u = userOf(p.userId);
@@ -283,7 +283,7 @@ function Dashboard() {
                 return (
                   <li
                     key={p.id}
-                    className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isFlagged ? "bg-red-50/60 dark:bg-red-500/5" : ""}`}
+                    className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isFlagged ? "bg-lv-people-tint" : ""}`}
                   >
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-heading">{paymentItemLabel(p, title)}</p>

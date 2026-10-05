@@ -292,13 +292,13 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                 onClick={() => setStep(i)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors",
-                  i === step ? "bg-navy-800 text-white" : i < step ? "text-heading hover:bg-surface-2" : "text-faint hover:bg-surface-2",
+                  i === step ? "bg-v2-strong text-v2-on-strong" : i < step ? "text-heading hover:bg-surface-2" : "text-faint hover:bg-surface-2",
                 )}
               >
                 <span
                   className={cn(
                     "grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs",
-                    i < step ? "bg-green-500 text-white" : i === step ? "bg-gold-500 text-navy-900" : "bg-surface-2 text-faint",
+                    i < step ? "bg-lv-orgs text-white" : i === step ? "bg-[#E9B93E] text-navy-900" : "bg-surface-2 text-faint",
                   )}
                 >
                   {i < step ? <Check className="h-3.5 w-3.5" /> : i + 1}
@@ -336,7 +336,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                         onClick={() => toggleCategory(r.id)}
                         className={cn(
                           "rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
-                          on ? "border-gold-300 bg-gold-50 text-gold-700 dark:bg-gold-500/10" : "border-hair text-muted hover:border-navy-200",
+                          on ? "border-gold-400 bg-v2-gold-soft text-v2-gold-text" : "border-v2-line-strong text-muted hover:border-heading",
                         )}
                       >
                         {on && <Check className="mr-1 inline h-3.5 w-3.5" />}
@@ -438,7 +438,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                         onClick={() => set({ tracks: on ? draft.tracks.filter((x) => x !== t.id) : [...draft.tracks, t.id] })}
                         className={cn(
                           "rounded-full border px-3 py-1.5 text-sm font-medium",
-                          on ? "border-gold-300 bg-gold-50 text-gold-700 dark:bg-gold-500/10" : "border-hair text-muted hover:border-navy-200",
+                          on ? "border-gold-400 bg-v2-gold-soft text-v2-gold-text" : "border-v2-line-strong text-muted hover:border-heading",
                         )}
                       >
                         {t.label}
@@ -589,7 +589,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
               </div>
 
               {!owner && (
-                <div className="rounded-xl border border-gold-200 bg-gold-50 p-4 text-sm text-heading dark:bg-gold-500/10">
+                <div className="rounded-[14px] bg-v2-gold-soft p-4 text-sm text-heading">
                   As a sub-admin, your topic is sent to the main admin for approval before it goes live.
                 </div>
               )}
@@ -706,7 +706,7 @@ function AssignmentEditor({
       <div className="mt-3 space-y-4">
         {questions.length === 0 && <p className="text-xs text-faint">No questions yet — add an MCQ or fill-blank.</p>}
         {questions.map((q, i) => (
-          <div key={q.tmpId} className="rounded-lg bg-surface-2 p-3">
+          <div key={q.tmpId} className="rounded-xl border border-hair p-3">
             <div className="mb-2 flex items-center justify-between">
               <Badge variant="neutral">{q.type === "mcq" ? "Multiple choice" : "Fill in the blank"}</Badge>
               <button onClick={() => setQuestions(questions.filter((_, idx) => idx !== i))} className="text-faint hover:text-red-600">

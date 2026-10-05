@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { Linkedin, Youtube, Instagram, Globe, Mail, Compass, LucideIcon } from "lucide-react";
-import { Badge } from "@/components/ui/Badge";
+import { Tag } from "@/components/marketing/SectionHead";
 import { Avatar } from "@/components/ui/Avatar";
+import { V2_AVATAR } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
 import { resolveTeam } from "@/lib/team";
 import { TEAM_GROUPS, TeamLinks } from "@/lib/types";
@@ -33,7 +34,7 @@ function ClampText({ text, limit = 180, className }: { text: string; limit?: num
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="font-semibold text-gold-600 hover:text-gold-700"
+            className="font-semibold text-v2-gold-text hover:underline"
           >
             {expanded ? "See less" : "See more"}
           </button>
@@ -65,7 +66,7 @@ function MemberLinks({ links, align = "center" }: { links?: TeamLinks; align?: "
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="grid h-9 w-9 place-items-center rounded-xl border border-hair bg-card text-heading transition-colors hover:border-gold-300 hover:text-gold-600"
+          className="grid h-9 w-9 place-items-center rounded-full border border-v2-line-strong bg-card text-heading transition-colors duration-200 hover:border-heading"
         >
           <Icon className="h-4 w-4" />
         </a>
@@ -102,10 +103,10 @@ export function TeamDirectory() {
     return (
       <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8" aria-hidden>
         <div className="flex flex-col items-center">
-          <div className="h-[26rem] w-full max-w-2xl animate-pulse rounded-3xl border border-hair bg-surface-2" />
+          <div className="h-[26rem] w-full max-w-2xl animate-pulse rounded-[24px] bg-surface-2" />
         </div>
         <div className="flex justify-center">
-          <div className="my-10 h-12 w-px bg-gradient-to-b from-gold-300 to-hair" />
+          <div className="my-10 h-12 w-0.5 rounded-full bg-v2-line-strong" />
         </div>
         <div className="space-y-14">
           {[0, 1].map((tier) => (
@@ -117,7 +118,7 @@ export function TeamDirectory() {
                 {[0, 1, 2].map((i) => (
                   <div
                     key={i}
-                    className="h-72 w-full max-w-sm animate-pulse rounded-3xl border border-hair bg-surface-2"
+                    className="h-72 w-full max-w-sm animate-pulse rounded-[24px] bg-surface-2"
                   />
                 ))}
               </div>
@@ -135,18 +136,18 @@ export function TeamDirectory() {
         {founders.map((f) => (
           <div
             key={f.id}
-            className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-hair bg-card p-8 text-center shadow-card"
+            className="relative w-full max-w-2xl overflow-hidden rounded-[28px] bg-card p-8 text-center shadow-v2-card"
           >
-            <Avatar src={f.photoUrl} name={f.name} size={150} className="relative mx-auto ring-4 ring-gold-200" />
+            <Avatar src={f.photoUrl} name={f.name} size={150} className={`relative mx-auto ring-4 ring-v2-gold-soft ${V2_AVATAR}`} />
             <div className="relative mt-4">
-              <Badge variant="gold">{groupLabel(f.group)}</Badge>
+              <Tag>{groupLabel(f.group)}</Tag>
             </div>
-            <h2 className="relative mt-2 font-heading text-2xl font-bold text-heading sm:text-3xl">{f.name}</h2>
-            <p className="relative mt-1 font-medium text-gold-700">{f.title}</p>
-            <ClampText text={f.bio} limit={260} className="relative mx-auto mt-4 max-w-xl leading-relaxed text-muted" />
+            <h2 className="relative mt-3 font-heading text-2xl font-bold tracking-[-0.015em] text-heading sm:text-3xl">{f.name}</h2>
+            <p className="relative mt-1 font-medium text-v2-gold-text">{f.title}</p>
+            <ClampText text={f.bio} limit={260} className="relative mx-auto mt-4 max-w-xl leading-7 text-v2-body" />
             {f.vision && (
-              <div className="relative mx-auto mt-5 flex max-w-xl items-start gap-3 rounded-2xl border border-navy-100 bg-navy-50 p-4 text-left dark:border-hair dark:bg-surface-2">
-                <Compass className="mt-0.5 h-5 w-5 shrink-0 text-navy-700 dark:text-gold-500" />
+              <div className="relative mx-auto mt-5 flex max-w-xl items-start gap-3 rounded-[20px] bg-v2-gold-soft p-4 text-left">
+                <Compass className="mt-0.5 h-5 w-5 shrink-0 text-v2-gold-text" />
                 <p className="text-sm leading-relaxed text-heading">
                   <span className="font-semibold">Vision: </span>
                   {f.vision}
@@ -161,7 +162,7 @@ export function TeamDirectory() {
       {/* ── Connector down to the team tiers ── */}
       {grouped.length > 0 && (
         <div className="flex justify-center" aria-hidden>
-          <div className="my-10 h-12 w-px bg-gradient-to-b from-gold-300 to-hair" />
+          <div className="my-10 h-12 w-0.5 rounded-full bg-v2-line-strong" />
         </div>
       )}
 
@@ -170,7 +171,7 @@ export function TeamDirectory() {
         {grouped.map(({ group, items }) => (
           <div key={group.id}>
             <div className="flex justify-center">
-              <span className="rounded-full bg-navy-800 px-5 py-1.5 font-heading text-sm font-semibold text-white dark:bg-surface-2 dark:text-heading">
+              <span className="rounded-full bg-v2-strong px-5 py-1.5 text-sm font-semibold text-v2-on-strong">
                 {group.label}
                 {items.length > 1 ? "s" : ""}
               </span>
@@ -179,12 +180,12 @@ export function TeamDirectory() {
               {items.map((m) => (
                 <div
                   key={m.id}
-                  className="w-full max-w-sm rounded-3xl border border-hair bg-card p-6 text-center shadow-card transition-all hover:-translate-y-0.5 hover:shadow-card-hover"
+                  className="w-full max-w-sm rounded-[24px] bg-card p-6 text-center shadow-v2-card transition-all duration-300 ease-out-expo hover:-translate-y-1 hover:shadow-v2-lift"
                 >
-                  <Avatar src={m.photoUrl} name={m.name} size={96} className="mx-auto" />
-                  <h3 className="mt-4 font-heading text-lg font-semibold text-heading">{m.name}</h3>
-                  <p className="mt-0.5 text-sm font-medium text-gold-700">{m.title}</p>
-                  <ClampText text={m.bio} limit={160} className="mt-3 text-sm leading-relaxed text-muted" />
+                  <Avatar src={m.photoUrl} name={m.name} size={96} className={`mx-auto ${V2_AVATAR}`} />
+                  <h3 className="mt-4 font-heading text-lg font-semibold tracking-[-0.01em] text-heading">{m.name}</h3>
+                  <p className="mt-0.5 text-sm font-medium text-v2-gold-text">{m.title}</p>
+                  <ClampText text={m.bio} limit={160} className="mt-3 text-sm leading-5 text-v2-body" />
                   <MemberLinks links={m.links} />
                 </div>
               ))}

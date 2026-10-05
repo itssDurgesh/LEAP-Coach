@@ -47,7 +47,7 @@ function Approvals() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 rounded-xl border border-gold-200 bg-gold-50 px-4 py-2.5 text-sm font-medium text-heading dark:bg-gold-500/10">
+      <div className="flex items-center gap-2 rounded-[14px] bg-v2-gold-soft px-4 py-2.5 text-sm font-medium text-heading">
         <Clock className="h-4 w-4 text-gold-600" /> {pending.length} topic{pending.length === 1 ? "" : "s"} awaiting your review.
       </div>
 
@@ -77,7 +77,7 @@ function Approvals() {
               </Button>
               <Link
                 href={`/admin/courses/${c.id}/edit`}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-hair px-3 py-1.5 text-sm font-medium text-heading hover:bg-surface-2"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-v2-line-strong px-3.5 text-[13px] font-semibold text-heading hover:border-heading"
               >
                 <Pencil className="h-3.5 w-3.5" /> Review &amp; edit
               </Link>
@@ -85,7 +85,7 @@ function Approvals() {
                 onClick={() => {
                   if (confirm(`Reject "${c.title}"? It stays as a draft for the sub-admin to revise.`)) rejectCourse(c.id);
                 }}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-faint hover:bg-red-50 hover:text-red-600"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold text-muted hover:bg-red-50 hover:text-red-600"
               >
                 <X className="h-3.5 w-3.5" /> Reject
               </button>

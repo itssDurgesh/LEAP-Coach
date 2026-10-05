@@ -3,55 +3,47 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import {
-  X,
-  Loader2,
-  Check,
-  ArrowRight,
-  FileText,
-  ScrollText,
-  Paperclip,
-  Download,
-  Bot,
-  StickyNote,
-  Trash2,
-  ClipboardCheck,
-  ExternalLink,
-  MessageCircle,
-} from "lucide-react";
-import { Logo } from "@/components/ui/Logo";
-import { Badge } from "@/components/ui/Badge";
-import { Button, buttonClasses } from "@/components/ui/Button";
-import { Textarea } from "@/components/ui/Field";
+import { ArrowLeft, ArrowRight, Check, ClipboardCheck, Download, ExternalLink, Loader2, Paperclip, Play, Trash2 } from "lucide-react";
+import { LogoMark } from "@/components/ui/Logo";
+import { AppShell } from "@/components/app/AppShell";
 import { MockVideoPlayer } from "@/components/learn/MockVideoPlayer";
 import { MuxVideoPlayer } from "@/components/learn/MuxVideoPlayer";
 import { LeapChat } from "@/components/learn/LeapChat";
 import { RatingModal } from "@/components/learn/RatingModal";
 import { VideoComments } from "@/components/discussion/VideoComments";
+import { SegTabs, V2Card, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
-import { useRequireLearner } from "@/components/app/guards";
 import { cn, formatClock, timeAgo } from "@/lib/utils";
 import { downloadNotesPdf, downloadLessonNotesPdf } from "@/lib/pdf";
 import { Course, Video } from "@/lib/types";
 
+type BottomTab = "notes" | "transcript" | "resources" | "discussion";
+
+const ROW = "flex items-center gap-3.5 rounded-[14px] px-3 py-2.5";
+const DOT = "grid h-8 w-8 shrink-0 place-items-center rounded-full";
+const CHIP = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold leading-[18px]";
+const pad = (n: number) => String(n).padStart(2, "0");
+
 export default function PlayerPage() {
-  const { ready } = useRequireLearner();
+  return (
+    <AppShell signedOutTo="/login">
+      <PlayerGate />
+    </AppShell>
+  );
+}
+
+/** Sends the learner back to the topic page unless this video is one they can open. */
+function PlayerGate() {
   const params = useParams<{ courseId: string; order: string }>();
   const router = useRouter();
-  const {
-    getCourse,
-    isEnrolled,
-    hasAccess,
-    isVideoUnlocked,
-    isVideoCompleted,
-  } = useApp();
+  const { getCourse, isEnrolled, hasAccess, isVideoUnlocked } = useApp();
 
   const ord = Number(params.order);
   const course = getCourse(params.courseId);
   const video = course?.videos.find((v) => v.order === ord);
 
   React.useEffect(() => {
-    if (!ready || !course) return;
+    if (!course) return;
     if (!video) {
       router.replace(`/courses/${course.slug}`);
       return;
@@ -60,11 +52,21 @@ export default function PlayerPage() {
       router.replace(`/courses/${course.slug}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, course?.id, video?.id, ord]);
+  }, [course?.id, video?.id, ord]);
 
-  if (!ready || !course || !video || !isEnrolled(course.id) || !isVideoUnlocked(course.id, ord)) {
+  if (!course) {
     return (
-      <div className="grid min-h-screen place-items-center bg-surface">
+      <div className="py-20 text-center">
+        <p className="font-heading text-xl font-semibold text-heading">Topic not found</p>
+        <Link href="/my-topics" className={v2Button("primary", "md", "mt-5")}>
+          Back to my topics
+        </Link>
+      </div>
+    );
+  }
+  if (!video || !isEnrolled(course.id) || !hasAccess(course.id) || !isVideoUnlocked(course.id, ord)) {
+    return (
+      <div className="grid min-h-[60vh] place-items-center">
         <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
       </div>
     );
@@ -85,12 +87,13 @@ function Player({ course, video }: { course: Course; video: Video }) {
     addNote,
     deleteNote,
     videoCommentsFor,
+    isVideoUnlocked,
     videoNotesUrl,
     isCourseComplete,
     myRatingFor,
   } = useApp();
 
-  const [bottomTab, setBottomTab] = React.useState<"notes" | "transcript" | "resources" | "discussion">("transcript");
+  const [bottomTab, setBottomTab] = React.useState<BottomTab>("notes");
   const [rightTab, setRightTab] = React.useState<"chat" | "notes">("chat");
   const [noteText, setNoteText] = React.useState("");
   const [rateOpen, setRateOpen] = React.useState(false);
@@ -165,301 +168,225 @@ function Player({ course, video }: { course: Course; video: Video }) {
   }
 
   const discussionCount = videoCommentsFor(video.id).length;
-  const bottomTabs = [
-    { id: "notes" as const, label: "Class Notes", icon: FileText },
-    { id: "transcript" as const, label: "Transcript", icon: ScrollText },
-    { id: "resources" as const, label: "Resources", icon: Paperclip },
-    {
-      id: "discussion" as const,
-      label: discussionCount > 0 ? `Discussion · ${discussionCount}` : "Discussion",
-      icon: MessageCircle,
-    },
+  const bottomTabs: { id: BottomTab; label: string }[] = [
+    { id: "notes", label: "Class notes" },
+    { id: "transcript", label: "Transcript" },
+    { id: "resources", label: "Resources" },
+    { id: "discussion", label: discussionCount > 0 ? `Discussion ${discussionCount}` : "Discussion" },
   ];
 
-  const progressPct = prog.total ? Math.round((prog.completed / prog.total) * 100) : 0;
+  // The next three videos of the topic, for the "Up next" card.
+  const upNext = course.videos
+    .filter((v) => v.order > video.order)
+    .sort((a, b) => a.order - b.order)
+    .slice(0, 3);
 
   return (
-    <div className="min-h-screen bg-surface">
-      {/* ── Top bar ── */}
-      <header className="sticky top-0 z-30 border-b border-hair bg-surface/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-[88rem] items-center justify-between gap-4 px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <Link
-              href={`/courses/${course.slug}`}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-hair text-muted transition-all duration-200 hover:border-gold-500 hover:bg-gold-500 hover:text-navy-900"
-              aria-label="Back to topic"
-            >
-              <X className="h-4 w-4" />
-            </Link>
-            <div className="min-w-0">
-              <p className="truncate font-heading text-sm font-bold text-heading">{course.title}</p>
-              <p className="truncate text-xs text-faint">
-                Video {video.order} · {video.title}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {/* Course progress, as a real bar rather than a text pill */}
-            <div className="hidden items-center gap-2.5 sm:flex">
-              <div className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-2">
-                <div
-                  className="h-full rounded-full bg-gold-500 transition-[width] duration-500 ease-out-expo"
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
-              <span className="font-heading text-xs font-semibold tabular-nums text-muted">
-                {prog.completed}/{prog.total}
-              </span>
-            </div>
-            <Logo href="/dashboard" size="sm" className="hidden lg:inline-flex" />
-          </div>
+    <div className="space-y-6">
+      {/* ── Where you are ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <Link
+            href={`/courses/${course.slug}`}
+            className="group inline-flex min-w-0 items-center gap-2 font-semibold text-heading"
+          >
+            <ArrowLeft className="h-4 w-4 shrink-0 transition-transform duration-200 ease-out-expo group-hover:-translate-x-1" />
+            <span className="truncate">{course.title}</span>
+          </Link>
+          <span className="shrink-0 font-medium text-muted">
+            · Video {video.order} of {prog.total}
+          </span>
         </div>
-      </header>
+        <Link href={`/courses/${course.slug}`} className={v2Button("outline", "sm")}>
+          Back to roadmap
+        </Link>
+      </div>
 
-      <main className="mx-auto max-w-[88rem] px-4 py-6 sm:px-6">
-        <div className="grid gap-6 lg:grid-cols-[1.75fr_1fr]">
-          {/* ── Left: player + meta ──
-              min-w-0: grid items default to min-width:auto, so without it the column
-              refuses to shrink below its content and the page scrolls sideways on
-              narrow screens. */}
-          <div className="min-w-0 space-y-6">
-            {/* Real Mux playback when the video has a genuine playback id; the seed
-                uses "mux_…" placeholders, which fall back to the mock player. */}
-            {video.muxPlaybackId && !video.muxPlaybackId.startsWith("mux_") ? (
-              <MuxVideoPlayer
-                course={course}
-                video={video}
-                onEnded={() => markVideoComplete(video.id)}
-              />
-            ) : (
-              <MockVideoPlayer
-                course={course}
-                video={video}
-                isVishal={isVishal}
-                alreadyCompleted={completed}
-                onEnded={() => markVideoComplete(video.id)}
-                nextHref={playerNextHref}
-              />
-            )}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_416px] lg:items-start">
+        {/* ── Left: player + lesson ── */}
+        <div className="min-w-0 space-y-6">
+          {/* Real Mux playback when the video has a genuine playback id; the seed
+              uses "mux_…" placeholders, which fall back to the mock player. */}
+          {video.muxPlaybackId && !video.muxPlaybackId.startsWith("mux_") ? (
+            <MuxVideoPlayer course={course} video={video} onEnded={() => markVideoComplete(video.id)} />
+          ) : (
+            <MockVideoPlayer
+              course={course}
+              video={video}
+              isVishal={isVishal}
+              alreadyCompleted={completed}
+              onEnded={() => markVideoComplete(video.id)}
+              nextHref={playerNextHref}
+            />
+          )}
 
-            {/* Lesson header — set flush, not boxed in a card */}
-            <div>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.14em] text-gold-600">
-                    Video {video.order} · {formatClock(video.durationSeconds)}
-                  </p>
-                  <h1 className="mt-2 font-heading text-display-sm font-bold leading-tight text-heading">
-                    {video.title}
-                  </h1>
-                </div>
-                {completed && (
-                  <Badge variant="success">
-                    <Check className="h-3 w-3" strokeWidth={3} /> Completed
-                  </Badge>
-                )}
-              </div>
-              <p className="mt-3 max-w-2xl text-sm leading-[1.75] text-muted">{video.summary}</p>
-
-              <div className="mt-5 flex flex-wrap gap-2.5">
-                {!completed && (
-                  <Button onClick={() => markVideoComplete(video.id)}>
-                    <Check className="h-4 w-4" /> Mark complete
-                  </Button>
-                )}
-                {completed && playerNextHref && (
-                  <Link
-                    href={playerNextHref}
-                    className={buttonClasses({ variant: "primary", className: "group" })}
-                  >
-                    Next video
-                    <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
-                  </Link>
-                )}
-                {completed && !playerNextHref && !gateAssignment && (
-                  <Link href={`/courses/${course.slug}`} className={buttonClasses({ variant: "outline" })}>
-                    Back to roadmap
-                  </Link>
-                )}
-              </div>
+          <div>
+            <h1 className="font-heading text-2xl font-bold leading-[30px] tracking-[-0.015em] text-heading">{video.title}</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2.5 text-[13px] font-medium text-muted">
+              <span>
+                Video {pad(video.order)} &nbsp;·&nbsp; {formatClock(video.durationSeconds)}
+              </span>
+              {completed && (
+                <span className={cn(CHIP, "bg-lv-orgs-tint text-lv-orgs-dark")}>
+                  <Check className="h-3.5 w-3.5" strokeWidth={3} /> Completed
+                </span>
+              )}
             </div>
+            {video.summary && <p className="mt-3 text-[15px] leading-6 text-v2-body">{video.summary}</p>}
 
-            {/* ── Assignment unlock banner ── */}
-            {gateAssignment && completed && (
-              <div
-                className={cn(
-                  "flex flex-wrap items-center justify-between gap-4 rounded-3xl border p-5",
-                  gateRes?.passed
-                    ? "border-green-200 bg-green-50 dark:border-green-500/25 dark:bg-green-500/10"
-                    : "border-gold-300 bg-gold-50 dark:border-gold-500/25 dark:bg-gold-500/10",
-                )}
-              >
-                <div className="flex items-center gap-4">
-                  <span
-                    className={cn(
-                      "grid h-12 w-12 shrink-0 place-items-center rounded-2xl",
-                      gateRes?.passed ? "bg-green-500 text-white" : "bg-gold-500 text-navy-900",
-                    )}
-                  >
-                    <ClipboardCheck className="h-6 w-6" />
-                  </span>
-                  <div>
-                    <p className="font-heading font-bold text-heading">
-                      {gateRes?.passed ? "Checkpoint passed" : "Assignment unlocked"}
-                    </p>
-                    <p className="mt-0.5 text-sm leading-relaxed text-muted">
-                      {gateRes?.passed
-                        ? `You scored ${gateRes.bestScore}%. The next videos are open.`
-                        : "Complete the AI-graded checkpoint to unlock the next videos."}
-                    </p>
-                  </div>
-                </div>
-                <Link
-                  href={`/learn/${course.id}/assignment/${gateAssignment.id}`}
-                  className={buttonClasses({ variant: gateRes?.passed ? "outline" : "primary" })}
-                >
-                  {gateRes?.passed ? "Review" : gateRes && gateRes.attempts > 0 ? "Retry assignment" : "Start assignment"}
+            <div className="mt-4 flex flex-wrap gap-2.5 empty:hidden">
+              {!completed && (
+                <button type="button" onClick={() => markVideoComplete(video.id)} className={v2Button("primary")}>
+                  <Check className="h-4 w-4" /> Mark complete
+                </button>
+              )}
+              {completed && playerNextHref && (
+                <Link href={playerNextHref} className={v2Button("primary")}>
+                  Next video <ArrowRight className="h-4 w-4" />
                 </Link>
-              </div>
-            )}
-
-            {/* ── Bottom tabs ── */}
-            <div className="overflow-hidden rounded-3xl border border-hair bg-card">
-              <div className="scrollbar-thin flex overflow-x-auto border-b border-hair">
-                {bottomTabs.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setBottomTab(t.id)}
-                    className={cn(
-                      "relative flex shrink-0 items-center gap-2 px-5 py-4 font-heading text-sm font-semibold transition-colors duration-200",
-                      bottomTab === t.id ? "text-heading" : "text-muted hover:text-heading",
-                    )}
-                  >
-                    <t.icon className="h-4 w-4" /> {t.label}
-                    {bottomTab === t.id && (
-                      <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-gold-500" />
-                    )}
-                  </button>
-                ))}
-              </div>
-
-              <div className="p-5 sm:p-6">
-                {bottomTab === "notes" && (
-                  <div>
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-muted">{video.notesPdfName}</span>
-                      <button
-                        onClick={downloadNotes}
-                        className={buttonClasses({ variant: "outline", size: "sm" })}
-                      >
-                        <Download className="h-4 w-4" /> Download
-                      </button>
-                    </div>
-                    <div className="rounded-2xl bg-surface-2 p-4 sm:p-7">
-                      <div className="mx-auto max-w-2xl rounded-xl bg-card p-6 shadow-card sm:p-9">
-                        <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.14em] text-gold-600">
-                          LEAP Coach · Class Notes
-                        </p>
-                        <h3 className="mt-2 font-heading text-xl font-bold text-heading">{video.title}</h3>
-                        <p className="mt-5 leading-[1.75] text-heading">{video.summary}</p>
-                        <ul className="mt-5 space-y-3 border-t border-hair pt-5">
-                          {video.transcript
-                            .split(/(?<=[.!?])\s+/)
-                            .filter(Boolean)
-                            .slice(0, 4)
-                            .map((s, i) => (
-                              <li key={i} className="flex gap-3 text-sm leading-relaxed text-muted">
-                                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold-500" />
-                                {s.trim()}
-                              </li>
-                            ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {bottomTab === "transcript" && (
-                  <div className="scrollbar-thin max-h-80 overflow-y-auto pr-2">
-                    <p className="max-w-2xl leading-[1.8] text-muted">{video.transcript}</p>
-                    <p className="mt-5 border-t border-hair pt-4 text-xs text-faint">
-                      Transcript auto-syncs with the video when timestamps are available.
-                    </p>
-                  </div>
-                )}
-
-                {bottomTab === "discussion" && <VideoComments course={course} video={video} hideHeader />}
-
-                {bottomTab === "resources" && (
-                  <ul className="space-y-2.5">
-                    {video.resources.length ? (
-                      video.resources.map((r) => (
-                        <li key={r.id}>
-                          <a
-                            href={r.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="group flex items-center justify-between rounded-2xl border border-hair px-4 py-3.5 transition-all duration-200 hover:border-gold-300 hover:bg-surface-2"
-                          >
-                            <span className="flex items-center gap-3.5">
-                              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted transition-colors duration-200 group-hover:bg-gold-500 group-hover:text-navy-900">
-                                <Paperclip className="h-4 w-4" />
-                              </span>
-                              <span>
-                                <span className="block text-sm font-semibold text-heading">{r.title}</span>
-                                <span className="block text-xs capitalize text-faint">
-                                  {r.type}
-                                  {r.author ? ` · ${r.author}` : ""}
-                                </span>
-                              </span>
-                            </span>
-                            <ExternalLink className="h-4 w-4 shrink-0 text-faint transition-colors duration-200 group-hover:text-gold-600" />
-                          </a>
-                        </li>
-                      ))
-                    ) : (
-                      <li className="py-6 text-center text-sm text-faint">
-                        No extra resources for this lesson.
-                      </li>
-                    )}
-                  </ul>
-                )}
-              </div>
+              )}
+              {completed && !playerNextHref && !gateAssignment && (
+                <Link href={`/courses/${course.slug}`} className={v2Button("outline")}>
+                  Back to roadmap
+                </Link>
+              )}
             </div>
           </div>
 
-          {/* ── Right: chat / notes ── */}
-          <aside className="flex h-[600px] min-w-0 flex-col overflow-hidden rounded-3xl border border-hair bg-card shadow-card lg:sticky lg:top-[5.5rem] lg:h-[calc(100vh-7rem)]">
-            {/* Segmented control */}
-            <div className="shrink-0 p-2">
-              <div className="flex rounded-full bg-surface-2 p-1">
-                <button
-                  onClick={() => setRightTab("chat")}
+          {/* ── Assignment unlock banner ── */}
+          {gateAssignment && completed && (
+            <div
+              className={cn(
+                "flex flex-wrap items-center justify-between gap-4 rounded-[20px] p-5",
+                gateRes?.passed ? "bg-lv-orgs-tint" : "bg-v2-gold-soft",
+              )}
+            >
+              <div className="flex items-center gap-4">
+                <span
                   className={cn(
-                    "flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 font-heading text-sm font-semibold transition-all duration-200",
-                    rightTab === "chat"
-                      ? "bg-card text-heading shadow-sm"
-                      : "text-muted hover:text-heading",
+                    "grid h-10 w-10 shrink-0 place-items-center rounded-full",
+                    gateRes?.passed ? "bg-lv-orgs text-white" : "bg-[#E9B93E] text-navy-800",
                   )}
                 >
-                  <Bot className="h-4 w-4" /> Ask LEAP AI
-                </button>
-                <button
-                  onClick={() => setRightTab("notes")}
-                  className={cn(
-                    "flex flex-1 items-center justify-center gap-1.5 rounded-full py-2 font-heading text-sm font-semibold transition-all duration-200",
-                    rightTab === "notes"
-                      ? "bg-card text-heading shadow-sm"
-                      : "text-muted hover:text-heading",
-                  )}
-                >
-                  <StickyNote className="h-4 w-4" /> My Notes
-                </button>
+                  <ClipboardCheck className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-[15px] font-semibold leading-6 text-heading">
+                    {gateRes?.passed ? "Checkpoint passed" : "Assignment unlocked"}
+                  </p>
+                  <p className="text-[13px] font-medium leading-5 text-v2-body">
+                    {gateRes?.passed
+                      ? `You scored ${gateRes.bestScore}%. The next videos are open.`
+                      : "Complete the AI-graded checkpoint to unlock the next videos."}
+                  </p>
+                </div>
               </div>
+              <Link
+                href={`/learn/${course.id}/assignment/${gateAssignment.id}`}
+                className={v2Button(gateRes?.passed ? "outline" : "primary")}
+              >
+                {gateRes?.passed ? "Review" : gateRes && gateRes.attempts > 0 ? "Retry assignment" : "Start assignment"}
+                {!gateRes?.passed && <ArrowRight className="h-4 w-4" />}
+              </Link>
+            </div>
+          )}
+
+          {/* ── Lesson material ── */}
+          <div className="scrollbar-thin overflow-x-auto">
+            <SegTabs tabs={bottomTabs} value={bottomTab} onChange={setBottomTab} />
+          </div>
+
+          <V2Card className="p-6">
+            {bottomTab === "notes" && (
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="font-heading text-xl font-semibold leading-[25px] tracking-[-0.015em] text-heading">{video.title}</h2>
+                  <button type="button" onClick={downloadNotes} className={v2Button("outline", "sm")}>
+                    <Download className="h-3.5 w-3.5" /> Download notes
+                  </button>
+                </div>
+                {video.summary && <p className="mt-4 text-[15px] leading-6 text-v2-body">{video.summary}</p>}
+                <ul className="mt-4 space-y-3.5">
+                  {video.transcript
+                    .split(/(?<=[.!?])\s+/)
+                    .filter(Boolean)
+                    .slice(0, 4)
+                    .map((line, i) => (
+                      <li key={i} className="flex gap-3 text-sm font-medium leading-5 text-heading">
+                        <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-lv-self" />
+                        {line.trim()}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+
+            {bottomTab === "transcript" && (
+              <div className="scrollbar-thin max-h-80 overflow-y-auto pr-2">
+                <p className="text-[15px] leading-7 text-v2-body">{video.transcript}</p>
+                <p className="mt-5 text-xs font-medium text-muted">
+                  Transcript auto-syncs with the video when timestamps are available.
+                </p>
+              </div>
+            )}
+
+            {bottomTab === "discussion" && <VideoComments course={course} video={video} hideHeader />}
+
+            {bottomTab === "resources" && (
+              <ul className="space-y-1">
+                {video.resources.length ? (
+                  video.resources.map((r) => (
+                    <li key={r.id}>
+                      <a
+                        href={r.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={cn(ROW, "transition-colors duration-200 hover:bg-surface")}
+                      >
+                        <span className={cn(DOT, "bg-lv-peers-tint text-lv-peers-dark")}>
+                          <Paperclip className="h-3.5 w-3.5" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold leading-5 text-heading">{r.title}</span>
+                          <span className="block text-xs font-medium capitalize text-muted">
+                            {r.type}
+                            {r.author ? ` · ${r.author}` : ""}
+                          </span>
+                        </span>
+                        <ExternalLink className="h-4 w-4 shrink-0 text-muted" />
+                      </a>
+                    </li>
+                  ))
+                ) : (
+                  <li className="py-6 text-center text-sm font-medium text-muted">No extra resources for this lesson.</li>
+                )}
+              </ul>
+            )}
+          </V2Card>
+        </div>
+
+        {/* ── Right: LEAP AI / notes, then what comes next ── */}
+        <aside className="min-w-0 space-y-6">
+          <V2Card className="flex h-[560px] flex-col overflow-hidden lg:h-[482px]">
+            <div className="shrink-0 space-y-3.5 p-5 pb-3">
+              <div className="flex items-center gap-3">
+                <LogoMark className="h-10 w-10" />
+                <div className="min-w-0">
+                  <p className="font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading">LEAP AI</p>
+                  <p className="text-xs font-medium text-muted">Answers only from this video</p>
+                </div>
+              </div>
+              <SegTabs
+                value={rightTab}
+                onChange={setRightTab}
+                tabs={[
+                  { id: "chat", label: "Ask LEAP AI" },
+                  { id: "notes", label: "My notes" },
+                ]}
+              />
             </div>
 
-            <div className="min-h-0 flex-1 border-t border-hair">
+            <div className="min-h-0 flex-1">
               {rightTab === "chat" ? (
                 <LeapChat course={course} video={video} showHeader={false} />
               ) : (
@@ -470,40 +397,42 @@ function Player({ course, video }: { course: Course; video: Video }) {
                       addNote(video.id, noteText);
                       setNoteText("");
                     }}
-                    className="border-b border-hair p-3"
+                    className="shrink-0 px-5"
                   >
-                    <Textarea
+                    <textarea
                       value={noteText}
                       onChange={(e) => setNoteText(e.target.value)}
                       placeholder="Jot a private note for this lesson…"
-                      className="min-h-[72px] text-sm"
+                      aria-label="New note"
+                      className="block min-h-[72px] w-full resize-none rounded-2xl bg-surface px-4 py-3 text-sm leading-5 text-heading placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
                     />
-                    <Button type="submit" size="sm" className="mt-2 w-full" disabled={!noteText.trim()}>
-                      Save note
-                    </Button>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <button type="submit" disabled={!noteText.trim()} className={v2Button("strong", "sm")}>
+                        Save note
+                      </button>
+                      {courseNotes.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => downloadNotesPdf(course, courseNotes, currentUser?.name)}
+                          className={v2Button("ghost", "sm", "px-2")}
+                          title="Combine every note you've saved across this topic into one PDF"
+                        >
+                          <Download className="h-3.5 w-3.5" /> All my notes ({courseNotes.length}) · PDF
+                        </button>
+                      )}
+                    </div>
                   </form>
-                  {courseNotes.length > 0 && (
-                    <button
-                      onClick={() => downloadNotesPdf(course, courseNotes, currentUser?.name)}
-                      className="flex items-center justify-center gap-2 border-b border-hair px-3 py-3 font-heading text-sm font-semibold text-gold-700 transition-colors duration-200 hover:bg-surface-2"
-                      title="Combine every note you've saved across this topic into one PDF"
-                    >
-                      <Download className="h-4 w-4" /> Download all my notes ({courseNotes.length}) · PDF
-                    </button>
-                  )}
-                  <div className="scrollbar-thin flex-1 space-y-2.5 overflow-y-auto p-3">
+                  <div className="scrollbar-thin mt-3 flex-1 space-y-2.5 overflow-y-auto px-5 pb-5">
                     {myNotes.length ? (
                       myNotes.map((n) => (
-                        <div
-                          key={n.id}
-                          className="group rounded-2xl border border-hair bg-surface p-3.5 transition-colors duration-200 hover:border-gold-300"
-                        >
-                          <p className="whitespace-pre-line text-sm leading-relaxed text-heading">{n.text}</p>
-                          <div className="mt-2.5 flex items-center justify-between border-t border-hair pt-2.5">
-                            <span className="text-xs text-faint">{timeAgo(n.createdAt)}</span>
+                        <div key={n.id} className="group rounded-2xl bg-surface p-3.5">
+                          <p className="whitespace-pre-line text-sm leading-5 text-heading">{n.text}</p>
+                          <div className="mt-2 flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted">{timeAgo(n.createdAt)}</span>
                             <button
+                              type="button"
                               onClick={() => deleteNote(n.id)}
-                              className="text-faint opacity-0 transition-all duration-200 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100"
+                              className="text-muted opacity-0 transition-all duration-200 hover:text-lv-people-dark focus-visible:opacity-100 group-hover:opacity-100"
                               aria-label="Delete note"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -512,7 +441,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
                         </div>
                       ))
                     ) : (
-                      <p className="px-1 py-8 text-center text-sm text-faint">
+                      <p className="px-1 py-8 text-center text-sm font-medium text-muted">
                         Your private notes for this lesson will appear here.
                       </p>
                     )}
@@ -520,9 +449,43 @@ function Player({ course, video }: { course: Course; video: Video }) {
                 </div>
               )}
             </div>
-          </aside>
-        </div>
-      </main>
+          </V2Card>
+
+          {upNext.length > 0 && (
+            <V2Card className="p-5">
+              <h2 className="font-heading text-xl font-semibold leading-[25px] tracking-[-0.015em] text-heading">Up next</h2>
+              <div className="mt-3 space-y-1.5">
+                {upNext.map((v, i) => {
+                  const body = (
+                    <>
+                      <span className={cn(DOT, i === 0 ? "bg-[#E9B93E] text-navy-800" : "bg-surface-2 text-xs font-semibold text-muted")}>
+                        {i === 0 ? <Play className="h-3 w-3 fill-current" /> : pad(v.order)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold leading-5 text-heading">{v.title}</p>
+                        <p className="text-xs font-medium text-muted">
+                          Video {pad(v.order)} &nbsp;·&nbsp; {formatClock(v.durationSeconds)}
+                        </p>
+                      </div>
+                    </>
+                  );
+                  const row = cn(ROW, i === 0 && "bg-v2-gold-soft");
+                  // A video stays locked until the one before it (and any checkpoint) is done.
+                  return isVideoUnlocked(course.id, v.order) ? (
+                    <Link key={v.id} href={`/learn/${course.id}/${v.order}`} className={cn(row, "transition-colors duration-200", i > 0 && "hover:bg-surface")}>
+                      {body}
+                    </Link>
+                  ) : (
+                    <div key={v.id} className={row}>
+                      {body}
+                    </div>
+                  );
+                })}
+              </div>
+            </V2Card>
+          )}
+        </aside>
+      </div>
 
       <RatingModal course={course} open={rateOpen} onClose={() => setRateOpen(false)} />
     </div>

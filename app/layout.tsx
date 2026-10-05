@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Outfit, Inter } from "next/font/google";
+import { Outfit, Inter, Bricolage_Grotesque, Figtree } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -23,9 +23,37 @@ const inter = Inter({
   variable: "--font-inter",
 });
 
+// Signed-in learner pages (the `.app-v2` scope in globals.css) swap the two
+// families above for these; public and admin pages keep Outfit + Inter.
+// `preload: false` because this layout also serves the public pages, which do not
+// use them: they are fetched only when a learner page asks for them.
+const bricolage = Bricolage_Grotesque({
+  subsets: ["latin"],
+  weight: ["600", "700"],
+  display: "swap",
+  preload: false,
+  variable: "--font-bricolage",
+});
+
+const figtree = Figtree({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+  preload: false,
+  variable: "--font-figtree",
+});
+
 // Runs before paint: re-applies a remembered dark choice so there's no flash.
 // Default is light, so we only add the class when the user previously chose dark.
 const themeScript = `(function(){try{if(localStorage.getItem('leap-theme')==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})();`;
+
+// Runs before paint. After a refresh, a public page (one with the public menu bar,
+// marked `data-public-nav`) starts at the top instead of where it was left: each
+// time the browser puts the old scroll position back while the page loads, this
+// undoes it. It stops as soon as the visitor scrolls, taps or presses a key, and
+// shortly after loading ends. Only a refresh is handled, so the Back button still
+// returns people to where they were; learner and admin pages are not affected.
+const topOnRefreshScript = `(function(){try{var n=performance.getEntriesByType('navigation')[0];if(!n||n.type!=='reload')return;var top=function(){if(window.scrollY>0&&document.querySelector('[data-public-nav]'))window.scrollTo({top:0,behavior:'instant'})};var ev=['wheel','touchstart','keydown','mousedown'];var stop=function(){window.removeEventListener('scroll',top);ev.forEach(function(e){window.removeEventListener(e,stop,true)})};window.addEventListener('scroll',top);ev.forEach(function(e){window.addEventListener(e,stop,{capture:true,passive:true})});window.addEventListener('load',function(){top();setTimeout(function(){top();stop()},400)})}catch(e){}})();`;
 
 // Canonical host — keep in sync with NEXT_PUBLIC_SITE_URL, robots.ts and sitemap.ts.
 const siteUrl = (
@@ -145,9 +173,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${outfit.variable} ${inter.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${outfit.variable} ${inter.variable} ${bricolage.variable} ${figtree.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: topOnRefreshScript }} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}

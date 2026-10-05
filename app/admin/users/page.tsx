@@ -29,9 +29,9 @@ import { tierForCredits, isOwner, planFor, PERMISSIONS, User } from "@/lib/types
 import { searchRanked } from "@/lib/search";
 import { cn } from "@/lib/utils";
 
-const GOLD = "#D49B1E";
-const NAVY = "#16305C";
-const COLORS = [NAVY, GOLD, "#2F4D8A", "#E8C056", "#5C77AF"];
+const GOLD = "#E9B93E";
+const NAVY = "rgb(var(--v2-strong))";
+const COLORS = [NAVY, GOLD, "rgb(var(--lv-peers))", "rgb(var(--lv-self))", "rgb(var(--lv-upwards))"];
 
 export default function UsersPage() {
   return (

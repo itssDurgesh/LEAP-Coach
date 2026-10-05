@@ -43,7 +43,7 @@ export function SubAdminForm({
               onClick={() => toggle(p.id)}
               className={cn(
                 "flex w-full items-start gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors",
-                on ? "border-gold-400 bg-gold-50 dark:bg-gold-500/10" : "border-hair hover:border-faint",
+                on ? "border-gold-400 bg-v2-gold-soft" : "border-hair hover:border-faint",
               )}
             >
               <span

@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Mail, AlertCircle, ArrowRight, KeyRound, CheckCircle2 } from "lucide-react";
-import { AuthShell } from "@/components/auth/AuthShell";
+import { AUTH_SUBMIT, AuthShell } from "@/components/auth/AuthShell";
 import { Field, Input, PasswordInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { useApp } from "@/lib/store/AppProvider";
@@ -116,7 +116,7 @@ export default function ForgotPasswordPage() {
               />
             </div>
           </Field>
-          <Button type="submit" className="w-full" loading={busy}>
+          <Button type="submit" className={AUTH_SUBMIT} loading={busy}>
             Send reset code <ArrowRight className="h-4 w-4" />
           </Button>
         </form>
@@ -163,7 +163,7 @@ export default function ForgotPasswordPage() {
               required
             />
           </Field>
-          <Button type="submit" className="w-full" loading={busy} disabled={code.length !== 6}>
+          <Button type="submit" className={AUTH_SUBMIT} loading={busy} disabled={code.length !== 6}>
             Set new password <ArrowRight className="h-4 w-4" />
           </Button>
           <p className="text-center text-sm text-muted">
@@ -172,7 +172,7 @@ export default function ForgotPasswordPage() {
               type="button"
               onClick={() => void sendCode(true)}
               disabled={busy}
-              className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600 disabled:opacity-50"
+              className="font-semibold text-v2-gold-text hover:underline disabled:opacity-50"
             >
               Resend code
             </button>
@@ -185,7 +185,7 @@ export default function ForgotPasswordPage() {
                 setError("");
                 setNotice("");
               }}
-              className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600"
+              className="font-semibold text-v2-gold-text hover:underline"
             >
               Use a different email
             </button>
@@ -198,7 +198,7 @@ export default function ForgotPasswordPage() {
           <CheckCircle2 className="mx-auto h-10 w-10 text-green-600" />
           <p className="text-sm text-muted">Your password has been reset. Sign in with the new one.</p>
           <Link href="/login">
-            <Button className="w-full">
+            <Button className={AUTH_SUBMIT}>
               Go to sign in <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
@@ -207,7 +207,7 @@ export default function ForgotPasswordPage() {
 
       <p className="mt-6 text-center text-sm text-muted">
         Remembered it?{" "}
-        <Link href="/login" className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
+        <Link href="/login" className="font-semibold text-v2-gold-text hover:underline">
           Back to sign in
         </Link>
       </p>

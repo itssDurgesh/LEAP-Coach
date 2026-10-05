@@ -3,25 +3,12 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import {
-  X,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  RotateCcw,
-  ArrowRight,
-  ClipboardCheck,
-  Sparkles,
-  Check,
-  Lightbulb,
-  Eye,
-} from "lucide-react";
-import { Logo } from "@/components/ui/Logo";
-import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
-import { Button, buttonClasses } from "@/components/ui/Button";
+import { ArrowLeft, ArrowRight, Check, Lightbulb, Loader2, RotateCcw, Star, X } from "lucide-react";
+import { LogoMark } from "@/components/ui/Logo";
+import { AppShell } from "@/components/app/AppShell";
+import { Bar, PageHead, V2Card, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
-import { useRequireLearner } from "@/components/app/guards";
+import { TOPIC_CREDIT_MAX } from "@/lib/credits";
 import { fetchHint } from "@/lib/hint";
 import { cn } from "@/lib/utils";
 import { Assignment, Course, Question, Submission, Video } from "@/lib/types";
@@ -29,26 +16,50 @@ import { Assignment, Course, Question, Submission, Video } from "@/lib/types";
 const MAX_ATTEMPTS = 10; // whole-assignment retries (kept for unlock-gating compatibility)
 const MAX_Q_ATTEMPTS = 4; // per-question tries before the answer is revealed
 
+const CHIP = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold leading-[18px]";
+const GOOD = "bg-lv-orgs-tint text-lv-orgs-dark";
+const BAD = "bg-lv-people-tint text-lv-people-dark";
+
 export default function AssignmentPage() {
-  const { ready } = useRequireLearner();
+  return (
+    <AppShell signedOutTo="/login">
+      <AssignmentGate />
+    </AppShell>
+  );
+}
+
+function TopicNotFound() {
+  return (
+    <div className="py-20 text-center">
+      <p className="font-heading text-xl font-semibold text-heading">Topic not found</p>
+      <Link href="/my-topics" className={v2Button("primary", "md", "mt-5")}>
+        Back to my topics
+      </Link>
+    </div>
+  );
+}
+
+/** Sends the learner back to the topic page unless this checkpoint is open to them. */
+function AssignmentGate() {
   const params = useParams<{ courseId: string; assignmentId: string }>();
   const router = useRouter();
-  const { getCourse, isEnrolled, assignmentUnlocked } = useApp();
+  const { getCourse, isEnrolled, hasAccess, assignmentUnlocked } = useApp();
 
   const course = getCourse(params.courseId);
   const assignment = course?.assignments.find((a) => a.id === params.assignmentId);
 
   React.useEffect(() => {
-    if (!ready || !course) return;
-    if (!assignment || !isEnrolled(course.id) || !assignmentUnlocked(assignment.id)) {
+    if (!course) return;
+    if (!assignment || !isEnrolled(course.id) || !hasAccess(course.id) || !assignmentUnlocked(assignment.id)) {
       router.replace(`/courses/${course.slug}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, course?.id, assignment?.id]);
+  }, [course?.id, assignment?.id]);
 
-  if (!ready || !course || !assignment || !assignmentUnlocked(assignment.id)) {
+  if (!course) return <TopicNotFound />;
+  if (!assignment || !isEnrolled(course.id) || !hasAccess(course.id) || !assignmentUnlocked(assignment.id)) {
     return (
-      <div className="grid min-h-screen place-items-center bg-surface">
+      <div className="grid min-h-[60vh] place-items-center">
         <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
       </div>
     );
@@ -147,45 +158,44 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
   }
 
   const exhausted = (result?.attemptNumber ?? prior.attempts) >= MAX_ATTEMPTS;
+  const total = assignment.questions.length;
 
   return (
-    <div className="min-h-screen bg-surface">
-      <header className="sticky top-0 z-30 border-b border-hair bg-surface/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-3xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link
-            href={`/courses/${course.slug}`}
-            className="inline-flex shrink-0 items-center gap-2 font-heading text-sm font-semibold text-muted transition-colors duration-200 hover:text-heading"
-          >
-            <X className="h-5 w-5" /> Exit
+    <div className="space-y-6">
+      {/* ── Where you are ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2 text-sm">
+          <Link href={`/courses/${course.slug}`} className="group inline-flex min-w-0 items-center gap-2 font-semibold text-heading">
+            <ArrowLeft className="h-4 w-4 shrink-0 transition-transform duration-200 ease-out-expo group-hover:-translate-x-1" />
+            <span className="truncate">{course.title}</span>
           </Link>
-          <p className="min-w-0 truncate font-heading text-sm font-bold text-heading">{course.title}</p>
-          <Logo href="/dashboard" size="sm" className="hidden sm:inline-flex" />
+          <span className="shrink-0 font-medium text-muted">· Checkpoint after video {assignment.afterVideoOrder}</span>
         </div>
-      </header>
+        <span className={cn(CHIP, "border border-hair bg-card text-heading")}>
+          Attempt {Math.min(result ? result.attemptNumber : prior.attempts + 1, MAX_ATTEMPTS)} of {MAX_ATTEMPTS}
+        </span>
+      </div>
 
-      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-        {result ? (
-          <ResultView
-            assignment={assignment}
-            result={result}
-            exhausted={exhausted}
-            nextHref={nextHref}
-            onRetry={retry}
-          />
-        ) : (
-          <>
-            <div className="mb-6">
-              <Badge variant="navy">
-                <ClipboardCheck className="h-3.5 w-3.5" /> Checkpoint · after video {assignment.afterVideoOrder}
-              </Badge>
-              <h1 className="mt-3 font-heading text-display-sm font-bold leading-tight text-heading">AI-Graded Assignment</h1>
-              <p className="mt-2 text-muted">
-                Answer each question. A wrong answer gets a hint from your LEAP AI tutor, and you have up to{" "}
-                {MAX_Q_ATTEMPTS} tries before the answer is shown. Getting it in your first one or two tries lifts
-                your topic rating. {prior.attempts > 0 && `Attempt ${prior.attempts + 1} of ${MAX_ATTEMPTS}.`}
+      <PageHead
+        title="AI-graded assignment"
+        description={`A wrong answer gets a hint from your LEAP AI tutor. You have up to ${MAX_Q_ATTEMPTS} tries per question.`}
+        actions={
+          !result && (
+            <div className="w-[220px]">
+              <p className="text-[13px] font-semibold leading-5 text-heading">
+                {resolvedCount} of {total} done
               </p>
+              <Bar pct={total ? (resolvedCount / total) * 100 : 0} className="mt-1.5" fillClass="bg-lv-orgs" />
             </div>
+          )
+        }
+      />
 
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_416px] lg:items-start">
+        <div className="min-w-0">
+          {result ? (
+            <ResultView assignment={assignment} result={result} exhausted={exhausted} nextHref={nextHref} onRetry={retry} />
+          ) : (
             <div className="space-y-5">
               {assignment.questions.map((q, i) => (
                 <QuestionCard
@@ -197,22 +207,58 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
                   onCheck={() => check(q, gateVideo)}
                 />
               ))}
-            </div>
 
-            <div className="mt-6 flex items-center justify-between gap-4">
-              <p className="text-sm text-muted">
-                {resolvedCount}/{assignment.questions.length} resolved
-              </p>
-              <Button size="lg" onClick={finish} disabled={!allResolved}>
-                <Sparkles className="h-4 w-4" /> See my results
-              </Button>
+              <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
+                <p className="text-[13px] font-medium text-muted">
+                  {allResolved ? "Every question is done." : "Finish every question to see your result."}
+                </p>
+                <button type="button" onClick={finish} disabled={!allResolved} className={v2Button("strong")}>
+                  See my results <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-          </>
-        )}
-      </main>
+          )}
+        </div>
+
+        <aside className="min-w-0 space-y-6">
+          <V2Card className="p-6">
+            <h2 className="font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading">How this works</h2>
+            <div className="mt-4 space-y-4">
+              {[
+                [String(MAX_Q_ATTEMPTS), "tries per question", "A hint comes after each wrong answer."],
+                ["60%", "pass mark", "Passing unlocks the next videos."],
+                [String(MAX_ATTEMPTS), "attempts at the checkpoint", "After the last one the videos unlock anyway."],
+              ].map(([value, label, note]) => (
+                <div key={label} className="flex items-center gap-3.5">
+                  <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[14px] bg-v2-gold-soft font-heading text-lg font-bold tracking-[-0.015em] text-v2-gold-text">
+                    {value}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold leading-5 text-heading">{label}</p>
+                    <p className="text-xs font-medium text-muted">{note}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </V2Card>
+
+          <V2Card className="p-6">
+            <h2 className="flex items-center gap-2.5 font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading">
+              <Star className="h-[18px] w-[18px] fill-gold-400 text-gold-600" /> What this is worth
+            </h2>
+            <p className="mt-2.5 text-sm leading-5 text-v2-body">
+              Each finished topic earns up to {TOPIC_CREDIT_MAX} learning credits. Solving questions in your first one or two tries earns more.
+            </p>
+          </V2Card>
+        </aside>
+      </div>
     </div>
   );
 }
+
+const OPTION = "flex w-full items-center gap-2.5 rounded-[14px] border px-3.5 py-3 text-left text-sm leading-5 transition-colors duration-200";
+const RADIO = "grid h-5 w-5 shrink-0 place-items-center rounded-full";
+const WORD = "rounded-full border px-4 py-2 text-sm font-semibold leading-5 transition-colors duration-200";
 
 function QuestionCard({
   index,
@@ -230,150 +276,166 @@ function QuestionCard({
   const isOpen = st.status === "open";
   const isCorrectOpt = (opt: string) => opt.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
   const blankValue = st.status === "open" ? st.picked || "?" : q.correctAnswer;
+  // Short choices sit two to a row; longer ones get a full row each.
+  const twoColumns = q.options.every((o) => o.length <= 22);
+  const triesLeft = MAX_Q_ATTEMPTS - st.attempts;
 
   return (
-    <Card padded>
-      <div className="flex items-start gap-3">
-        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-navy-800 text-sm font-bold text-white">
-          {index + 1}
-        </span>
-        <div className="flex-1">
-          <Badge variant="neutral" className="mb-2">
-            {q.type === "mcq" ? "Multiple choice" : "Fill in the blank"}
-          </Badge>
-          {q.type === "fill_blank" ? (
-            <p className="font-heading text-lg font-semibold leading-relaxed text-heading">
-              {q.prompt.split("____").map((part, idx, arr) => (
-                <React.Fragment key={idx}>
-                  {part}
-                  {idx < arr.length - 1 && (
-                    <span className="mx-1 inline-block min-w-[80px] rounded-md border-b-2 border-gold-400 bg-gold-50 px-2 text-center text-gold-700 dark:bg-gold-500/10">
-                      {blankValue}
-                    </span>
-                  )}
-                </React.Fragment>
-              ))}
-            </p>
-          ) : (
-            <p className="font-heading text-lg font-semibold leading-relaxed text-heading">{q.prompt}</p>
-          )}
+    <V2Card className="space-y-4 p-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn(CHIP, "bg-surface text-v2-body")}>Question {index + 1}</span>
+        {st.status === "solved" ? (
+          <span className={cn(CHIP, GOOD)}>
+            <Check className="h-3.5 w-3.5" strokeWidth={3} />
+            {st.attempts <= 1 ? "Solved on the first try" : `Solved in ${st.attempts} tries`}
+          </span>
+        ) : st.status === "revealed" ? (
+          <span className={cn(CHIP, BAD)}>Answer shown after {MAX_Q_ATTEMPTS} tries</span>
+        ) : st.attempts > 0 ? (
+          <span className={cn(CHIP, "bg-v2-gold-soft text-v2-gold-text")}>
+            Try {st.attempts + 1} of {MAX_Q_ATTEMPTS}
+          </span>
+        ) : (
+          q.type === "fill_blank" && <span className={cn(CHIP, "bg-surface text-v2-body")}>Fill in the blank</span>
+        )}
+      </div>
 
-          <div className={cn("mt-4 gap-2.5", q.type === "mcq" ? "grid" : "flex flex-wrap")}>
-            {q.options.map((opt) => {
-              const selected = st.picked === opt;
-              const isWrong = st.wrong.includes(opt);
-              const showCorrect = (st.status === "solved" || st.status === "revealed") && isCorrectOpt(opt);
-              const disabled = !isOpen || isWrong;
+      <p className="font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading">
+        {q.type === "fill_blank"
+          ? q.prompt.split("____").map((part, idx, arr) => (
+              <React.Fragment key={idx}>
+                {part}
+                {idx < arr.length - 1 && (
+                  <span className="mx-1 inline-block min-w-[72px] border-b-2 border-heading px-1 text-center text-v2-gold-text">
+                    {blankValue === "?" ? "\u00a0" : blankValue}
+                  </span>
+                )}
+              </React.Fragment>
+            ))
+          : q.prompt}
+      </p>
 
-              if (q.type === "mcq") {
-                return (
-                  <button
-                    key={opt}
-                    onClick={() => onPick(opt)}
-                    disabled={disabled}
-                    className={cn(
-                      "flex items-center gap-3 rounded-2xl border-2 px-4 py-3.5 text-left text-sm transition-all duration-200",
-                      showCorrect
-                        ? "border-green-400 bg-green-50 text-heading dark:bg-green-500/10"
-                        : isWrong
-                          ? "border-red-300 bg-red-50 text-red-700 dark:bg-red-500/10"
-                          : selected
-                            ? "border-gold-400 bg-gold-50 text-heading dark:bg-gold-500/10"
-                            : "border-hair text-heading hover:border-faint disabled:opacity-60",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "grid h-5 w-5 shrink-0 place-items-center rounded-full border-2",
-                        showCorrect
-                          ? "border-green-500 bg-green-500 text-white"
-                          : isWrong
-                            ? "border-red-400 bg-red-400 text-white"
-                            : selected
-                              ? "border-gold-500 bg-gold-500 text-white"
-                              : "border-hair",
-                      )}
-                    >
-                      {showCorrect ? (
-                        <Check className="h-3 w-3" strokeWidth={3} />
-                      ) : isWrong ? (
-                        <XCircle className="h-3 w-3" />
-                      ) : selected ? (
-                        <Check className="h-3 w-3" strokeWidth={3} />
-                      ) : null}
-                    </span>
-                    {opt}
-                  </button>
-                );
-              }
-              return (
-                <button
-                  key={opt}
-                  onClick={() => onPick(opt)}
-                  disabled={disabled}
+      <div className={q.type === "mcq" ? cn("grid gap-2", twoColumns && "sm:grid-cols-2") : "flex flex-wrap gap-2"}>
+        {q.options.map((opt) => {
+          const selected = st.picked === opt;
+          const isWrong = st.wrong.includes(opt);
+          const showCorrect = !isOpen && isCorrectOpt(opt);
+          const disabled = !isOpen || isWrong;
+
+          if (q.type === "mcq") {
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => onPick(opt)}
+                disabled={disabled}
+                className={cn(
+                  OPTION,
+                  showCorrect
+                    ? "border-lv-orgs bg-lv-orgs-tint font-semibold text-heading ring-1 ring-lv-orgs"
+                    : isWrong
+                      ? "border-lv-people bg-lv-people-tint font-semibold text-muted"
+                      : selected
+                        ? "border-v2-strong bg-card font-semibold text-heading ring-1 ring-v2-strong"
+                        : cn("border-v2-line-strong bg-card font-medium text-heading", isOpen && "hover:border-heading"),
+                )}
+              >
+                <span
                   className={cn(
-                    "rounded-full border-2 px-4 py-2 text-sm font-medium transition-colors",
+                    RADIO,
                     showCorrect
-                      ? "border-green-400 bg-green-500 text-white"
+                      ? "bg-lv-orgs text-white"
                       : isWrong
-                        ? "border-red-300 bg-red-100 text-red-700 line-through dark:bg-red-500/10"
+                        ? "bg-lv-people text-white"
                         : selected
-                          ? "border-gold-400 bg-gold-500 text-navy-900"
-                          : "border-hair bg-card text-heading hover:border-gold-300 disabled:opacity-60",
+                          ? "bg-v2-strong"
+                          : "border-[1.5px] border-v2-line-strong",
                   )}
                 >
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* status / actions */}
-          {isOpen ? (
-            <div className="mt-4 space-y-3">
-              {st.hintLoading && (
-                <div className="flex items-center gap-2 rounded-xl bg-surface-2 px-3.5 py-2.5 text-sm text-muted">
-                  <Loader2 className="h-4 w-4 animate-spin text-gold-600" /> Your LEAP tutor is thinking of a hint…
-                </div>
-              )}
-              {st.hint && !st.hintLoading && (
-                <div className="flex items-start gap-2.5 rounded-2xl border border-gold-300 bg-gold-50 px-4 py-3 text-sm leading-relaxed text-heading dark:border-gold-500/25 dark:bg-gold-500/10">
-                  <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-gold-600" />
-                  <span>{st.hint}</span>
-                </div>
-              )}
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs text-faint">
-                  {st.attempts > 0
-                    ? `Attempt ${st.attempts + 1} of ${MAX_Q_ATTEMPTS}`
-                    : `${MAX_Q_ATTEMPTS} tries, with a hint each time`}
+                  {showCorrect ? (
+                    <Check className="h-3 w-3" strokeWidth={3.5} />
+                  ) : isWrong ? (
+                    <X className="h-3 w-3" strokeWidth={3.5} />
+                  ) : (
+                    selected && <span className="h-2 w-2 rounded-full bg-v2-on-strong" />
+                  )}
                 </span>
-                <Button size="sm" onClick={onCheck} disabled={!st.picked || st.hintLoading}>
-                  Check answer
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4 space-y-2">
-              {st.status === "solved" ? (
-                <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-green-600">
-                  <CheckCircle2 className="h-4 w-4" />
-                  {st.attempts <= 1 ? "Correct on the first try! 🎉" : `Correct, solved in ${st.attempts} tries.`}
-                </p>
-              ) : (
-                <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-orange-600">
-                  <Eye className="h-4 w-4" /> Answer revealed after {MAX_Q_ATTEMPTS} tries, highlighted above.
-                </p>
+                <span className="min-w-0 flex-1">{opt}</span>
+                {isWrong && <span className="shrink-0 text-xs font-semibold text-lv-people-dark">Tried</span>}
+              </button>
+            );
+          }
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onPick(opt)}
+              disabled={disabled}
+              className={cn(
+                WORD,
+                showCorrect
+                  ? "border-lv-orgs bg-lv-orgs text-white"
+                  : isWrong
+                    ? "border-lv-people bg-lv-people-tint text-lv-people-dark line-through"
+                    : selected
+                      ? "border-v2-strong bg-v2-strong text-v2-on-strong"
+                      : cn("border-v2-line-strong bg-card text-heading", isOpen && "hover:border-heading"),
               )}
-              <div className="flex items-start gap-2 rounded-xl bg-surface p-3 text-sm text-muted">
-                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-gold-600" />
-                <span>{q.explanation}</span>
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* status / actions */}
+      {isOpen ? (
+        <>
+          {st.hintLoading && (
+            <div className="flex items-center gap-2.5 rounded-[14px] bg-surface p-3.5 text-sm font-medium text-v2-body">
+              <Loader2 className="h-4 w-4 animate-spin text-v2-gold-text" /> Your LEAP tutor is thinking of a hint…
+            </div>
+          )}
+          {st.hint && !st.hintLoading && (
+            <div className="flex items-center gap-3 rounded-[14px] bg-v2-gold-soft p-3.5">
+              <LogoMark className="h-8 w-8" />
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-xs font-semibold leading-[18px] text-v2-gold-text">
+                  <Lightbulb className="h-3.5 w-3.5" /> Hint from your LEAP tutor
+                </p>
+                <p className="text-sm font-medium leading-5 text-heading">{st.hint}</p>
               </div>
             </div>
           )}
-        </div>
-      </div>
-    </Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {st.attempts > 0 ? (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
+                {Array.from({ length: MAX_Q_ATTEMPTS }, (_, i) => (
+                  <span key={i} className={cn("h-2.5 w-2.5 rounded-full", i < st.attempts ? "bg-lv-people" : "bg-surface-2")} />
+                ))}
+                <span className="ml-1.5">
+                  {triesLeft} {triesLeft === 1 ? "try" : "tries"} left
+                </span>
+              </span>
+            ) : (
+              <span className="text-xs font-medium text-muted">
+                {q.type === "fill_blank" ? "Pick a word from the bank" : `${MAX_Q_ATTEMPTS} tries, with a hint each time`}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onCheck}
+              disabled={!st.picked || st.hintLoading}
+              className={v2Button(st.picked ? "primary" : "outline")}
+            >
+              Check answer
+            </button>
+          </div>
+        </>
+      ) : (
+        q.explanation && <p className="rounded-[14px] bg-surface p-3.5 text-sm leading-5 text-v2-body">{q.explanation}</p>
+      )}
+    </V2Card>
   );
 }
 
@@ -394,28 +456,16 @@ function ResultView({
   const firstTwo = result.feedback.filter((f) => f.solved && (f.attempts ?? 99) <= 2).length;
 
   return (
-    <div>
-      <Card
-        className={cn(
-          "relative overflow-hidden p-8 text-center",
-          passed
-            ? "bg-gradient-to-br from-green-50 to-cream-50 dark:from-green-500/10 dark:to-transparent"
-            : "bg-gradient-to-br from-orange-50 to-cream-50 dark:from-orange-500/10 dark:to-transparent",
-        )}
-      >
-        <div
-          className={cn(
-            "mx-auto grid h-16 w-16 place-items-center rounded-full",
-            passed ? "bg-green-100 text-green-600" : "bg-orange-100 text-orange-600",
-          )}
-        >
-          {passed ? <CheckCircle2 className="h-9 w-9" /> : <RotateCcw className="h-9 w-9" />}
-        </div>
-        <p className="mt-4 font-heading text-5xl font-bold text-heading">{result.score}%</p>
-        <p className="mt-2 font-heading text-xl font-semibold text-heading">
+    <div className="space-y-5">
+      <V2Card className="p-8 text-center">
+        <span className={cn("mx-auto grid h-14 w-14 place-items-center rounded-full", passed ? GOOD : "bg-v2-gold-soft text-v2-gold-text")}>
+          {passed ? <Check className="h-7 w-7" strokeWidth={3} /> : <RotateCcw className="h-7 w-7" />}
+        </span>
+        <p className="mt-4 font-heading text-5xl font-bold tracking-[-0.015em] text-heading">{result.score}%</p>
+        <p className="mt-2 font-heading text-xl font-semibold tracking-[-0.015em] text-heading">
           {passed ? "Checkpoint passed! 🎉" : exhausted ? "Videos unlocked" : "Almost there"}
         </p>
-        <p className="mt-1 text-muted">
+        <p className="mx-auto mt-1.5 max-w-xl text-[15px] leading-6 text-v2-body">
           {passed
             ? `Great work. The next videos are now unlocked, and you nailed ${firstTwo} of ${assignment.questions.length} within two tries.`
             : exhausted
@@ -424,59 +474,45 @@ function ResultView({
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           {passed || exhausted ? (
-            <Link href={nextHref} className={buttonClasses({ variant: "primary", size: "lg" })}>
+            <Link href={nextHref} className={v2Button("primary")}>
               Continue learning <ArrowRight className="h-4 w-4" />
             </Link>
           ) : (
-            <Button size="lg" onClick={onRetry}>
+            <button type="button" onClick={onRetry} className={v2Button("primary")}>
               <RotateCcw className="h-4 w-4" /> Try again
-            </Button>
+            </button>
           )}
         </div>
-      </Card>
+      </V2Card>
 
-      <h2 className="mb-3 mt-8 font-heading text-xl font-bold text-heading">Question breakdown</h2>
-      <div className="space-y-4">
-        {assignment.questions.map((q, i) => {
-          const fb = result.feedback.find((f) => f.questionId === q.id);
-          const correct = fb?.correct;
-          const tries = fb?.attempts;
-          return (
-            <Card key={q.id} padded className={cn("border-l-4", correct ? "border-l-green-500" : "border-l-red-400")}>
-              <div className="flex items-start gap-3">
-                <span
-                  className={cn(
-                    "mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full",
-                    correct ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600",
-                  )}
-                >
-                  {correct ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                </span>
-                <div className="flex-1">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="font-medium text-heading">
-                      {i + 1}. {q.prompt.replace("____", "______")}
-                    </p>
-                    {tries != null && (
-                      <Badge variant={correct ? "success" : "neutral"} className="shrink-0">
-                        {correct ? (tries <= 1 ? "1st try" : `${tries} tries`) : "revealed"}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="mt-1.5 text-sm">
-                    <span className="text-faint">Correct answer: </span>
-                    <span className="font-medium text-green-700">{q.correctAnswer}</span>
-                  </p>
-                  <div className="mt-2 flex items-start gap-2 rounded-xl bg-surface p-3 text-sm text-muted">
-                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-gold-600" />
-                    <span>{q.explanation}</span>
-                  </div>
-                </div>
+      <h2 className="pt-2 font-heading text-xl font-semibold leading-[25px] tracking-[-0.015em] text-heading">Question breakdown</h2>
+      {assignment.questions.map((q, i) => {
+        const fb = result.feedback.find((f) => f.questionId === q.id);
+        const correct = fb?.correct;
+        const tries = fb?.attempts;
+        return (
+          <V2Card key={q.id} className="flex items-start gap-3.5 p-6">
+            <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-full text-white", correct ? "bg-lv-orgs" : "bg-lv-people")}>
+              {correct ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : <X className="h-3.5 w-3.5" strokeWidth={3} />}
+            </span>
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[15px] font-semibold leading-6 text-heading">
+                  {i + 1}. {q.prompt.replace("____", "______")}
+                </p>
+                {tries != null && (
+                  <span className={cn(CHIP, correct ? GOOD : BAD)}>{correct ? (tries <= 1 ? "1st try" : `${tries} tries`) : "revealed"}</span>
+                )}
               </div>
-            </Card>
-          );
-        })}
-      </div>
+              <p className="text-sm leading-5">
+                <span className="text-muted">Correct answer: </span>
+                <span className="font-semibold text-lv-orgs-dark">{q.correctAnswer}</span>
+              </p>
+              {q.explanation && <p className="rounded-[14px] bg-surface p-3.5 text-sm leading-5 text-v2-body">{q.explanation}</p>}
+            </div>
+          </V2Card>
+        );
+      })}
     </div>
   );
 }

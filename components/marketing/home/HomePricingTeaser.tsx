@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
 import { Container } from "@/components/marketing/Container";
+import { SectionHead } from "@/components/marketing/SectionHead";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
-import { buttonClasses } from "@/components/ui/button-variants";
+import { v2Button } from "@/components/v2/button";
 import { bundlePrice, type PricingTiers } from "@/lib/types";
-import { formatINR } from "@/lib/utils";
+import { cn, formatINR } from "@/lib/utils";
 
 /**
  * Landing-page price summary. `pricing` is the SAME server-fetched value the /pricing
@@ -65,62 +66,48 @@ export function HomePricingTeaser({ pricing }: { pricing: PricingTiers }) {
   ];
 
   return (
-    <section className="bg-surface py-16 sm:py-20">
+    <section className="py-16 sm:py-20">
       <Container width="wide">
-        <Reveal className="max-w-2xl">
-          <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.16em] text-gold-600">
-            Pricing
-          </p>
-          <h2 className="mt-4 text-balance font-heading text-display font-bold text-heading">
-            Pay for what you actually want to learn
-          </h2>
-          <p className="mt-4 max-w-lg text-base leading-relaxed text-muted">
-            One topic, one category, or everything. All prices are one-time, for a full year of
-            access.
-          </p>
+        <Reveal>
+          <SectionHead
+            tag="Pricing"
+            title="Pay for what you actually want to learn"
+            text="One topic, one category, or everything. All prices are one-time, for a full year of access."
+          />
         </Reveal>
 
-        <Stagger className="mt-14 grid items-start gap-6 lg:grid-cols-3" gap={0.1}>
+        <Stagger className="mt-12 grid items-start gap-5 lg:grid-cols-3" gap={0.1}>
           {tiers.map((t) => (
             <StaggerItem key={t.name} className={t.featured ? "lg:-mt-4" : ""}>
               <div
-                className={
-                  t.featured
-                    ? "relative flex h-full flex-col overflow-hidden rounded-3xl bg-navy-950 p-8 shadow-lift ring-1 ring-navy-800 dark:bg-card dark:ring-hair"
-                    : "relative flex h-full flex-col rounded-3xl border border-hair bg-card p-8"
-                }
+                className={cn(
+                  "relative flex h-full flex-col overflow-hidden rounded-[24px] p-8",
+                  t.featured ? "bg-v2-navy shadow-v2-lift" : "bg-card shadow-v2-card",
+                )}
               >
                 {t.featured && (
                   <>
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 texture-grain opacity-[0.14] mix-blend-overlay"
-                    />
-                    <span className="relative mb-5 inline-flex w-fit items-center rounded-full bg-gold-500 px-3 py-1 font-heading text-[11px] font-bold uppercase tracking-[0.1em] text-navy-900">
+                    <span aria-hidden className="absolute -right-20 -top-24 h-56 w-56 rounded-full bg-gold-400/15" />
+                    <span className="relative mb-5 inline-flex w-fit items-center rounded-full bg-[#E9B93E] px-3 py-1.5 text-xs font-semibold text-navy-800">
                       Most popular
                     </span>
                   </>
                 )}
 
-                <h3
-                  className={`relative font-heading text-lg font-bold ${t.featured ? "text-white" : "text-heading"}`}
-                >
+                <h3 className={cn("relative font-heading text-xl font-semibold tracking-[-0.01em]", t.featured ? "text-white" : "text-heading")}>
                   {t.name}
                 </h3>
-                <p
-                  className={`relative mt-1.5 text-sm leading-relaxed ${t.featured ? "text-cream-100/70" : "text-muted"}`}
-                >
+                <p className={cn("relative mt-1.5 text-sm leading-5", t.featured ? "text-v2-on-navy-muted" : "text-v2-body")}>
                   {t.blurb}
                 </p>
 
                 <p className="relative mt-7 flex items-baseline gap-1.5">
-                  <span
-                    className={`font-heading text-display-sm font-bold leading-none tracking-tight ${t.featured ? "text-white" : "text-heading"}`}
-                  >
+                  {/* Not through `cn`: it would drop `text-display-sm` in favour of the colour class. */}
+                  <span className={`font-heading text-display-sm font-bold leading-none ${t.featured ? "text-white" : "text-heading"}`}>
                     {t.price}
                   </span>
                   {t.unit && (
-                    <span className={`text-sm ${t.featured ? "text-cream-100/50" : "text-faint"}`}>
+                    <span className={cn("text-sm font-medium", t.featured ? "text-v2-on-navy-muted" : "text-muted")}>
                       {t.unit}
                     </span>
                   )}
@@ -129,27 +116,20 @@ export function HomePricingTeaser({ pricing }: { pricing: PricingTiers }) {
                 <ul className="relative mt-7 flex-1 space-y-3">
                   {t.features.map((f) => (
                     <li key={f} className="flex items-start gap-2.5">
-                      <Check
-                        className={`mt-0.5 h-4 w-4 shrink-0 ${t.featured ? "text-gold-400" : "text-gold-600"}`}
-                        strokeWidth={2.5}
-                      />
                       <span
-                        className={`text-sm leading-relaxed ${t.featured ? "text-cream-100/85" : "text-muted"}`}
+                        className={cn(
+                          "mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full",
+                          t.featured ? "bg-white/10 text-gold-400" : "bg-v2-gold-soft text-v2-gold-text",
+                        )}
                       >
-                        {f}
+                        <Check className="h-3 w-3" strokeWidth={3} />
                       </span>
+                      <span className={cn("text-sm leading-5", t.featured ? "text-white" : "text-v2-body")}>{f}</span>
                     </li>
                   ))}
                 </ul>
 
-                <Link
-                  href={t.href}
-                  className={buttonClasses({
-                    variant: t.featured ? "primary" : "outline",
-                    size: "lg",
-                    className: "group relative mt-8 w-full",
-                  })}
-                >
+                <Link href={t.href} className={v2Button(t.featured ? "primary" : "outline", "md", "group relative mt-8 w-full")}>
                   {t.cta}
                   <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
                 </Link>
@@ -159,9 +139,9 @@ export function HomePricingTeaser({ pricing }: { pricing: PricingTiers }) {
         </Stagger>
 
         <Reveal className="mt-8">
-          <p className="text-center text-sm text-muted">
+          <p className="text-center text-sm text-v2-body">
             Already own a category?{" "}
-            <Link href="/pricing" className="font-semibold text-gold-700 hover:text-gold-600">
+            <Link href="/pricing" className="font-semibold text-v2-gold-text hover:underline">
               Upgrade by paying only the difference
             </Link>
             .

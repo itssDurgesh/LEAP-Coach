@@ -31,10 +31,14 @@ export function buttonClasses(opts?: {
   size?: ButtonSize;
   className?: string;
 }) {
+  const variant = opts?.variant ?? "primary";
+  const size = opts?.size ?? "md";
   return cn(
+    // `ui-btn*` carry no styles of their own; the admin theme hooks onto them (globals.css).
+    `ui-btn ui-btn-${variant} ui-btn-${size}`,
     buttonBase,
-    buttonVariantClasses[opts?.variant ?? "primary"],
-    buttonSizeClasses[opts?.size ?? "md"],
+    buttonVariantClasses[variant],
+    buttonSizeClasses[size],
     opts?.className,
   );
 }

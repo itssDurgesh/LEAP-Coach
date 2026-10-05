@@ -3,9 +3,11 @@
 import Image from "next/image";
 import { BookOpen, ExternalLink } from "lucide-react";
 import { Container } from "@/components/marketing/Container";
+import { CARD, SectionHead } from "@/components/marketing/SectionHead";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
 import { canOptimize } from "@/lib/images";
 import { useApp } from "@/lib/store/AppProvider";
+import { cn } from "@/lib/utils";
 
 export function HomeBooks() {
   const { books, siteContent } = useApp();
@@ -15,24 +17,18 @@ export function HomeBooks() {
   if (!list.length) return null;
 
   return (
-    <section id="books" className="bg-surface py-16 sm:py-20">
+    <section id="books" className="py-16 sm:py-20">
       <Container width="wide">
-        <Reveal className="max-w-2xl">
-          <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.16em] text-gold-600">
-            Books
-          </p>
-          <h2 className="mt-4 text-balance font-heading text-display font-bold text-heading">
-            {c.booksHeading}
-          </h2>
-          <p className="mt-4 max-w-lg text-base leading-relaxed text-muted">{c.booksSubheading}</p>
+        <Reveal>
+          <SectionHead tag="Books" title={c.booksHeading} text={c.booksSubheading} />
         </Reveal>
 
-        <Stagger className="mt-14 grid gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3" gap={0.09}>
+        <Stagger className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" gap={0.09}>
           {list.map((b) => (
             <StaggerItem key={b.id}>
-              <article className="group flex gap-6">
+              <article className={cn(CARD, "group flex h-full gap-5 p-5")}>
                 {/* Cover standing on its edge, with a cast shadow — a book, not a card. */}
-                <div className="relative h-40 w-[6.5rem] shrink-0 overflow-hidden rounded-l-sm rounded-r-lg shadow-lift transition-transform duration-500 ease-out-expo group-hover:-translate-y-1.5">
+                <div className="relative h-40 w-[6.5rem] shrink-0 overflow-hidden rounded-l-sm rounded-r-lg shadow-v2-lift transition-transform duration-500 ease-out-expo group-hover:-translate-y-1.5">
                   {b.coverUrl ? (
                     <Image
                       src={b.coverUrl}
@@ -55,19 +51,17 @@ export function HomeBooks() {
                 </div>
 
                 <div className="flex min-w-0 flex-col">
-                  <h3 className="font-heading text-base font-bold leading-snug text-heading">
+                  <h3 className="font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading">
                     {b.title}
                   </h3>
-                  <p className="mt-1 text-xs font-medium uppercase tracking-[0.08em] text-gold-700">
-                    {b.author}
-                  </p>
-                  <p className="mt-3 line-clamp-4 text-sm leading-relaxed text-muted">{b.blurb}</p>
+                  <p className="mt-1 text-[13px] font-semibold text-v2-gold-text">{b.author}</p>
+                  <p className="mt-3 line-clamp-4 text-sm leading-5 text-v2-body">{b.blurb}</p>
                   {b.link && (
                     <a
                       href={b.link}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-auto inline-flex items-center gap-1.5 pt-4 font-heading text-sm font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600"
+                      className="mt-auto inline-flex items-center gap-1.5 pt-4 text-sm font-semibold text-v2-gold-text hover:underline"
                     >
                       Learn more <ExternalLink className="h-3.5 w-3.5" />
                     </a>

@@ -127,7 +127,7 @@ function SessionsAdmin() {
           return (
             <Card key={s.id} padded>
               <div className="flex items-start gap-4">
-                <div className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-navy-800 text-white">
+                <div className="grid h-14 w-14 shrink-0 place-items-center rounded-[14px] bg-v2-navy text-white">
                   <span className="text-[10px] font-bold uppercase">{d.toLocaleString("en-IN", { month: "short" })}</span>
                   <span className="font-heading text-xl font-bold leading-none">{d.getDate()}</span>
                 </div>

@@ -10,7 +10,7 @@ export function Card({ className, hover, padded, children, ...props }: CardProps
   return (
     <div
       className={cn(
-        "rounded-2xl border border-hair bg-card shadow-card",
+        "ui-card rounded-2xl border border-hair bg-card shadow-card",
         hover &&
           "transition-all duration-300 hover:-translate-y-0.5 hover:shadow-card-hover",
         padded && "p-5",

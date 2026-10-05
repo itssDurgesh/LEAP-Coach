@@ -42,6 +42,187 @@
   color-scheme: dark; /* native controls (scrollbar, inputs, date pickers) */
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Version 2 theme. Scoped to `.app-v2`, which is set by AppShell (signed-in
+   learner pages), by each public page's root element and by the learner sign-in
+   screens. Admin pages do not set it and are untouched.
+   Channels = "r g b" for alpha support, same convention as the tokens above.
+   ────────────────────────────────────────────────────────────── */
+.app-v2 {
+  --font-outfit: var(--font-bricolage);
+  --font-inter: var(--font-figtree);
+
+  --surface: 244 243 239; /* #F4F3EF page */
+  --surface-2: 236 233 225; /* #ECE9E1 tracks, subtle fills */
+  --card: 255 255 255;
+  --heading: 12 27 54; /* #0C1B36 */
+  --muted: 110 120 144; /* #6E7890 */
+  --faint: 138 151 172;
+  --hair: #e5e2da;
+
+  --v2-body: 61 72 97; /* #3D4861 */
+  --v2-line-strong: 207 201 187; /* #CFC9BB */
+  --v2-navy: 12 27 54; /* brand surface: continue card, upgrade band */
+  --v2-navy-raised: 39 55 90;
+  --v2-on-navy-muted: 194 205 227;
+  --v2-gold-soft: 251 240 212; /* #FBF0D4 */
+  --v2-gold-text: 138 99 16; /* #8A6310 */
+  --v2-idea: 255 243 210;
+  --v2-segment: 241 239 233;
+  --v2-raised: 255 255 255;
+  --v2-strong: 12 27 54; /* filled dark button, active nav pill */
+  --v2-on-strong: 255 255 255;
+
+  --lv-self: 31 157 139;
+  --lv-self-dark: 15 107 94;
+  --lv-self-tint: 221 243 239;
+  --lv-people: 232 105 74;
+  --lv-people-dark: 181 67 42;
+  --lv-people-tint: 252 230 223;
+  --lv-upwards: 122 95 208;
+  --lv-upwards-dark: 90 63 176;
+  --lv-upwards-tint: 234 229 250;
+  --lv-peers: 47 128 216;
+  --lv-peers-dark: 30 95 168;
+  --lv-peers-tint: 222 236 251;
+  --lv-cultures: 210 80 126;
+  --lv-cultures-dark: 168 50 92;
+  --lv-cultures-tint: 250 225 234;
+  --lv-orgs: 91 154 63;
+  --lv-orgs-dark: 63 114 40;
+  --lv-orgs-tint: 229 241 221;
+}
+
+.dark .app-v2 {
+  --surface: 26 22 17; /* same warm charcoal as the site's dark theme */
+  --surface-2: 58 50 37;
+  --card: 36 30 22;
+  --heading: 244 238 226;
+  --muted: 182 172 153;
+  --faint: 138 128 110;
+  --hair: #39332a;
+
+  --v2-body: 216 207 189;
+  --v2-line-strong: 79 71 59;
+  --v2-navy: 17 37 72; /* #112548 */
+  --v2-navy-raised: 30 58 110;
+  --v2-on-navy-muted: 194 205 227;
+  --v2-gold-soft: 58 46 23;
+  --v2-gold-text: 232 192 86;
+  --v2-idea: 45 35 18;
+  --v2-segment: 26 22 17;
+  --v2-raised: 58 50 37;
+  --v2-strong: 244 238 226;
+  --v2-on-strong: 26 22 17;
+
+  --lv-self: 43 181 161;
+  --lv-self-dark: 127 211 196;
+  --lv-self-tint: 35 50 41;
+  --lv-people: 240 122 92;
+  --lv-people-dark: 244 162 140;
+  --lv-people-tint: 67 42 30;
+  --lv-upwards: 142 118 224;
+  --lv-upwards-dark: 183 166 238;
+  --lv-upwards-tint: 50 40 52;
+  --lv-peers: 74 149 230;
+  --lv-peers-dark: 141 189 239;
+  --lv-peers-tint: 38 46 53;
+  --lv-cultures: 224 101 143;
+  --lv-cultures-dark: 239 160 188;
+  --lv-cultures-tint: 64 38 39;
+  --lv-orgs: 109 176 78;
+  --lv-orgs-dark: 169 209 143;
+  --lv-orgs-tint: 45 50 29;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Admin panel in the version 2 look. `.admin-v2` is set by AdminShell and the
+   admin sign-in next to `.app-v2`; these rules restyle the shared primitives
+   (Card, Button, Badge, form fields) there and nowhere else.
+   ────────────────────────────────────────────────────────────── */
+.admin-v2 .ui-card {
+  border-color: transparent;
+  border-radius: 24px;
+  box-shadow: 0 12px 32px rgba(12, 27, 54, 0.08), 0 2px 4px rgba(12, 27, 54, 0.04);
+}
+.admin-v2 .ui-btn {
+  border-radius: 9999px;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  box-shadow: none;
+}
+.admin-v2 .ui-btn-sm {
+  height: 2rem;
+  padding-inline: 0.875rem;
+  font-size: 13px;
+}
+.admin-v2 .ui-btn-md {
+  height: 2.5rem;
+  padding-inline: 1.125rem;
+}
+.admin-v2 .ui-btn-primary {
+  background-color: #e9b93e;
+  color: #0c1b36;
+}
+.admin-v2 .ui-btn-primary:hover {
+  background-color: #f4cb5b;
+}
+.admin-v2 .ui-btn-navy {
+  background-color: rgb(var(--v2-strong));
+  color: rgb(var(--v2-on-strong));
+}
+.admin-v2 .ui-btn-navy:hover {
+  opacity: 0.9;
+}
+.admin-v2 .ui-btn-outline {
+  border-color: rgb(var(--v2-line-strong));
+}
+.admin-v2 .ui-btn-outline:hover {
+  border-color: rgb(var(--heading));
+  background-color: rgb(var(--card));
+}
+.admin-v2 .ui-btn-subtle {
+  background-color: rgb(var(--v2-segment));
+}
+.admin-v2 .ui-badge {
+  border-color: transparent;
+  font-weight: 600;
+}
+.admin-v2 .ui-badge-gold {
+  background-color: rgb(var(--v2-gold-soft));
+  color: rgb(var(--v2-gold-text));
+}
+.admin-v2 .ui-badge-navy {
+  background-color: rgb(var(--lv-peers-tint));
+  color: rgb(var(--lv-peers-dark));
+}
+.admin-v2 .ui-badge-success {
+  background-color: rgb(var(--lv-orgs-tint));
+  color: rgb(var(--lv-orgs-dark));
+}
+.admin-v2 .ui-badge-warning {
+  background-color: rgb(var(--lv-people-tint));
+  color: rgb(var(--lv-people-dark));
+}
+.admin-v2 .ui-badge-neutral {
+  background-color: rgb(var(--v2-segment));
+  color: rgb(var(--v2-body));
+}
+.admin-v2 .ui-badge-outline {
+  background-color: rgb(var(--v2-segment));
+  color: rgb(var(--v2-body));
+}
+.admin-v2 .ui-avatar:not(.ui-avatar-gold) {
+  background-color: rgb(var(--v2-strong));
+  color: rgb(var(--v2-on-strong));
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-weight: 700;
+}
+.admin-v2 .ui-field {
+  border-color: rgb(var(--v2-line-strong));
+  border-radius: 12px;
+  box-shadow: none;
+}
+
 * {
   box-sizing: border-box;
 }

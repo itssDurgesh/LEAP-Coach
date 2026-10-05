@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ExternalLink, Instagram, Linkedin, Youtube } from "lucide-react";
+import { Check, ExternalLink, Instagram, Linkedin, Youtube } from "lucide-react";
 import { Container } from "@/components/marketing/Container";
 import { HomeProfessorStats } from "@/components/marketing/home/HomeProfessorStats";
+import { ROUND_BUTTON, SectionHead } from "@/components/marketing/SectionHead";
 import { ProfessorPhoto } from "@/components/ProfessorPhoto";
 import { Reveal } from "@/components/motion/Reveal";
-import { buttonClasses } from "@/components/ui/button-variants";
+import { v2Button } from "@/components/v2/button";
 import { PROFESSOR } from "@/lib/professor";
 
 const socials = [
@@ -15,21 +16,17 @@ const socials = [
 
 export function HomeProfessor() {
   return (
-    <section id="about" className="bg-surface py-16 sm:py-20">
+    <section id="about" className="py-16 sm:py-20">
       <Container width="wide">
-        <div className="grid gap-12 lg:grid-cols-12 lg:gap-14">
+        <div className="grid items-center gap-12 lg:grid-cols-12 lg:gap-14">
           {/* ── Portrait ── */}
           <Reveal from="right" className="lg:col-span-5">
-            <div className="relative">
-              {/* Offset plate behind the photo — depth from a second plane rather
-                  than a blurred glow. */}
-              <div
-                aria-hidden
-                className="absolute -bottom-4 -right-4 h-full w-full rounded-[2rem] border border-gold-300/50 dark:border-gold-500/25"
-              />
+            <div className="relative mx-auto max-w-md lg:max-w-none">
+              <span aria-hidden className="absolute -left-6 -top-6 h-32 w-32 rounded-full bg-gold-400/25" />
+              <span aria-hidden className="absolute -bottom-6 -right-5 h-24 w-24 rounded-full bg-lv-self/25" />
               <ProfessorPhoto
-                className="relative aspect-[4/5] w-full shadow-lift"
-                rounded="rounded-[2rem]"
+                className="relative aspect-[4/5] w-full shadow-v2-lift"
+                rounded="rounded-[28px]"
                 position="top"
                 sizes="(max-width: 1024px) 90vw, 420px"
               />
@@ -38,47 +35,28 @@ export function HomeProfessor() {
 
           {/* ── Bio ── */}
           <Reveal from="left" delay={0.1} className="lg:col-span-7">
-            <p className="font-heading text-[11px] font-semibold uppercase tracking-[0.16em] text-gold-600">
-              Meet your mentor
-            </p>
-            <h2 className="mt-4 text-balance font-heading text-display font-bold text-heading">
-              Learn directly from Prof. Vishal Gupta
-            </h2>
-            <p className="mt-3 font-heading text-base font-medium text-gold-700">
-              {PROFESSOR.title}
-            </p>
-            <p className="mt-6 max-w-xl text-base leading-[1.75] text-muted">{PROFESSOR.bio}</p>
+            <SectionHead tag="Meet your mentor" title="Learn directly from Prof. Vishal Gupta" />
+            <p className="mt-3 font-heading text-base font-medium text-v2-gold-text">{PROFESSOR.title}</p>
+            <p className="mt-5 max-w-xl text-base leading-7 text-v2-body">{PROFESSOR.bio}</p>
 
-            {/* Credentials as a ruled list — no icon repeated four times. */}
-            <ul className="mt-8 border-t border-hair">
+            <ul className="mt-7 grid gap-3 sm:grid-cols-2">
               {PROFESSOR.highlights.map((h) => (
-                <li
-                  key={h}
-                  className="border-b border-hair py-3.5 text-sm leading-relaxed text-heading"
-                >
+                <li key={h} className="flex items-start gap-3 rounded-2xl bg-card px-4 py-3.5 text-sm leading-5 text-heading shadow-v2-soft">
+                  <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-v2-gold-soft text-v2-gold-text">
+                    <Check className="h-3 w-3" strokeWidth={3} />
+                  </span>
                   {h}
                 </li>
               ))}
             </ul>
 
-            <div className="mt-8 flex flex-wrap items-center gap-2.5">
+            <div className="mt-7 flex flex-wrap items-center gap-2.5">
               {socials.map(({ Icon, href, label }) => (
-                <a
-                  key={label}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={label}
-                  title={label}
-                  className="grid h-11 w-11 place-items-center rounded-full border border-hair text-heading transition-all duration-200 hover:border-gold-500 hover:bg-gold-500 hover:text-navy-900"
-                >
+                <a key={label} href={href} target="_blank" rel="noopener noreferrer" aria-label={label} title={label} className={ROUND_BUTTON}>
                   <Icon className="h-4 w-4" />
                 </a>
               ))}
-              <Link
-                href="/team"
-                className={buttonClasses({ variant: "outline", size: "md", className: "ml-1" })}
-              >
+              <Link href="/team" className={v2Button("outline", "md", "ml-1")}>
                 Meet the team <ExternalLink className="h-4 w-4" />
               </Link>
             </div>
@@ -87,29 +65,24 @@ export function HomeProfessor() {
 
         {/* Admin-editable achievement grid */}
         <HomeProfessorStats />
-      </Container>
 
-      {/* ── Pull quote ──
-          Full-bleed dark band at display scale, replacing the gold gradient box. */}
-      <Reveal className="mt-16 sm:mt-20">
-        <div className="relative overflow-hidden bg-navy-950 py-16 dark:bg-card sm:py-20">
-          <div className="pointer-events-none absolute inset-0 texture-grain opacity-[0.16] mix-blend-overlay" aria-hidden />
-          <Container width="prose" className="relative">
-            <span aria-hidden className="block font-heading text-6xl leading-none text-gold-500">
+        {/* ── Pull quote ── */}
+        <Reveal className="mt-10">
+          <figure className="relative overflow-hidden rounded-[28px] bg-v2-navy px-7 py-12 shadow-v2-card sm:px-14 sm:py-16">
+            <span aria-hidden className="absolute -bottom-28 -right-16 h-64 w-64 rounded-full bg-gold-400/15" />
+            <span aria-hidden className="block font-heading text-6xl leading-none text-gold-400">
               &ldquo;
             </span>
-            <blockquote className="mt-2 text-balance font-heading text-display-sm font-semibold italic leading-[1.25] text-white">
+            <blockquote className="relative mt-1 max-w-4xl text-balance font-heading text-display-sm font-semibold leading-[1.25] text-white">
               The work of a leader is to lead from values — not from fear of judgement.
             </blockquote>
-            <figcaption className="mt-8 flex items-center gap-3.5">
-              <span className="h-px w-8 bg-gold-500" aria-hidden />
-              <span className="font-heading text-sm font-bold uppercase tracking-[0.12em] text-cream-100">
-                Prof. Vishal Gupta
-              </span>
+            <figcaption className="relative mt-7 flex items-center gap-3.5">
+              <span aria-hidden className="h-0.5 w-8 rounded-full bg-gold-400" />
+              <span className="text-sm font-semibold text-v2-on-navy-muted">Prof. Vishal Gupta</span>
             </figcaption>
-          </Container>
-        </div>
-      </Reveal>
+          </figure>
+        </Reveal>
+      </Container>
     </section>
   );
 }

@@ -27,7 +27,13 @@ function StatValue({ raw }: { raw: string }) {
   const parsed = parseStat(raw);
 
   if (!parsed) {
-    return <span ref={ref}>{raw}</span>;
+    // Padded like a rolling number (which adds an eighth of an em above and below),
+    // so a word such as "AI" sits on the same line as the numbers beside it.
+    return (
+      <span ref={ref} className="inline-block py-[0.125em]">
+        {raw}
+      </span>
+    );
   }
 
   return (
@@ -51,22 +57,20 @@ export function HomeStats({ initialContent }: { initialContent?: SiteContent | n
   if (!stats.length) return null;
 
   return (
-    <section className="border-y border-hair bg-card">
+    <section className="py-8 sm:py-10">
       <Container width="wide">
-        <div className="grid grid-cols-2 gap-y-10 py-12 sm:grid-cols-4 sm:py-14">
-          {stats.map((s, i) => (
-            <div
-              key={`${s.label}-${i}`}
-              className="border-l border-hair pl-5 sm:pl-7 [&:nth-child(2n+1)]:border-l-0 [&:nth-child(2n+1)]:pl-0 sm:[&:nth-child(2n+1)]:border-l sm:[&:nth-child(2n+1)]:pl-7 sm:[&:nth-child(4n+1)]:border-l-0 sm:[&:nth-child(4n+1)]:pl-0"
-            >
-              <p className="font-heading text-display-sm font-bold leading-none tracking-tight text-heading tabular-nums">
-                <StatValue raw={s.value} />
-              </p>
-              <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.14em] text-faint">
-                {s.label}
-              </p>
-            </div>
-          ))}
+        <div className="relative overflow-hidden rounded-[28px] bg-v2-navy px-7 py-10 shadow-v2-card sm:px-12 sm:py-12">
+          <span aria-hidden className="absolute -right-20 -top-28 h-64 w-64 rounded-full bg-gold-400/15" />
+          <div className="relative grid grid-cols-2 gap-x-6 gap-y-9 sm:grid-cols-4">
+            {stats.map((s, i) => (
+              <div key={`${s.label}-${i}`}>
+                <p className="font-heading text-[clamp(2rem,1.4rem+2vw,3rem)] font-bold leading-none tracking-[-0.02em] text-white tabular-nums">
+                  <StatValue raw={s.value} />
+                </p>
+                <p className="mt-2.5 text-sm font-medium text-v2-on-navy-muted">{s.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </Container>
     </section>

@@ -6,7 +6,7 @@ import { Bell, AtSign, MessageSquare } from "lucide-react";
 import { useApp } from "@/lib/store/AppProvider";
 import { cn, timeAgo } from "@/lib/utils";
 
-export function NotificationBell() {
+export function NotificationBell({ buttonClassName }: { buttonClassName?: string } = {}) {
   const { currentUser, notifications, markNotificationRead, markAllNotificationsRead, getVideoById } = useApp();
   const [open, setOpen] = React.useState(false);
 
@@ -30,7 +30,7 @@ export function NotificationBell() {
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="relative grid h-10 w-10 place-items-center rounded-xl text-heading hover:bg-surface-2"
+        className={cn("relative grid h-10 w-10 place-items-center rounded-xl text-heading hover:bg-surface-2", buttonClassName)}
         aria-label="Notifications"
       >
         <Bell className="h-5 w-5" />

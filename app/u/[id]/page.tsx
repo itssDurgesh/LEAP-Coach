@@ -3,14 +3,15 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Award, Pencil, MapPin, Briefcase, CalendarDays, BookOpen, MessageCircle, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, Briefcase, CalendarDays, Check, MapPin, MessageCircle, Pencil, Star, Trophy, type LucideIcon } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
-import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
-import { buttonClasses } from "@/components/ui/button-variants";
+import { StampGrid } from "@/components/v2/StampGrid";
+import { LevelChip, V2Card, V2_AVATAR, v2Button } from "@/components/v2/ui";
+import { computeStamps } from "@/lib/stamps";
 import { useApp } from "@/lib/store/AppProvider";
 import { tierForCredits } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export default function PublicProfilePage() {
   return (
@@ -20,24 +21,30 @@ export default function PublicProfilePage() {
   );
 }
 
-function Stat({ icon: Icon, value, label }: { icon: typeof Award; value: React.ReactNode; label: string }) {
+const CHIP = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold leading-[18px]";
+const HEADING = "font-heading text-lg font-semibold leading-[23px] tracking-[-0.01em] text-heading";
+// Topics listed before "And N more topics".
+const TOPICS_SHOWN = 5;
+
+function Stat({ icon: Icon, tint, value, label }: { icon: LucideIcon; tint: string; value: React.ReactNode; label: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-3xl border border-hair bg-card p-5">
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-surface-2 text-gold-600">
-        <Icon className="h-5 w-5" />
+    <V2Card className="flex items-center gap-4 p-[22px]">
+      <span className={cn("grid h-[52px] w-[52px] shrink-0 place-items-center rounded-2xl", tint)}>
+        <Icon className="h-6 w-6" />
       </span>
       <div>
-        <p className="font-heading text-xl font-bold text-heading">{value}</p>
-        <p className="text-xs text-muted">{label}</p>
+        <p className="font-heading text-[32px] font-bold leading-9 tracking-[-0.015em] text-heading">{value}</p>
+        <p className="text-[13px] font-medium text-muted">{label}</p>
       </div>
-    </div>
+    </V2Card>
   );
 }
 
 function Profile() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const { currentUser, users, enrollments, courses, videoComments } = useApp();
+  const { currentUser, users, enrollments, courses, tracks, videoComments, submissions, progress, courseProgress } = useApp();
+  const [allTopics, setAllTopics] = React.useState(false);
 
   // The route param can be a user id or a @username handle.
   const user = users.find((u) => u.id === id || (u.username && u.username === id));
@@ -45,9 +52,9 @@ function Profile() {
   if (!user) {
     return (
       <div className="mx-auto max-w-2xl py-16 text-center">
-        <h1 className="font-heading text-2xl font-bold text-heading">Profile not found</h1>
-        <p className="mt-2 text-muted">This user doesn&apos;t exist or is no longer active.</p>
-        <Link href="/dashboard" className={buttonClasses({ variant: "outline", size: "md", className: "mt-5" })}>
+        <h1 className="font-heading text-2xl font-bold tracking-[-0.015em] text-heading">Profile not found</h1>
+        <p className="mt-2 text-v2-body">This user doesn&apos;t exist or is no longer active.</p>
+        <Link href="/dashboard" className={v2Button("outline", "md", "mt-5")}>
           Back to dashboard
         </Link>
       </div>
@@ -64,97 +71,123 @@ function Profile() {
     .map((e) => courses.find((c) => c.id === e.courseId))
     .filter(Boolean) as typeof courses;
   const commentCount = videoComments.filter((c) => c.userId === user.id).length;
+  const shownTopics = allTopics ? enrolledCourses : enrolledCourses.slice(0, TOPICS_SHOWN);
+  const hiddenTopics = enrolledCourses.length - shownTopics.length;
+
+  // Progress is private to each learner, so stamps can only be worked out for your own profile.
+  const stamps = isMe && !isAdmin ? computeStamps(user, courses, submissions, progress) : null;
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="space-y-6">
       {/* Header */}
-      <Card padded className="relative overflow-hidden">
-        {/* Soft warm accent (replaces the old dark-blue banner) */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-br from-gold-100/70 via-cream-100/50 to-transparent dark:from-gold-500/10 dark:via-surface-2/30" />
-        <div className="relative">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <Avatar src={user.avatarUrl} name={user.name} size={96} className="shrink-0 shadow-card ring-4 ring-card" />
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="font-heading text-display-sm font-bold leading-tight text-heading">{user.name}</h1>
-                  {isAdmin ? (
-                    <Badge variant="navy">Admin</Badge>
-                  ) : (
-                    user.role && <Badge variant="navy" className="capitalize">{user.role}</Badge>
-                  )}
-                </div>
-                {user.username && <p className="mt-0.5 text-sm font-semibold text-gold-700">@{user.username}</p>}
-                {user.headline && <p className="mt-1 text-sm text-muted">{user.headline}</p>}
-              </div>
-            </div>
-            {isMe && (
-              <Link href="/account" className={buttonClasses({ variant: "outline", size: "sm" })}>
-                <Pencil className="h-4 w-4" /> Edit profile
-              </Link>
+      <V2Card className="flex flex-wrap items-center gap-6 p-7">
+        <Avatar src={user.avatarUrl} name={user.name} size={96} ring={false} className={V2_AVATAR} />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-heading text-[32px] font-bold leading-[38px] tracking-[-0.015em] text-heading">{user.name}</h1>
+            {isAdmin ? (
+              <span className={cn(CHIP, "bg-surface text-v2-body")}>Admin</span>
+            ) : (
+              user.role && <span className={cn(CHIP, "bg-surface capitalize text-v2-body")}>{user.role}</span>
             )}
           </div>
-
-          {/* meta chips */}
-          <div className="mt-5 flex flex-wrap gap-2">
+          {user.username && <p className="text-[13px] font-semibold leading-5 text-v2-gold-text">@{user.username}</p>}
+          {user.headline && <p className="text-[15px] leading-6 text-v2-body">{user.headline}</p>}
+          <div className="flex flex-wrap gap-2 pt-1.5">
             {!isAdmin && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-heading">
-                <Award className="h-3.5 w-3.5 text-gold-600" /> {tier.label}
+              <span className={cn(CHIP, "bg-v2-gold-soft text-v2-gold-text")}>
+                <Trophy className="h-3.5 w-3.5" /> {tier.label} tier
               </span>
             )}
             {user.company && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-heading">
-                <Briefcase className="h-3.5 w-3.5 text-muted" /> {user.company}
+              <span className={cn(CHIP, "bg-surface text-v2-body")}>
+                <Briefcase className="h-3.5 w-3.5" /> {user.company}
               </span>
             )}
             {user.region && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-heading">
-                <MapPin className="h-3.5 w-3.5 text-muted" /> {user.region}
+              <span className={cn(CHIP, "bg-surface text-v2-body")}>
+                <MapPin className="h-3.5 w-3.5" /> {user.region}
                 {user.nationality ? `, ${user.nationality}` : ""}
               </span>
             )}
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-heading">
-              <CalendarDays className="h-3.5 w-3.5 text-muted" /> Joined {memberSince}
+            <span className={cn(CHIP, "bg-surface text-v2-body")}>
+              <CalendarDays className="h-3.5 w-3.5" /> Joined {memberSince}
             </span>
           </div>
         </div>
-      </Card>
+        {isMe && (
+          <Link href="/account" className={v2Button("outline", "sm")}>
+            <Pencil className="h-3.5 w-3.5" /> Edit profile
+          </Link>
+        )}
+      </V2Card>
 
       {/* Stats (learners only) */}
       {!isAdmin && (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Stat icon={Sparkles} value={user.learningCredits} label="Learning credits" />
-          <Stat icon={BookOpen} value={enrolledCourses.length} label="Topics enrolled" />
-          <Stat icon={MessageCircle} value={commentCount} label="Discussion comments" />
+        <div className="grid gap-6 sm:grid-cols-3">
+          <Stat icon={Star} tint="bg-v2-gold-soft text-v2-gold-text" value={user.learningCredits} label="Learning credits" />
+          <Stat icon={BookOpen} tint="bg-lv-self-tint text-lv-self-dark" value={enrolledCourses.length} label="Topics enrolled" />
+          <Stat icon={MessageCircle} tint="bg-lv-peers-tint text-lv-peers-dark" value={commentCount} label="Discussion comments" />
         </div>
       )}
 
-      {/* Bio */}
-      {user.bio && (
-        <Card padded>
-          <h2 className="font-heading text-lg font-semibold text-heading">About</h2>
-          <p className="mt-2 whitespace-pre-line leading-relaxed text-muted">{user.bio}</p>
-        </Card>
-      )}
+      <div className={cn("grid gap-6 lg:items-start", stamps && "lg:grid-cols-[minmax(0,1fr)_416px]")}>
+        <div className="min-w-0 space-y-6">
+          {user.bio && (
+            <V2Card className="space-y-2.5 p-6">
+              <h2 className={HEADING}>About</h2>
+              <p className="whitespace-pre-line text-[15px] leading-6 text-v2-body">{user.bio}</p>
+            </V2Card>
+          )}
 
-      {/* Enrolled topics */}
-      {enrolledCourses.length > 0 && (
-        <Card padded>
-          <h2 className="font-heading text-lg font-semibold text-heading">Coaching topics</h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {enrolledCourses.map((c) => (
-              <Link
-                key={c.id}
-                href={`/courses/${c.slug}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-hair bg-surface px-3 py-1.5 text-sm font-medium text-heading hover:border-gold-300"
-              >
-                <BookOpen className="h-3.5 w-3.5 text-gold-600" /> {c.title}
-              </Link>
-            ))}
-          </div>
-        </Card>
-      )}
+          {enrolledCourses.length > 0 && (
+            <V2Card className="p-6">
+              <div className="flex items-center justify-between gap-3 pb-2">
+                <h2 className={HEADING}>Coaching topics</h2>
+                <span className="text-[13px] font-medium text-muted">{enrolledCourses.length} enrolled</span>
+              </div>
+              {shownTopics.map((c) => {
+                const { pct, completed } = courseProgress(c.id, user.id);
+                return (
+                  <div key={c.id} className="flex flex-wrap items-center gap-x-3.5 gap-y-2 py-2.5">
+                    <Link href={`/courses/${c.slug}`} className="min-w-0 flex-1 text-sm font-semibold leading-5 text-heading hover:underline">
+                      {c.title}
+                    </Link>
+                    <LevelChip trackId={c.tracks[0]} tracks={tracks} />
+                    {/* Progress is private to each learner, so the status shows only on your own profile. */}
+                    {!isMe ? null : pct === 100 ? (
+                      <span className={cn(CHIP, "bg-lv-orgs-tint text-lv-orgs-dark")}>
+                        <Check className="h-3.5 w-3.5" strokeWidth={3} /> Finished
+                      </span>
+                    ) : completed > 0 ? (
+                      <span className={cn(CHIP, "bg-v2-gold-soft text-v2-gold-text")}>In progress</span>
+                    ) : (
+                      <span className={cn(CHIP, "bg-surface text-v2-body")}>Not started</span>
+                    )}
+                  </div>
+                );
+              })}
+              {hiddenTopics > 0 && (
+                <button type="button" onClick={() => setAllTopics(true)} className={v2Button("ghost", "sm", "mt-2 px-1")}>
+                  And {hiddenTopics} more {hiddenTopics === 1 ? "topic" : "topics"} <ArrowRight className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </V2Card>
+          )}
+        </div>
 
+        {stamps && (
+          <V2Card className="space-y-4 p-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className={HEADING}>Stamps</h2>
+              <span className="text-[13px] font-medium text-muted">
+                {stamps.filter((s) => s.earned).length} of {stamps.length} earned
+              </span>
+            </div>
+            <StampGrid stamps={stamps} />
+          </V2Card>
+        )}
+      </div>
     </div>
   );
 }

@@ -12,7 +12,7 @@ import {
   AlertCircle,
   ArrowRight,
 } from "lucide-react";
-import { AuthShell } from "@/components/auth/AuthShell";
+import { AUTH_SUBMIT, AuthShell } from "@/components/auth/AuthShell";
 import { OAuthButtons } from "@/components/auth/OAuthButtons";
 import { Field, Input, PasswordInput, Select } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
@@ -148,13 +148,13 @@ export default function SignupPage() {
               required
             />
           </Field>
-          <Button type="submit" className="w-full" loading={busy} disabled={code.length < 6}>
+          <Button type="submit" className={AUTH_SUBMIT} loading={busy} disabled={code.length < 6}>
             Verify &amp; continue <ArrowRight className="h-4 w-4" />
           </Button>
         </form>
 
         <div className="mt-5 flex items-center justify-between text-sm">
-          <button type="button" onClick={resend} className="font-medium text-gold-700 transition-colors duration-200 hover:text-gold-600">
+          <button type="button" onClick={resend} className="font-medium text-v2-gold-text hover:underline">
             Resend code
           </button>
           <button
@@ -236,14 +236,14 @@ export default function SignupPage() {
           <IconInput icon={MapPin} id="region" value={form.region} onChange={set("region")} placeholder="Maharashtra" />
         </Field>
 
-        <Button type="submit" className="w-full" loading={busy}>
+        <Button type="submit" className={AUTH_SUBMIT} loading={busy}>
           Create account <ArrowRight className="h-4 w-4" />
         </Button>
       </form>
 
       <p className="mt-6 text-center text-sm text-muted">
         Already have an account?{" "}
-        <Link href="/login" className="font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600">
+        <Link href="/login" className="font-semibold text-v2-gold-text hover:underline">
           Sign in
         </Link>
       </p>

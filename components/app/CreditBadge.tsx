@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Award, Check } from "lucide-react";
+import { Check, Star } from "lucide-react";
 import { CREDIT_TIERS, tierForCredits, type User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -33,14 +33,14 @@ export function CreditBadge({
     <div className={cn("relative", className)}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-full border border-gold-200 bg-gold-50 px-3 py-1.5 text-sm font-semibold text-gold-700"
+        className="inline-flex items-center gap-1.5 rounded-full bg-v2-gold-soft px-3 py-[7px] text-[13px] leading-5"
         title={`${current.label} · ${credits} credits`}
         aria-haspopup="true"
         aria-expanded={open}
       >
-        <Award className="h-4 w-4" />
-        {credits}
-        <span className="text-gold-500">cr</span>
+        <Star className="h-[15px] w-[15px] fill-gold-400 text-gold-600" />
+        <span className="font-bold text-heading">{credits}</span>
+        <span className="font-medium text-muted">credits</span>
       </button>
 
       {open && (

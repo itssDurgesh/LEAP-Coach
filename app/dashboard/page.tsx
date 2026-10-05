@@ -1,44 +1,21 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
-import {
-  ArrowRight,
-  BookOpen,
-  Quote,
-  Sparkles,
-  BookMarked,
-  Newspaper,
-  Megaphone,
-  ClipboardList,
-} from "lucide-react";
+import { ArrowRight, ClipboardList } from "lucide-react";
+import { useReducedMotion } from "motion/react";
 import { AppShell } from "@/components/app/AppShell";
-import { Panel } from "@/components/app/Panel";
-import { CourseCard } from "@/components/CourseCard";
-import { SessionCard } from "@/components/SessionCard";
-import { UpgradePlanCard } from "@/components/app/UpgradePlanCard";
-import { MetricStrip } from "@/components/app/MetricStrip";
-import { Badge } from "@/components/ui/Badge";
-import { buttonClasses } from "@/components/ui/button-variants";
+import { Typewriter } from "@/components/marketing/Typewriter";
+import { AlsoInProgress, ContinueCard, type InProgressTopic } from "@/components/dashboard/ContinueCard";
+import { AnnouncementBanner, LeadershipMap, NextSessionCard, StandingCard, WisdomCard } from "@/components/dashboard/DashboardCards";
+import { ExploreTabs } from "@/components/dashboard/ExploreTabs";
+import { IdeaOfTheDay } from "@/components/dashboard/IdeaOfTheDay";
+import { UpgradeBand } from "@/components/dashboard/UpgradeBand";
+import { isUpcoming } from "@/components/SessionCard";
+import { IntroContext, Rise, v2Button } from "@/components/v2/ui";
+import { resumeTarget } from "@/lib/resume";
 import { useApp } from "@/lib/store/AppProvider";
-import { tierForCredits, courseCategories, articleExcerpt, isProfileComplete, missingProfileFields } from "@/lib/types";
-import { timeAgo } from "@/lib/utils";
-
-function SectionHeader({ title, href, cta }: { title: string; href?: string; cta?: string }) {
-  return (
-    <div className="mb-5 flex items-end justify-between gap-4">
-      <h2 className="font-heading text-xl font-bold text-heading">{title}</h2>
-      {href && (
-        <Link
-          href={href}
-          className="group inline-flex shrink-0 items-center gap-1.5 font-heading text-sm font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600"
-        >
-          {cta ?? "View all"}
-          <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
-        </Link>
-      )}
-    </div>
-  );
-}
+import { courseCategories, isProfileComplete, missingProfileFields } from "@/lib/types";
 
 export default function DashboardPage() {
   return (
@@ -48,59 +25,91 @@ export default function DashboardPage() {
   );
 }
 
+// The entrance animation plays once per browser session: the first time the
+// dashboard is shown after signing in. Later visits render without it.
+const INTRO_KEY = "leap-dash-intro";
+let introDecision: boolean | null = null;
+function decideIntro(): boolean {
+  if (introDecision !== null) return introDecision;
+  try {
+    introDecision = !sessionStorage.getItem(INTRO_KEY);
+    sessionStorage.setItem(INTRO_KEY, "1");
+  } catch {
+    introDecision = false;
+  }
+  return introDecision;
+}
+
+const TWO_COL = "grid gap-6 lg:grid-cols-[minmax(0,1fr)_416px]";
+
 function DashboardContent() {
+  const app = useApp();
   const {
     currentUser,
     courses,
+    tracks,
     sessions,
     tips,
     resources,
     articles,
     announcements,
-    enrollments,
     submissions,
+    progress,
     isEnrolled,
     courseProgress,
-  } = useApp();
+  } = app;
+  const reduceMotion = useReducedMotion();
+  const [intro] = React.useState(decideIntro);
+  React.useEffect(() => {
+    // Once the entrance has had time to finish, stop it replaying when the learner
+    // navigates away and comes back within the same page lifetime.
+    const t = setTimeout(() => {
+      introDecision = false;
+    }, 4000);
+    return () => clearTimeout(t);
+  }, []);
 
   if (!currentUser) return null;
   const role = currentUser.role!;
   const rawFirst = currentUser.name.trim().split(" ")[0] ?? "";
   const firstName = rawFirst ? rawFirst[0].toUpperCase() + rawFirst.slice(1) : rawFirst;
-  const tier = tierForCredits(currentUser.learningCredits);
+  const headline = firstName ? `Welcome back, ${firstName}` : "Welcome back";
 
   const enrolledCourses = courses.filter((c) => isEnrolled(c.id));
-  const withProgress = enrolledCourses
-    .map((c) => ({ course: c, ...courseProgress(c.id) }))
-    .sort((a, b) => a.pct - b.pct);
+  const myProgress = progress.filter((p) => p.userId === currentUser.id);
 
-  // aggregate progress across enrolled courses
-  const totals = enrolledCourses.reduce(
-    (acc, c) => {
-      const p = courseProgress(c.id);
-      return { done: acc.done + p.completed, all: acc.all + p.total };
-    },
-    { done: 0, all: 0 },
-  );
+  // Every enrolled topic with its progress, next unwatched video and last activity.
+  const topics = enrolledCourses.map((course) => {
+    const done = new Set(myProgress.filter((p) => p.courseId === course.id && p.completed).map((p) => p.videoId));
+    const nextVideo = [...course.videos].sort((a, b) => a.order - b.order).find((v) => !done.has(v.id)) ?? null;
+    const lastActive = myProgress
+      .filter((p) => p.courseId === course.id && p.completedAt)
+      .reduce((latest, p) => Math.max(latest, +new Date(p.completedAt!)), 0);
+    return { course, ...courseProgress(course.id), nextVideo, lastActive, resume: resumeTarget(course, app) };
+  });
+  // Unfinished topics: started ones first, most recently active first.
+  const open: (InProgressTopic & { lastActive: number })[] = topics
+    .filter((t) => t.pct < 100)
+    .sort((a, b) => Number(b.completed > 0) - Number(a.completed > 0) || b.lastActive - a.lastActive || b.pct - a.pct);
+  const [main, second] = open;
+
+  const totals = topics.reduce((acc, t) => ({ done: acc.done + t.completed, all: acc.all + t.total }), { done: 0, all: 0 });
   const overallPct = totals.all ? Math.round((totals.done / totals.all) * 100) : 0;
   const passedCount = submissions.filter((s) => s.userId === currentUser.id && s.passed).length;
 
   const recommended = courses
     .filter((c) => c.published && courseCategories(c).includes(role) && !isEnrolled(c.id))
     .sort((a, b) => Number(b.trending) - Number(a.trending) || b.rating - a.rating)
-    .slice(0, 3);
+    .slice(0, 4);
 
-  const roleSessions = sessions
-    .filter((s) => s.targetRole === role || s.targetRole === "all")
-    .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
-  const nextSession = roleSessions[0];
+  const nextSession = sessions
+    .filter((s) => (s.targetRole === role || s.targetRole === "all") && isUpcoming(s))
+    .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))[0];
 
   const roleTips = tips.filter((t) => t.active && (t.targetRole === role || t.targetRole === "all"));
   const tip = roleTips[new Date().getDate() % Math.max(roleTips.length, 1)] ?? roleTips[0];
 
-  const roleResources = resources
-    .filter((r) => r.targetRole === role || r.targetRole === "all")
-    .slice(0, 3);
+  const roleResources = resources.filter((r) => r.targetRole === role || r.targetRole === "all").slice(0, 3);
 
   const latestArticles = articles
     .filter((a) => a.published && !a.archived)
@@ -113,223 +122,136 @@ function DashboardContent() {
 
   const profileMissing = missingProfileFields(currentUser);
 
+  let summary = `You have watched ${totals.done} of ${totals.all} videos across your coaching topics.`;
+  if (main && main.completed > 0) {
+    const left = main.total - main.completed;
+    const name = main.course.title.split(":")[0];
+    const mins = main.nextVideo ? Math.max(1, Math.round(main.nextVideo.durationSeconds / 60)) : 0;
+    summary = `${left} video${left === 1 ? "" : "s"} left in ${name}.${mins ? ` Your next one is ${mins} minute${mins === 1 ? "" : "s"}.` : ""}`;
+  } else if (enrolledCourses.length === 0) {
+    summary = "Pick a topic from the catalog to get started.";
+  }
+
+  const stats: [string, string][] = [
+    [`${overallPct}%`, "overall progress"],
+    [String(enrolledCourses.length), enrolledCourses.length === 1 ? "topic" : "topics"],
+    [String(passedCount), passedCount === 1 ? "assignment passed" : "assignments passed"],
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ──
-          Was a ~490px dark banner with the copy on the left and the progress ring
-          pinned to the far right, leaving a large hole between them. A dashboard
-          wants a compact masthead and immediately useful numbers instead. */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="gold" className="capitalize">{role}</Badge>
-            <Badge variant="neutral">{tier.label}</Badge>
-          </div>
-          <h1 className="mt-2.5 font-heading text-display-sm font-bold leading-tight text-heading">
-            Welcome back, {firstName} Coachee
-          </h1>
-          <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted">
-            You&rsquo;ve watched {totals.done} of {totals.all || 0} videos across your coaching
-            topics.
-          </p>
-        </div>
-
-        <div className="flex shrink-0 flex-wrap gap-2.5">
-          {withProgress[0] && (
-            <Link
-              href={`/courses/${withProgress[0].course.slug}`}
-              className={buttonClasses({ variant: "primary", size: "md", className: "group" })}
-            >
-              Continue learning
-              <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
-            </Link>
+    <IntroContext.Provider value={intro}>
+      <div className="space-y-10">
+        {/* ── Announcement + welcome ── */}
+        <div className="space-y-7">
+          {latestAnnouncement && (
+            <Rise delay={0.05}>
+              <AnnouncementBanner announcement={latestAnnouncement} />
+            </Rise>
           )}
-          <Link href="/courses" className={buttonClasses({ variant: "outline", size: "md" })}>
-            Browse catalog
-          </Link>
-        </div>
-      </div>
-
-      {/* ── Metrics ── */}
-      <MetricStrip
-        cols={4}
-        metrics={[
-          {
-            label: "Overall progress",
-            value: `${overallPct}%`,
-            foot: (
-              <div className="h-1 overflow-hidden rounded-full bg-surface-2">
-                <div
-                  className="h-full rounded-full bg-gold-500 transition-[width] duration-500 ease-out-expo"
-                  style={{ width: `${overallPct}%` }}
-                />
-              </div>
-            ),
-          },
-          { label: "Topics enrolled", value: enrolledCourses.length },
-          { label: tier.label, value: currentUser.learningCredits, unit: "cr" },
-          { label: "Assignments passed", value: passedCount },
-        ]}
-      />
-
-      {/* ── Complete-your-profile nudge (required before any purchase/upgrade) ── */}
-      {!isProfileComplete(currentUser) && (
-        <Link
-          href="/account"
-          className="group flex items-center gap-4 rounded-3xl border border-gold-300 bg-gold-50 p-5 transition-colors duration-200 hover:bg-gold-100/70 dark:border-gold-500/25 dark:bg-gold-500/10"
-        >
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gold-500 text-navy-900">
-            <ClipboardList className="h-5 w-5" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="font-heading font-bold text-heading">Complete your profile</p>
-            <p className="mt-0.5 text-sm text-muted">
-              Add {profileMissing.join(", ")} to unlock purchases and tailor your experience.
-            </p>
-          </div>
-          <ArrowRight className="h-5 w-5 shrink-0 text-gold-600 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
-        </Link>
-      )}
-
-      <div className="grid gap-8 lg:grid-cols-3">
-        {/* ── Main column ── */}
-        <div className="min-w-0 space-y-10 lg:col-span-2">
-          <section>
-            <SectionHeader title="Continue learning" href="/my-topics" cta="My topics" />
-            {withProgress.length ? (
-              <div className="grid gap-6 sm:grid-cols-2">
-                {withProgress.slice(0, 4).map(({ course, pct }) => (
-                  <CourseCard key={course.id} course={course} enrolled progressPct={pct} />
-                ))}
-              </div>
-            ) : (
-              <Panel className="text-center text-muted">
-                You haven&rsquo;t enrolled in any topics yet.{" "}
-                <Link href="/courses" className="font-semibold text-gold-700 hover:text-gold-600">
-                  Explore the catalog →
-                </Link>
-              </Panel>
-            )}
-          </section>
-
-          <section>
-            <SectionHeader title="Recommended for you" href="/courses" />
-            <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-              {recommended.map((c) => (
-                <CourseCard key={c.id} course={c} />
+          <div className="flex flex-wrap items-end justify-between gap-5">
+            <div className="min-w-0">
+              <h1 className="font-heading text-[32px] font-bold leading-[1.15] tracking-[-0.015em] text-heading sm:text-[40px]">
+                {intro && !reduceMotion ? <Typewriter text={headline} speed={45} startDelay={300} /> : headline}
+              </h1>
+              <p className="mt-1.5 text-base leading-6 text-v2-body">{summary}</p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {stats.map(([value, label], i) => (
+                <Rise key={label} delay={0.3 + i * 0.1}>
+                  <div className="flex items-center gap-2 rounded-full bg-card px-4 py-2.5 shadow-v2-soft">
+                    <span className="font-heading text-lg font-bold leading-6 tracking-[-0.015em] text-heading">{value}</span>
+                    <span className="text-[13px] font-medium text-muted">{label}</span>
+                  </div>
+                </Rise>
               ))}
             </div>
-          </section>
+          </div>
+        </div>
 
-          {/* Latest articles from the mentors */}
-          {latestArticles.length > 0 && (
-            <section>
-              <SectionHeader title="Latest articles" href="/articles" cta="All articles" />
-              <div className="grid gap-6 sm:grid-cols-2">
-                {latestArticles.map((a) => (
-                  <Link
-                    key={a.id}
-                    href={`/articles/${a.id}`}
-                    className="group flex h-full flex-col rounded-3xl border border-hair bg-card p-6 transition-all duration-300 ease-out-expo hover:-translate-y-1 hover:border-gold-300 hover:shadow-lift"
-                  >
-                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-navy-900 text-gold-400 transition-colors duration-300 group-hover:bg-gold-500 group-hover:text-navy-900 dark:bg-surface-2">
-                      <Newspaper className="h-5 w-5" />
-                    </span>
-                    <h3 className="mt-4 font-heading text-lg font-bold leading-snug text-heading transition-colors duration-200 group-hover:text-gold-700">
-                      {a.title}
-                    </h3>
-                    <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted">
-                      {articleExcerpt(a)}
-                    </p>
-                    <p className="mt-auto pt-4 text-xs text-faint">
-                      {a.authorName} · {timeAgo(a.createdAt)}
-                    </p>
+        {/* ── Complete-your-profile nudge (required before any purchase/upgrade) ── */}
+        {!isProfileComplete(currentUser) && (
+          <Link
+            href="/account"
+            className="group flex items-center gap-4 rounded-[20px] bg-v2-gold-soft p-4 transition-shadow duration-200 hover:shadow-v2-soft"
+          >
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#E9B93E] text-navy-800">
+              <ClipboardList className="h-[18px] w-[18px]" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-semibold text-heading">Complete your profile</p>
+              <p className="text-[13px] font-medium text-v2-body">
+                Add {profileMissing.join(", ")} to unlock purchases and tailor your experience.
+              </p>
+            </div>
+            <ArrowRight className="h-5 w-5 shrink-0 text-heading transition-transform duration-200 group-hover:translate-x-1" />
+          </Link>
+        )}
+
+        {/* ── Now: continue + next session, then the second topic ── */}
+        <div className="space-y-4">
+          <div className={TWO_COL}>
+            <Rise delay={0.35} className="min-w-0">
+              {main ? (
+                <ContinueCard topic={main} tracks={tracks} animate={intro} />
+              ) : (
+                <div className="flex h-full flex-col justify-center rounded-[24px] bg-v2-navy p-8 shadow-v2-card">
+                  <h2 className="font-heading text-[26px] font-bold leading-[1.2] tracking-[-0.015em] text-white">
+                    {enrolledCourses.length ? "You are all caught up" : "Pick your first topic"}
+                  </h2>
+                  <p className="mt-2 text-[15px] leading-6 text-v2-on-navy-muted">
+                    {enrolledCourses.length
+                      ? "Every topic you have is finished. Find the next one in the catalog."
+                      : "Choose a coaching topic and your progress will show up here."}
+                  </p>
+                  <Link href="/courses" className={v2Button("primary", "md", "mt-5 self-start")}>
+                    Browse catalog <ArrowRight className="h-4 w-4" />
                   </Link>
-                ))}
-              </div>
-            </section>
+                </div>
+              )}
+            </Rise>
+            <Rise delay={0.45}>
+              <NextSessionCard session={nextSession} />
+            </Rise>
+          </div>
+          {(second || tip) && (
+            <div className={second && tip ? TWO_COL : undefined}>
+              {second && (
+                <Rise delay={0.6} className="min-w-0">
+                  <AlsoInProgress topic={second} tracks={tracks} animate={intro} />
+                </Rise>
+              )}
+              {tip && (
+                <Rise delay={0.65}>
+                  <WisdomCard tip={tip} />
+                </Rise>
+              )}
+            </div>
           )}
         </div>
 
-        {/* ── Sidebar ── */}
-        <aside className="min-w-0 space-y-6">
-          {/* Latest announcement */}
-          {latestAnnouncement && (
-            <Panel className="border-gold-300 dark:border-gold-500/25">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="flex items-center gap-2 font-heading text-base font-bold text-heading">
-                  <Megaphone className="h-5 w-5 text-gold-600" /> Announcement
-                </h3>
-                <Link
-                  href="/announcements"
-                  className="shrink-0 font-heading text-sm font-semibold text-gold-700 transition-colors duration-200 hover:text-gold-600"
-                >
-                  All
-                </Link>
-              </div>
-              <p className="mt-3 font-heading font-semibold text-heading">{latestAnnouncement.title}</p>
-              <p className="mt-1.5 line-clamp-3 text-sm leading-relaxed text-muted">
-                {latestAnnouncement.body}
-              </p>
-              <p className="mt-3 text-xs text-faint">{timeAgo(latestAnnouncement.createdAt)}</p>
-            </Panel>
-          )}
+        <Rise delay={0.75}>
+          <LeadershipMap />
+        </Rise>
 
-          {/* Next session */}
-          <section>
-            <SectionHeader title="Next live session" href="/sessions" />
-            {nextSession ? (
-              <SessionCard session={nextSession} />
-            ) : (
-              <Panel className="text-sm text-muted">No upcoming sessions.</Panel>
-            )}
-          </section>
+        {/* ── Today: idea of the day (sample content for now) beside the learner's standing ── */}
+        <Rise delay={0.9}>
+          <div className={TWO_COL}>
+            <IdeaOfTheDay tracks={tracks} />
+            <StandingCard
+              animate={intro}
+              nextUp={main ? { title: main.course.title.split(":")[0], href: `/courses/${main.course.slug}` } : null}
+            />
+          </div>
+        </Rise>
 
-          {/* Wisdom of the day */}
-          {tip && (
-            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-gold-400 to-gold-600 p-6 text-navy-900 shadow-gold">
-              <Quote className="absolute -right-3 -top-3 h-24 w-24 text-white/20" />
-              <div className="relative">
-                <p className="inline-flex items-center gap-1.5 font-heading text-[11px] font-bold uppercase tracking-[0.14em]">
-                  <Sparkles className="h-4 w-4" /> Wisdom of the day
-                </p>
-                <p className="mt-4 font-heading text-lg font-semibold leading-snug">
-                  &ldquo;{tip.text}&rdquo;
-                </p>
-                <p className="mt-4 text-sm font-medium text-navy-900/70">— {tip.author}</p>
-              </div>
-            </div>
-          )}
+        <Rise delay={1.05}>
+          <ExploreTabs topics={recommended} resources={roleResources} articles={latestArticles} tracks={tracks} />
+        </Rise>
 
-          {/* Recommended resources */}
-          {roleResources.length > 0 && (
-            <Panel>
-              <h3 className="flex items-center gap-2 font-heading text-base font-bold text-heading">
-                <BookMarked className="h-5 w-5 text-gold-600" /> Recommended resources
-              </h3>
-              <ul className="mt-5 border-t border-hair">
-                {roleResources.map((r) => (
-                  <li key={r.id} className="flex gap-3.5 border-b border-hair py-3.5 last:border-0">
-                    <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-muted">
-                      <BookOpen className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold leading-snug text-heading">{r.title}</p>
-                      <p className="mt-0.5 text-xs text-muted">
-                        <span className="capitalize">{r.type}</span> · {r.author}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          )}
-
-          {/* Upgrade your plan (buy category passes you don't own yet) */}
-          <UpgradePlanCard />
-        </aside>
+        <Rise delay={1.2}>
+          <UpgradeBand />
+        </Rise>
       </div>
-    </div>
+    </IntroContext.Provider>
   );
 }
