@@ -65,8 +65,12 @@ export function AppHeader() {
       {/* Solid, not blurred: a backdrop filter would trap the menus' full-screen
           click-away layers inside the header, so a click on the page would not close them. */}
       <header className="sticky top-0 z-40 border-b border-hair bg-card">
-        <div className="mx-auto flex h-[72px] max-w-[1440px] items-center justify-between gap-4 px-5 sm:px-8 xl:px-[72px]">
-          <Logo href="/dashboard" priority plain />
+        {/* Three columns on wide screens, so the menu sits in the exact centre of the bar
+            whatever the widths of the logo and the account controls beside it. */}
+        <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between gap-4 px-5 sm:px-8 lg:grid lg:grid-cols-[1fr_auto_1fr] xl:px-[72px]">
+          <div className="flex min-w-0">
+            <Logo href="/dashboard" priority plain />
+          </div>
           <nav className="hidden items-center gap-1 lg:flex">
             {navLinks.map((l) => {
               const active = isActive(l.href);
@@ -76,7 +80,7 @@ export function AppHeader() {
                   href={l.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "whitespace-nowrap rounded-full px-3.5 py-2 text-sm transition-colors duration-200",
+                    "whitespace-nowrap rounded-full px-3 py-2 text-sm transition-colors duration-200 xl:px-3.5",
                     // The current section is a filled pill; the rest fill softly on hover.
                     active
                       ? "bg-v2-strong font-semibold text-v2-on-strong"
@@ -89,7 +93,7 @@ export function AppHeader() {
             })}
           </nav>
 
-          <div className="flex shrink-0 items-center gap-2.5">
+          <div className="flex shrink-0 items-center gap-2 lg:justify-self-end">
             <CreditBadge user={currentUser} className="hidden sm:block" />
             <NotificationBell buttonClassName="h-9 w-9 rounded-full bg-surface [&>svg]:h-[18px] [&>svg]:w-[18px]" />
 

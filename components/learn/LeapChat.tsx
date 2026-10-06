@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Send, FileText, HelpCircle, Layers } from "lucide-react";
+import { ArrowRight, Send, FileText, HelpCircle, Layers } from "lucide-react";
 import { LogoMark } from "@/components/ui/Logo";
 import { Course, Video, ChatMessage } from "@/lib/types";
 import { leapReply, leapWelcome, LeapAction } from "@/lib/mock/leapAI";
@@ -21,6 +21,37 @@ function labelFor(a?: LeapAction) {
       : a === "deeper"
         ? "Explain this deeper"
         : "";
+}
+
+/**
+ * The tutor answers in light Markdown: **bold**, "* " bullets and "#" headings.
+ * Shown as plain text, the symbols were left in the bubble; this turns them into
+ * the formatting they stand for (and nothing else, so no HTML is ever injected).
+ */
+function renderReply(text: string) {
+  return text.split(/\r?\n/).map((raw, i) => {
+    if (!raw.trim()) return <span key={i} className="block h-2.5" />;
+    const heading = /^\s*#{1,6}\s+/.test(raw);
+    const bullet = /^\s*[*-]\s+/.test(raw);
+    const line = raw.replace(/^\s*(#{1,6}|[*-])\s+/, "");
+    const parts = line.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
+      part.length > 4 && part.startsWith("**") && part.endsWith("**") ? (
+        <strong key={j} className="font-semibold">
+          {part.slice(2, -2)}
+        </strong>
+      ) : (
+        part
+      ),
+    );
+    return (
+      <span
+        key={i}
+        className={cn("block", heading && "font-semibold", bullet && "relative pl-4 before:absolute before:left-0.5 before:content-['•']")}
+      >
+        {parts}
+      </span>
+    );
+  });
 }
 
 function TypingDots() {
@@ -107,6 +138,9 @@ export function LeapChat({
     setTyping(false);
   }
 
+  // Before the first question, the three starters fill the panel instead of leaving it empty.
+  const fresh = messages.length <= 1 && !typing;
+
   return (
     <div className="flex h-full flex-col">
       {showHeader && (
@@ -129,14 +163,32 @@ export function LeapChat({
           >
             <div
               className={cn(
-                "max-w-[85%] whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm leading-5",
+                "max-w-[88%] whitespace-pre-line rounded-2xl px-4 py-3 text-[15px] leading-6",
                 m.role === "user" ? "bg-v2-strong text-v2-on-strong" : "bg-surface text-heading",
               )}
             >
-              {m.text}
+              {m.role === "user" ? m.text : renderReply(m.text)}
             </div>
           </div>
         ))}
+        {fresh && (
+          <div className="space-y-2 pt-1">
+            {quickActions.map((qa) => (
+              <button
+                key={qa.label}
+                type="button"
+                onClick={() => send("", qa.action)}
+                className="group flex w-full items-center gap-3 rounded-2xl border border-v2-line-strong px-3.5 py-3 text-left text-sm font-semibold text-heading transition-colors duration-200 hover:border-heading"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-v2-gold-soft text-v2-gold-text">
+                  <qa.icon className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">{labelFor(qa.action)}</span>
+                <ArrowRight className="h-4 w-4 shrink-0 text-muted transition-transform duration-200 ease-out-expo group-hover:translate-x-0.5" />
+              </button>
+            ))}
+          </div>
+        )}
         {typing && (
           <div className="flex">
             <div className="rounded-2xl bg-surface px-4 py-3.5">
@@ -146,17 +198,20 @@ export function LeapChat({
         )}
       </div>
 
-      <div className="flex flex-wrap gap-2 px-5 pt-3">
-        {quickActions.map((qa) => (
-          <button
-            key={qa.label}
-            onClick={() => send("", qa.action)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-v2-line-strong bg-card px-3 py-1.5 text-xs font-semibold text-heading transition-colors duration-200 hover:border-heading"
-          >
-            <qa.icon className="h-3.5 w-3.5" /> {qa.label}
-          </button>
-        ))}
-      </div>
+      {!fresh && (
+        <div className="flex flex-wrap gap-2 px-5 pt-3">
+          {quickActions.map((qa) => (
+            <button
+              key={qa.label}
+              type="button"
+              onClick={() => send("", qa.action)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-v2-line-strong bg-card px-3 py-1.5 text-xs font-semibold text-heading transition-colors duration-200 hover:border-heading"
+            >
+              <qa.icon className="h-3.5 w-3.5" /> {qa.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <form
         onSubmit={(e) => {
@@ -165,16 +220,16 @@ export function LeapChat({
         }}
         className="px-5 pb-5 pt-3"
       >
-        <div className="flex items-center gap-2 rounded-full border border-hair bg-surface py-1 pl-4 pr-1 transition-colors duration-200 focus-within:border-heading">
+        <div className="flex items-center gap-2 rounded-full border border-hair bg-surface py-1 pl-5 pr-1 transition-colors duration-200 focus-within:border-heading">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask about this lesson…"
-            className="min-w-0 flex-1 bg-transparent py-2 text-sm text-heading placeholder:text-muted focus:outline-none"
+            className="min-w-0 flex-1 bg-transparent py-2.5 text-[15px] text-heading placeholder:text-muted focus:outline-none"
           />
           <button
             type="submit"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#E9B93E] text-navy-800 transition-colors duration-200 hover:bg-[#F4CB5B] disabled:opacity-40"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#E9B93E] text-navy-800 transition-colors duration-200 hover:bg-[#F4CB5B] disabled:opacity-40"
             aria-label="Send"
             disabled={!input.trim()}
           >

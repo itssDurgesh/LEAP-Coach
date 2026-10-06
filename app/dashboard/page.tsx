@@ -71,9 +71,9 @@ function DashboardContent() {
 
   if (!currentUser) return null;
   const role = currentUser.role!;
-  const rawFirst = currentUser.name.trim().split(" ")[0] ?? "";
-  const firstName = rawFirst ? rawFirst[0].toUpperCase() + rawFirst.slice(1) : rawFirst;
-  const headline = firstName ? `Welcome back, ${firstName}` : "Welcome back";
+  // The heading always reads "Welcome back, <full name> Coachee".
+  const fullName = currentUser.name.trim().replace(/\s+/g, " ");
+  const headline = fullName ? `Welcome back, ${fullName} Coachee` : "Welcome back, Coachee";
 
   const enrolledCourses = courses.filter((c) => isEnrolled(c.id));
   const myProgress = progress.filter((p) => p.userId === currentUser.id);

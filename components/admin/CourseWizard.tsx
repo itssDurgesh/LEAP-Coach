@@ -284,7 +284,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
   return (
     <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
       {/* Stepper */}
-      <div className="lg:sticky lg:top-24 lg:self-start">
+      <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">
         <ol className="flex gap-2 overflow-x-auto lg:flex-col lg:gap-1">
           {STEPS.map((s, i) => (
             <li key={s.label}>

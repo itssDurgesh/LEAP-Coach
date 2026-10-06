@@ -33,7 +33,7 @@ export function CreditBadge({
     <div className={cn("relative", className)}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-full bg-v2-gold-soft px-3 py-[7px] text-[13px] leading-5"
+        className="inline-flex h-9 items-center gap-1.5 rounded-full bg-v2-gold-soft px-3.5 text-[13px] leading-5"
         title={`${current.label} · ${credits} credits`}
         aria-haspopup="true"
         aria-expanded={open}

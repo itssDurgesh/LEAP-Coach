@@ -109,9 +109,9 @@ function PinnedStory() {
   ];
 
   return (
-    // Tall on purpose: each scene takes about two screens of scrolling, so a quick
-    // flick does not skip one.
-    <section ref={ref} className="relative hidden h-[740vh] xl:block">
+    // Three screens of scrolling for three scenes. It was more than six, and each scene
+    // then sat finished for a full screen of scrolling in which nothing moved.
+    <section ref={ref} className="relative hidden h-[400vh] xl:block">
       {/* The top padding keeps the stage clear of the floating menu bar. */}
       <div className="sticky top-0 flex h-screen items-center overflow-hidden pt-[72px]">
         <motion.span aria-hidden style={{ scaleX: scrollYProgress }} className="absolute inset-x-0 top-0 h-1 origin-left bg-[#E9B93E]" />
@@ -193,10 +193,11 @@ function LessonScene({ progress }: { progress?: MotionValue<number> }) {
   const [tutorOn, setTutorOn] = React.useState(!progress);
   const fixed = useMotionValue(1);
   const p = progress ?? fixed;
-  const scale = useTransform(p, [0, 0.12, 1], progress ? [1.2, 1, 1] : [1, 1, 1]);
-  const x = useTransform(p, [0, 0.12, 1], progress ? ["20%", "0%", "0%"] : ["0%", "0%", "0%"]);
+  const scale = useTransform(p, [0, 0.16, 1], progress ? [1.2, 1, 1] : [1, 1, 1]);
+  const x = useTransform(p, [0, 0.16, 1], progress ? ["20%", "0%", "0%"] : ["0%", "0%", "0%"]);
   useMotionValueEvent(p, "change", (v) => {
-    if (progress && v > 0.135) setTutorOn(true);
+    // Starts as the tutor card pops in, so the answer has landed well before the scene fades.
+    if (progress && v > 0.14) setTutorOn(true);
   });
 
   return (
@@ -208,7 +209,7 @@ function LessonScene({ progress }: { progress?: MotionValue<number> }) {
           <span className="text-[13px] font-medium text-white/85">Values under pressure</span>
         </span>
       </motion.div>
-      <Pop progress={progress} at={0.09} className={cn(CARD, "space-y-3.5 p-5")}>
+      <Pop progress={progress} at={0.14} className={cn(CARD, "space-y-3.5 p-5")}>
         <div className="flex items-center gap-3">
           <LogoMark className="h-10 w-10" />
           <div>
@@ -218,13 +219,13 @@ function LessonScene({ progress }: { progress?: MotionValue<number> }) {
         </div>
         <div className="flex justify-end">
           <p className="max-w-[88%] rounded-2xl bg-v2-strong px-3.5 py-2.5 text-sm leading-5 text-v2-on-strong">
-            {tutorOn && progress ? <Typewriter text="Summarise this lesson in three points" speed={28} startDelay={200} /> : "Summarise this lesson in three points"}
+            {tutorOn && progress ? <Typewriter text="Summarise this lesson in three points" speed={18} startDelay={200} /> : "Summarise this lesson in three points"}
           </p>
         </div>
         <motion.ol
           initial={false}
           animate={{ opacity: tutorOn ? 1 : 0, y: tutorOn ? 0 : 8 }}
-          transition={{ duration: 0.5, ease: EASE, delay: tutorOn && progress ? 1.5 : 0 }}
+          transition={{ duration: 0.5, ease: EASE, delay: tutorOn && progress ? 0.9 : 0 }}
           className="max-w-[94%] space-y-1 rounded-2xl bg-surface px-3.5 py-2.5 text-sm leading-5 text-heading"
         >
           <li>1 · Lead from values, not from fear of judgement.</li>
@@ -273,7 +274,7 @@ function PathsScene({ progress }: { progress?: MotionValue<number> }) {
         {ROLES.map((role, i) => {
           const look = PATH_LOOK[role.id];
           return (
-            <Pop key={role.id} progress={progress} at={0.385 + i * 0.03}>
+            <Pop key={role.id} progress={progress} at={0.4 + i * 0.06}>
               <Link href="/signup" className={cn("group block h-full rounded-[20px] p-5 transition-transform duration-300 ease-out-expo hover:-translate-y-1", look.tint)}>
                 <span className="flex items-start justify-between">
                   <span className={cn("grid h-11 w-11 place-items-center rounded-full text-white", look.base)}>
@@ -324,7 +325,7 @@ function CheckpointScene({ progress }: { progress?: MotionValue<number> }) {
             Keeping it general, to be kind
           </p>
         </div>
-        <Pop progress={progress} at={0.745} className="flex items-center gap-3 rounded-[14px] bg-v2-gold-soft p-3.5">
+        <Pop progress={progress} at={0.77} className="flex items-center gap-3 rounded-[14px] bg-v2-gold-soft p-3.5">
           <LogoMark className="h-8 w-8" />
           <div>
             <p className="flex items-center gap-1.5 text-xs font-semibold text-v2-gold-text">
@@ -334,7 +335,7 @@ function CheckpointScene({ progress }: { progress?: MotionValue<number> }) {
           </div>
         </Pop>
       </Pop>
-      <Pop progress={progress} at={0.8} className="absolute -top-5 right-2 flex items-center gap-2 rounded-full bg-v2-strong px-4 py-2.5 text-[13px] font-semibold text-v2-on-strong shadow-v2-lift xl:-right-3">
+      <Pop progress={progress} at={0.87} className="absolute -top-5 right-2 flex items-center gap-2 rounded-full bg-v2-strong px-4 py-2.5 text-[13px] font-semibold text-v2-on-strong shadow-v2-lift xl:-right-3">
         <Award className="h-4 w-4 text-gold-400" /> Checkpoint passed · credits earned
       </Pop>
     </div>

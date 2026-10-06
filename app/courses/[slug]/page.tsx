@@ -316,7 +316,7 @@ function CourseDetail() {
 
       {/* ── Roadmap + side column ── */}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_416px] lg:items-start">
-        <V2Card className="p-6">
+        <V2Card className="min-w-0 p-6">
           <div className="flex items-center justify-between gap-4">
             <h2 className="font-heading text-xl font-semibold leading-[25px] tracking-[-0.015em] text-heading">
               {enrolled ? "Your roadmap" : "Topic syllabus"}

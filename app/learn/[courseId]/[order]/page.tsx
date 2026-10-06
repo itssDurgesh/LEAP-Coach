@@ -94,7 +94,9 @@ function Player({ course, video }: { course: Course; video: Video }) {
   } = useApp();
 
   const [bottomTab, setBottomTab] = React.useState<BottomTab>("notes");
-  const [rightTab, setRightTab] = React.useState<"chat" | "notes">("chat");
+  const [rightTab, setRightTab] = React.useState<"chat" | "notes" | "next">("chat");
+  // The player's own reading of the clip length; the stored one is what the admin typed in.
+  const [realDuration, setRealDuration] = React.useState<{ videoId: string; seconds: number } | null>(null);
   const [noteText, setNoteText] = React.useState("");
   const [rateOpen, setRateOpen] = React.useState(false);
   const promptedRef = React.useRef(false);
@@ -175,11 +177,11 @@ function Player({ course, video }: { course: Course; video: Video }) {
     { id: "discussion", label: discussionCount > 0 ? `Discussion ${discussionCount}` : "Discussion" },
   ];
 
-  // The next three videos of the topic, for the "Up next" card.
-  const upNext = course.videos
-    .filter((v) => v.order > video.order)
-    .sort((a, b) => a.order - b.order)
-    .slice(0, 3);
+  // The rest of the topic, for the "Up next" tab.
+  const upNext = course.videos.filter((v) => v.order > video.order).sort((a, b) => a.order - b.order);
+  // The last video has nothing after it, so that tab is not offered there.
+  const sideTab = rightTab === "next" && upNext.length === 0 ? "chat" : rightTab;
+  const durationSeconds = realDuration?.videoId === video.id ? realDuration.seconds : video.durationSeconds;
 
   return (
     <div className="space-y-6">
@@ -202,13 +204,24 @@ function Player({ course, video }: { course: Course; video: Video }) {
         </Link>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_416px] lg:items-start">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_416px] lg:items-start xl:grid-cols-[minmax(0,1fr)_448px]">
         {/* ── Left: player + lesson ── */}
         <div className="min-w-0 space-y-6">
           {/* Real Mux playback when the video has a genuine playback id; the seed
               uses "mux_…" placeholders, which fall back to the mock player. */}
           {video.muxPlaybackId && !video.muxPlaybackId.startsWith("mux_") ? (
-            <MuxVideoPlayer course={course} video={video} onEnded={() => markVideoComplete(video.id)} />
+            <MuxVideoPlayer
+              key={video.id}
+              course={course}
+              video={video}
+              learnerId={currentUser?.id}
+              onEnded={() => markVideoComplete(video.id)}
+              onDuration={(seconds) =>
+                setRealDuration((d) =>
+                  d?.videoId === video.id && Math.abs(d.seconds - seconds) < 1 ? d : { videoId: video.id, seconds },
+                )
+              }
+            />
           ) : (
             <MockVideoPlayer
               course={course}
@@ -224,7 +237,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
             <h1 className="font-heading text-2xl font-bold leading-[30px] tracking-[-0.015em] text-heading">{video.title}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2.5 text-[13px] font-medium text-muted">
               <span>
-                Video {pad(video.order)} &nbsp;·&nbsp; {formatClock(video.durationSeconds)}
+                Video {pad(video.order)} &nbsp;·&nbsp; {formatClock(durationSeconds)}
               </span>
               {completed && (
                 <span className={cn(CHIP, "bg-lv-orgs-tint text-lv-orgs-dark")}>
@@ -365,9 +378,10 @@ function Player({ course, video }: { course: Course; video: Video }) {
           </V2Card>
         </div>
 
-        {/* ── Right: LEAP AI / notes, then what comes next ── */}
-        <aside className="min-w-0 space-y-6">
-          <V2Card className="flex h-[560px] flex-col overflow-hidden lg:h-[482px]">
+        {/* ── Right: LEAP AI, private notes and the rest of the topic, in one panel that
+            stays in view and uses the full height of the window while the lesson scrolls ── */}
+        <aside className="min-w-0 lg:sticky lg:top-[84px]">
+          <V2Card className="flex h-[560px] flex-col overflow-hidden lg:h-[calc(100dvh-176px)] lg:max-h-[860px] lg:min-h-[min(460px,calc(100dvh-100px))]">
             <div className="shrink-0 space-y-3.5 p-5 pb-3">
               <div className="flex items-center gap-3">
                 <LogoMark className="h-10 w-10" />
@@ -377,18 +391,51 @@ function Player({ course, video }: { course: Course; video: Video }) {
                 </div>
               </div>
               <SegTabs
-                value={rightTab}
+                fill
+                value={sideTab}
                 onChange={setRightTab}
                 tabs={[
-                  { id: "chat", label: "Ask LEAP AI" },
-                  { id: "notes", label: "My notes" },
+                  { id: "chat" as const, label: "Ask LEAP AI" },
+                  { id: "notes" as const, label: "My notes" },
+                  ...(upNext.length > 0 ? [{ id: "next" as const, label: "Up next" }] : []),
                 ]}
               />
             </div>
 
             <div className="min-h-0 flex-1">
-              {rightTab === "chat" ? (
+              {/* The chat stays mounted behind the other tabs, so the conversation is still there on return. */}
+              <div className={cn("h-full", sideTab !== "chat" && "hidden")}>
                 <LeapChat course={course} video={video} showHeader={false} />
+              </div>
+              {sideTab === "chat" ? null : sideTab === "next" ? (
+                <div className="scrollbar-thin h-full space-y-1.5 overflow-y-auto px-5 pb-5 pt-1">
+                  {upNext.map((v, i) => {
+                    const body = (
+                      <>
+                        <span className={cn(DOT, i === 0 ? "bg-[#E9B93E] text-navy-800" : "bg-surface-2 text-xs font-semibold text-muted")}>
+                          {i === 0 ? <Play className="h-3 w-3 fill-current" /> : pad(v.order)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold leading-5 text-heading">{v.title}</p>
+                          <p className="text-xs font-medium text-muted">
+                            Video {pad(v.order)} &nbsp;·&nbsp; {formatClock(v.durationSeconds)}
+                          </p>
+                        </div>
+                      </>
+                    );
+                    const row = cn(ROW, i === 0 && "bg-v2-gold-soft");
+                    // A video stays locked until the one before it (and any checkpoint) is done.
+                    return isVideoUnlocked(course.id, v.order) ? (
+                      <Link key={v.id} href={`/learn/${course.id}/${v.order}`} className={cn(row, "transition-colors duration-200", i > 0 && "hover:bg-surface")}>
+                        {body}
+                      </Link>
+                    ) : (
+                      <div key={v.id} className={row}>
+                        {body}
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
                 <div className="flex h-full flex-col">
                   <form
@@ -450,40 +497,6 @@ function Player({ course, video }: { course: Course; video: Video }) {
               )}
             </div>
           </V2Card>
-
-          {upNext.length > 0 && (
-            <V2Card className="p-5">
-              <h2 className="font-heading text-xl font-semibold leading-[25px] tracking-[-0.015em] text-heading">Up next</h2>
-              <div className="mt-3 space-y-1.5">
-                {upNext.map((v, i) => {
-                  const body = (
-                    <>
-                      <span className={cn(DOT, i === 0 ? "bg-[#E9B93E] text-navy-800" : "bg-surface-2 text-xs font-semibold text-muted")}>
-                        {i === 0 ? <Play className="h-3 w-3 fill-current" /> : pad(v.order)}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold leading-5 text-heading">{v.title}</p>
-                        <p className="text-xs font-medium text-muted">
-                          Video {pad(v.order)} &nbsp;·&nbsp; {formatClock(v.durationSeconds)}
-                        </p>
-                      </div>
-                    </>
-                  );
-                  const row = cn(ROW, i === 0 && "bg-v2-gold-soft");
-                  // A video stays locked until the one before it (and any checkpoint) is done.
-                  return isVideoUnlocked(course.id, v.order) ? (
-                    <Link key={v.id} href={`/learn/${course.id}/${v.order}`} className={cn(row, "transition-colors duration-200", i > 0 && "hover:bg-surface")}>
-                      {body}
-                    </Link>
-                  ) : (
-                    <div key={v.id} className={row}>
-                      {body}
-                    </div>
-                  );
-                })}
-              </div>
-            </V2Card>
-          )}
         </aside>
       </div>
 

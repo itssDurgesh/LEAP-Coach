@@ -31,8 +31,9 @@ interface RevealProps {
 /**
  * Fades/slides a block in when it scrolls into view.
  *
- * Honours `prefers-reduced-motion` by rendering a plain <div> — same tag, so there's
- * no hydration mismatch when the media query resolves on the client.
+ * Honours `prefers-reduced-motion` by showing the block at once. It stays a
+ * motion.div: the server sends it hidden, and swapping it for a plain <div> on the
+ * client left that hidden style in place, so the block never appeared.
  */
 export function Reveal({
   children,
@@ -45,8 +46,6 @@ export function Reveal({
   blur = false,
 }: RevealProps) {
   const reduce = useReducedMotion();
-  if (reduce) return <div className={className}>{children}</div>;
-
   const { x, y } = OFFSETS[from];
   const hidden: TargetAndTransition = { opacity: 0, x, y, ...(blur && { filter: "blur(10px)" }) };
   const shown: TargetAndTransition = { opacity: 1, x: 0, y: 0, ...(blur && { filter: "blur(0px)" }) };
@@ -55,9 +54,9 @@ export function Reveal({
     <motion.div
       className={className}
       initial={hidden}
-      whileInView={shown}
+      {...(reduce ? { animate: shown } : { whileInView: shown })}
       viewport={{ once, amount }}
-      transition={{ duration, delay, ease: EASE }}
+      transition={reduce ? { duration: 0 } : { duration, delay, ease: EASE }}
     >
       {children}
     </motion.div>
@@ -84,15 +83,14 @@ export function Stagger({
   once = true,
 }: StaggerProps) {
   const reduce = useReducedMotion();
-  if (reduce) return <div className={className}>{children}</div>;
 
   return (
     <motion.div
       className={className}
       initial="hidden"
-      whileInView="show"
+      {...(reduce ? { animate: "show" } : { whileInView: "show" })}
       viewport={{ once, amount }}
-      variants={{ hidden: {}, show: { transition: { staggerChildren: gap, delayChildren: delay } } }}
+      variants={{ hidden: {}, show: { transition: reduce ? {} : { staggerChildren: gap, delayChildren: delay } } }}
     >
       {children}
     </motion.div>
@@ -111,15 +109,13 @@ export function StaggerItem({
   duration?: number;
 }) {
   const reduce = useReducedMotion();
-  if (reduce) return <div className={className}>{children}</div>;
-
   const { x, y } = OFFSETS[from];
   return (
     <motion.div
       className={className}
       variants={{
         hidden: { opacity: 0, x, y },
-        show: { opacity: 1, x: 0, y: 0, transition: { duration, ease: EASE } },
+        show: { opacity: 1, x: 0, y: 0, transition: { duration: reduce ? 0 : duration, ease: EASE } },
       }}
     >
       {children}
