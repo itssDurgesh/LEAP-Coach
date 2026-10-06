@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  * Loading is deferred until after first paint. The clip sits above the fold, and
  * with an eager source the browser pulled it in parallel with the resources that
  * decide FCP/LCP — so the hero text painted late while the video hogged bandwidth.
- * `src` is withheld until the main thread is idle AND this copy is close to the
+ * The download is withheld until the main thread is idle AND this copy is close to the
  * viewport, so a copy further down the page (or one in a hidden layout) costs
  * nothing until it is needed.
  *
@@ -24,10 +24,30 @@ import { cn } from "@/lib/utils";
  * scene started again from zero. Now a copy plays only while it is on screen and
  * picks up from wherever the previous copy was, so it reads as one video.
  *
+ * The clip is downloaded once and every copy plays that one download from memory.
+ * When each copy pointed at the file itself, a copy that was paused off screen
+ * stopped reading after the first few bytes and kept the download to itself, so
+ * the copy on screen waited behind it and its card stayed empty.
+ *
  * There is deliberately NO still-image fallback: if the clip fails, the element
  * stays transparent and the container's own background shows through.
  */
 const HERO_VIDEO = "/professor-hero.mp4";
+
+// One download per address, shared by every copy. If it cannot be fetched this way
+// (a clip on another site that does not allow it), the copy uses the address directly.
+const clips = new Map<string, Promise<string>>();
+function loadClip(url: string) {
+  let clip = clips.get(url);
+  if (!clip) {
+    clip = fetch(url)
+      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
+      .then((blob) => URL.createObjectURL(blob))
+      .catch(() => url);
+    clips.set(url, clip);
+  }
+  return clip;
+}
 
 // The copy that played most recently. The next copy to come on screen continues from its position.
 let lastPlayed: HTMLVideoElement | null = null;
@@ -38,6 +58,9 @@ export function HeroMedia({ className, src }: { className?: string; src?: string
   const [idle, setIdle] = React.useState(false);
   const [near, setNear] = React.useState(false);
   const armed = idle && near;
+  const url = src || HERO_VIDEO;
+  const [clip, setClip] = React.useState<{ url: string; play: string } | null>(null);
+  const ready = armed && clip?.url === url ? clip.play : undefined;
 
   const sync = React.useCallback(() => {
     const video = ref.current;
@@ -105,17 +128,28 @@ export function HeroMedia({ className, src }: { className?: string; src?: string
     };
   }, [sync]);
 
+  React.useEffect(() => {
+    if (!armed) return;
+    let live = true;
+    loadClip(url).then((play) => {
+      if (live) setClip({ url, play });
+    });
+    return () => {
+      live = false;
+    };
+  }, [armed, url]);
+
   // The source has just been attached (or swapped): start it if this copy is on screen.
   React.useEffect(() => {
-    if (armed) sync();
-  }, [armed, src, sync]);
+    if (ready) sync();
+  }, [ready, sync]);
 
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption
     <video
       ref={ref}
-      // No src until armed — an absent attribute means the browser fetches nothing.
-      src={armed ? src || HERO_VIDEO : undefined}
+      // No src until the clip is in hand: an absent attribute means the browser fetches nothing.
+      src={ready}
       muted
       loop
       playsInline
