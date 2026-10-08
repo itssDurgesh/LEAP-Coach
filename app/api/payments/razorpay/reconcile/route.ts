@@ -46,13 +46,14 @@ async function isAuthorized(req: NextRequest, admin: SupabaseClient): Promise<bo
   const bearer = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
   if (secret && bearer && bearer === secret) return true;
 
-  // (b) A signed-in admin (owner or sub-admin — same bar as retry-grant: this only
-  // records money already captured and grants what was already paid for).
+  // (b) The signed-in owner, or a sub-admin holding the "payments" permission — the
+  // same bar as retry-grant. (This only records money already captured and grants
+  // what was already paid for, but it belongs to the Payments screen.)
   try {
     const { userId } = await auth();
     if (!userId) return false;
-    const { data: me } = await admin.from("profiles").select("is_admin").eq("id", userId).maybeSingle();
-    return !!me?.is_admin;
+    const { data: me } = await admin.from("profiles").select("is_admin, permissions").eq("id", userId).maybeSingle();
+    return !!me?.is_admin && (me.permissions == null || (me.permissions as string[]).includes("payments"));
   } catch {
     return false;
   }

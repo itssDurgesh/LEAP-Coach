@@ -144,11 +144,13 @@ function Announcements() {
             setComposing(false);
             setEditing(null);
           }}
-          onSave={(a, emailIt) => {
-            saveAnnouncement(a);
+          onSave={async (a, emailIt) => {
             setComposing(false);
             setEditing(null);
-            if (emailIt && a.published) void emailAnnouncement(a);
+            // The send reads the announcement back from the database, so it must be
+            // there first: emailing straight away could send the previous wording.
+            const saved = await saveAnnouncement(a);
+            if (saved.ok && emailIt && a.published) void emailAnnouncement(a);
           }}
         />
       )}
@@ -306,6 +308,9 @@ function Form({
         authorName: initial?.authorName || authorName,
         createdAt: initial?.createdAt ?? now,
         updatedAt: now,
+        // Who was already emailed: without these an edit lost its "emailed" badge until a reload.
+        notifiedAt: initial?.notifiedAt,
+        notifiedUserIds: initial?.notifiedUserIds,
       },
       emailIt && publish,
     );

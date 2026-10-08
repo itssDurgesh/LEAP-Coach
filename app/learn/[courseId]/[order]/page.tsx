@@ -2,12 +2,13 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, ClipboardCheck, Download, ExternalLink, Loader2, Paperclip, Play, Trash2 } from "lucide-react";
 import { LogoMark } from "@/components/ui/Logo";
 import { AppShell } from "@/components/app/AppShell";
 import { MockVideoPlayer } from "@/components/learn/MockVideoPlayer";
 import { MuxVideoPlayer } from "@/components/learn/MuxVideoPlayer";
+import { AudioSessionPlayer } from "@/components/learn/AudioSessionPlayer";
 import { LeapChat } from "@/components/learn/LeapChat";
 import { RatingModal } from "@/components/learn/RatingModal";
 import { VideoComments } from "@/components/discussion/VideoComments";
@@ -101,6 +102,26 @@ function Player({ course, video }: { course: Course; video: Video }) {
   const [rateOpen, setRateOpen] = React.useState(false);
   const promptedRef = React.useRef(false);
 
+  // A reply / @mention notification links here with ?tab=discussion&c=<comment id>:
+  // open the discussion and bring that comment into view, instead of landing on
+  // Class notes with no sign of what the notification was about.
+  const search = useSearchParams();
+  const wantTab = search.get("tab");
+  const wantComment = search.get("c");
+  const discussionCount = videoCommentsFor(video.id).length;
+  const scrolledTo = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (wantTab === "discussion") setBottomTab("discussion");
+  }, [wantTab, wantComment, video.id]);
+  // Runs again once the tab is showing and the comments have loaded; scrolls once per link.
+  React.useEffect(() => {
+    if (wantTab !== "discussion" || bottomTab !== "discussion" || !wantComment || scrolledTo.current === wantComment) return;
+    const target = document.getElementById(`vc-${wantComment}`);
+    if (!target) return;
+    scrolledTo.current = wantComment;
+    target.scrollIntoView({ block: "center", behavior: "instant" });
+  }, [wantTab, wantComment, bottomTab, discussionCount]);
+
   // Prompt for a rating once the last video/checkpoint lands — once per learner per
   // topic, remembered so finishing another lesson later doesn't re-open it.
   // Re-rating stays available from the topic page.
@@ -169,7 +190,6 @@ function Player({ course, video }: { course: Course; video: Video }) {
     );
   }
 
-  const discussionCount = videoCommentsFor(video.id).length;
   const bottomTabs: { id: BottomTab; label: string }[] = [
     { id: "notes", label: "Class notes" },
     { id: "transcript", label: "Transcript" },
@@ -209,7 +229,20 @@ function Player({ course, video }: { course: Course; video: Video }) {
         <div className="min-w-0 space-y-6">
           {/* Real Mux playback when the video has a genuine playback id; the seed
               uses "mux_…" placeholders, which fall back to the mock player. */}
-          {video.muxPlaybackId && !video.muxPlaybackId.startsWith("mux_") ? (
+          {video.audioUrl ? (
+            <AudioSessionPlayer
+              key={video.id}
+              course={course}
+              video={video}
+              learnerId={currentUser?.id}
+              onEnded={() => markVideoComplete(video.id)}
+              onDuration={(seconds) =>
+                setRealDuration((d) =>
+                  d?.videoId === video.id && Math.abs(d.seconds - seconds) < 1 ? d : { videoId: video.id, seconds },
+                )
+              }
+            />
+          ) : video.muxPlaybackId && !video.muxPlaybackId.startsWith("mux_") ? (
             <MuxVideoPlayer
               key={video.id}
               course={course}
@@ -237,7 +270,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
             <h1 className="font-heading text-2xl font-bold leading-[30px] tracking-[-0.015em] text-heading">{video.title}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2.5 text-[13px] font-medium text-muted">
               <span>
-                Video {pad(video.order)} &nbsp;·&nbsp; {formatClock(durationSeconds)}
+                {video.audioUrl ? "Audio" : "Video"} {pad(video.order)} &nbsp;·&nbsp; {formatClock(durationSeconds)}
               </span>
               {completed && (
                 <span className={cn(CHIP, "bg-lv-orgs-tint text-lv-orgs-dark")}>
@@ -336,7 +369,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
 
             {bottomTab === "transcript" && (
               <div className="scrollbar-thin max-h-80 overflow-y-auto pr-2">
-                <p className="text-[15px] leading-7 text-v2-body">{video.transcript}</p>
+                <p className="whitespace-pre-line text-[15px] leading-7 text-v2-body">{video.transcript}</p>
                 <p className="mt-5 text-xs font-medium text-muted">
                   Transcript auto-syncs with the video when timestamps are available.
                 </p>
@@ -348,7 +381,9 @@ function Player({ course, video }: { course: Course; video: Video }) {
             {bottomTab === "resources" && (
               <ul className="space-y-1">
                 {video.resources.length ? (
-                  video.resources.map((r) => (
+                  video.resources.map((r) => {
+                    const file = r.type === "pdf" || r.type === "doc";
+                    return (
                     <li key={r.id}>
                       <a
                         href={r.url}
@@ -362,14 +397,15 @@ function Player({ course, video }: { course: Course; video: Video }) {
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-semibold leading-5 text-heading">{r.title}</span>
                           <span className="block text-xs font-medium capitalize text-muted">
-                            {r.type}
+                            {r.type === "pdf" ? "PDF" : r.type === "doc" ? "Word document" : r.type}
                             {r.author ? ` · ${r.author}` : ""}
                           </span>
                         </span>
-                        <ExternalLink className="h-4 w-4 shrink-0 text-muted" />
+                        {file ? <Download className="h-4 w-4 shrink-0 text-muted" /> : <ExternalLink className="h-4 w-4 shrink-0 text-muted" />}
                       </a>
                     </li>
-                  ))
+                    );
+                  })
                 ) : (
                   <li className="py-6 text-center text-sm font-medium text-muted">No extra resources for this lesson.</li>
                 )}
@@ -418,7 +454,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold leading-5 text-heading">{v.title}</p>
                           <p className="text-xs font-medium text-muted">
-                            Video {pad(v.order)} &nbsp;·&nbsp; {formatClock(v.durationSeconds)}
+                            {v.audioUrl ? "Audio" : "Video"} {pad(v.order)} &nbsp;·&nbsp; {formatClock(v.durationSeconds)}
                           </p>
                         </div>
                       </>

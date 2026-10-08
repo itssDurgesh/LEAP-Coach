@@ -203,8 +203,8 @@ export function AppHeader() {
 
             <div className="overflow-y-auto overscroll-contain px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
               <div className="mt-3 flex flex-wrap items-center gap-2">
+                <CreditBadge user={currentUser} align="left" />
                 <PlanBadge user={currentUser} href="/pricing" />
-                <CreditBadge user={currentUser} />
               </div>
 
               <nav className="mt-4 border-t border-hair">

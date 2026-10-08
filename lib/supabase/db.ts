@@ -37,7 +37,7 @@ const mapTrack = (r: Row): LeadershipTrack => ({ id: r.id, label: r.label });
 const mapTip = (r: Row): DailyTip => ({ id: r.id, text: r.text, author: r.author, targetRole: r.target_role, active: r.active });
 const mapResource = (r: Row): RecommendedResource => ({ id: r.id, title: r.title, type: r.type, author: r.author, blurb: r.blurb, targetRole: r.target_role, accent: r.accent });
 const mapQuestion = (r: Row): Question => ({ id: r.id, type: r.type, prompt: r.prompt, options: r.options ?? [], correctAnswer: r.correct_answer, explanation: r.explanation });
-const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, transcript: r.transcript ?? "", summary: r.summary ?? "", notesPdfName: r.notes_pdf_url ?? undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
+const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, audioUrl: r.audio_url ?? null, audioName: r.audio_name ?? null, transcript: r.transcript ?? "", summary: r.summary ?? "", notesPdfName: r.notes_pdf_url || undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
 const mapCourseRating = (r: Row): CourseRating => ({ id: r.id, userId: r.user_id, courseId: r.course_id, stars: r.stars, review: r.review ?? null, createdAt: r.created_at, updatedAt: r.updated_at ?? null });
 const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.course_id, enrolledAt: r.enrolled_at, completedAt: r.completed_at });
 const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at });
@@ -118,7 +118,9 @@ const courseRow = (c: Course): Row => ({
   categories: c.categories ?? [c.category],
   instructor_name: c.instructorName, instructor_title: c.instructorTitle, instructor_bio: c.instructorBio,
   instructor_initials: c.instructorInitials, hashtags: c.hashtags, tracks: c.tracks, level: c.level,
-  rating: c.rating, rating_count: c.ratingCount, enrolled_count: c.enrolledCount, purchase_count: c.purchaseCount,
+  // rating / rating_count / enrolled_count / purchase_count are NOT written here: the
+  // editor's copy can be minutes old, and saving a topic used to put those stale
+  // numbers back over ratings that learners had submitted in the meantime.
   price: c.price, trending: c.trending, published: c.published, accent: c.accent,
   thumbnail_url: c.thumbnailUrl ?? null, workbook_name: c.workbookName ?? null, workbook_url: c.workbookUrl ?? null,
   access_duration_days: c.accessDurationDays ?? null,
@@ -154,6 +156,21 @@ export interface LoadedData {
   siteContent: SiteContent | null;
 }
 
+const VIDEO_COLS = "id,course_id,title,order_index,duration_seconds,mux_playback_id,transcript,summary,notes_pdf_url,resources";
+
+/**
+ * The course tree. audio_url / audio_name arrive with the 2026-10-09 migration; on
+ * a database that has not run it yet the first select errors, so read without them
+ * rather than leave every page with no topics.
+ */
+async function courseRows(sb: SupabaseClient): Promise<Row[]> {
+  const select = (cols: string) => sb.from("courses").select(`*, videos(${cols}), assignments(*, questions(*))`);
+  const full = await select(`${VIDEO_COLS},audio_url,audio_name`);
+  if (!full.error) return (full.data ?? []) as Row[];
+  console.error("[supabase] courses: reading without audio columns (run the audio-sessions migration)", full.error.message);
+  return rows(select(VIDEO_COLS));
+}
+
 /** Fetch + assemble the entire app state from Supabase (RLS scopes per-user rows). */
 export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   const [
@@ -174,13 +191,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     // data URL on older rows — 572KB on this project, 99.7% of the whole courses
     // payload, downloaded by every user on every page load. The player fetches it
     // for one video on demand instead (fetchVideoNotesUrl).
-    rows(
-      sb
-        .from("courses")
-        .select(
-          "*, videos(id,course_id,title,order_index,duration_seconds,mux_playback_id,transcript,summary,notes_pdf_url,resources), assignments(*, questions(*))",
-        ),
-    ),
+    courseRows(sb),
     Promise.resolve([] as Row[]),
     Promise.resolve([] as Row[]),
     Promise.resolve([] as Row[]),
@@ -324,8 +335,11 @@ export const ensureProfile = (sb: SupabaseClient, id: string, email: string, nam
 export const updateProfile = (sb: SupabaseClient, id: string, patch: Row) =>
   sb.from("profiles").update(patch).eq("id", id);
 
+// ignoreDuplicates: enrolling twice (a double click, a row the server already wrote)
+// must be a no-op. Without it the conflict became an UPDATE, which no rule allows
+// on this table, so the second call was refused with an error.
 export const enroll = (sb: SupabaseClient, userId: string, courseId: string) =>
-  sb.from("enrollments").upsert({ user_id: userId, course_id: courseId }, { onConflict: "user_id,course_id" });
+  sb.from("enrollments").upsert({ user_id: userId, course_id: courseId }, { onConflict: "user_id,course_id", ignoreDuplicates: true });
 
 // Stamp purchased_at on every (re)purchase so re-buying an expired topic restarts
 // its 1-year access window (the DB default only applies on first insert).
@@ -393,27 +407,56 @@ export const setAttendance = (sb: SupabaseClient, sessionId: string, userId: str
     : sb.from("session_attendees").delete().eq("session_id", sessionId).eq("user_id", userId);
 
 // ── admin ──
+/** Awaits one step of a multi-row save and throws if the database refused it. */
+async function must(step: string, q: PromiseLike<{ error: { message: string } | null }>) {
+  const { error } = await q;
+  if (error) throw new Error(`${step}: ${error.message}`);
+}
+
+/**
+ * Saves a topic with its sessions, checkpoints and questions. Throws on the first
+ * step the database refuses, so the editor can say so and keep the draft open;
+ * every step is an upsert or a targeted delete, so saving again is safe.
+ */
 export async function saveCourse(sb: SupabaseClient, c: Course) {
-  await sb.from("courses").upsert(courseRow(c));
-  await sb.from("videos").delete().eq("course_id", c.id);
-  if (c.videos.length)
-    await sb.from("videos").insert(c.videos.map((v) => ({
+  await must("topic", sb.from("courses").upsert(courseRow(c)));
+  // Sessions are upserted by id, never deleted and re-inserted: deleting a video row
+  // cascades to every learner's progress, private notes and discussion on it, and
+  // loses its stored notes file. One row per call, because a bulk upsert fills the
+  // keys a row leaves out with NULL.
+  for (const v of c.videos) {
+    const row = {
       id: v.id, course_id: c.id, title: v.title, order_index: v.order, duration_seconds: v.durationSeconds,
       mux_playback_id: v.muxPlaybackId, transcript: v.transcript, summary: v.summary,
-      notes_pdf_url: v.notesPdfName,
+      notes_pdf_url: v.notesPdfName || null,
       // undefined = "not loaded, leave the stored value alone"; null = "clear it".
-      // Without this a course edit would wipe every notes file, because the bulk
-      // read no longer populates notesPdfUrl.
+      // The bulk read no longer populates notesPdfUrl.
       ...(v.notesPdfUrl === undefined ? {} : { notes_file_url: v.notesPdfUrl }),
       resources: v.resources,
-    })));
-  await sb.from("assignments").delete().eq("course_id", c.id);
+    };
+    const { error } = await sb.from("videos").upsert({ ...row, audio_url: v.audioUrl ?? null, audio_name: v.audioName ?? null });
+    if (error) {
+      // An audio session must not be saved without its audio.
+      if (v.audioUrl) throw new Error(`session ${v.order}: ${error.message}`);
+      // Nothing to lose here: a database without the audio columns still takes the rest.
+      console.error("[supabase] videos: saving without audio columns", error.message);
+      await must(`session ${v.order}`, sb.from("videos").upsert(row));
+    }
+  }
+  // Only sessions the admin removed go.
+  const removed = sb.from("videos").delete().eq("course_id", c.id);
+  await must("removed sessions", c.videos.length ? removed.not("id", "in", `(${c.videos.map((v) => `"${v.id}"`).join(",")})`) : removed);
+  // Same for checkpoints: deleting an assignment row cascades to learners' submissions.
+  const gone = sb.from("assignments").delete().eq("course_id", c.id);
+  await must("removed checkpoints", c.assignments.length ? gone.not("id", "in", `(${c.assignments.map((a) => `"${a.id}"`).join(",")})`) : gone);
   for (const a of c.assignments) {
-    await sb.from("assignments").insert({ id: a.id, course_id: c.id, after_video_order: a.afterVideoOrder, title: a.title });
+    await must("checkpoint", sb.from("assignments").upsert({ id: a.id, course_id: c.id, after_video_order: a.afterVideoOrder, title: a.title }));
+    // Questions are replaced as one batch (their ids are stable), which also keeps them in the editor's order.
+    await must("questions", sb.from("questions").delete().eq("assignment_id", a.id));
     if (a.questions.length)
-      await sb.from("questions").insert(a.questions.map((q) => ({
+      await must("questions", sb.from("questions").insert(a.questions.map((q) => ({
         id: q.id, assignment_id: a.id, type: q.type, prompt: q.prompt, options: q.options, correct_answer: q.correctAnswer, explanation: q.explanation,
-      })));
+      }))));
   }
 }
 export const deleteCourse = (sb: SupabaseClient, id: string) => sb.from("courses").delete().eq("id", id);
@@ -443,7 +486,9 @@ export const deleteQuestion = (sb: SupabaseClient, id: string) => sb.from("quest
 export const saveCoupon = (sb: SupabaseClient, c: Coupon) =>
   sb.from("coupons").upsert({
     code: c.code, discount_percent: c.discountPercent, category: c.category, active: c.active,
-    max_redemptions: c.maxRedemptions, redemptions: c.redemptions, expires_at: c.expiresAt, created_at: c.createdAt,
+    // `redemptions` is counted by the payment server. Writing the admin page's copy
+    // back (as switching a coupon on or off did) erased uses made since it loaded.
+    max_redemptions: c.maxRedemptions, expires_at: c.expiresAt, created_at: c.createdAt,
   });
 export const deleteCoupon = (sb: SupabaseClient, code: string) => sb.from("coupons").delete().eq("code", code);
 
@@ -559,8 +604,8 @@ export const insertVideoComment = (sb: SupabaseClient, c: VideoComment) =>
     id: c.id, video_id: c.videoId, course_id: c.courseId, parent_id: c.parentId, user_id: c.userId,
     user_name: c.userName, user_role: c.userRole, text: c.text, mentions: c.mentions, created_at: c.createdAt,
   });
-export const updateVideoComment = (sb: SupabaseClient, id: string, text: string) =>
-  sb.from("video_comments").update({ text, edited_at: new Date().toISOString() }).eq("id", id);
+export const updateVideoComment = (sb: SupabaseClient, id: string, text: string, mentions: string[]) =>
+  sb.from("video_comments").update({ text, mentions, edited_at: new Date().toISOString() }).eq("id", id);
 export const deleteVideoComment = (sb: SupabaseClient, id: string) => sb.from("video_comments").delete().eq("id", id);
 export const setVideoCommentLike = (sb: SupabaseClient, commentId: string, userId: string, liked: boolean) =>
   liked

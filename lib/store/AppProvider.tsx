@@ -210,6 +210,16 @@ type AuthResult = { ok: boolean; error?: string; user?: User; needsVerification?
 
 interface AppContextValue extends AppState {
   hydrated: boolean;
+  /**
+   * True once this page load holds the database's own copy. `hydrated` can turn true
+   * earlier, from the localStorage paint cache, which leaves transcripts out and may
+   * be old. A screen that writes a whole record back (the topic editor) must wait
+   * for this, or it saves the cache's gaps over the real data.
+   */
+  fresh: boolean;
+  /** Set when a change the screen already shows was refused by, or never reached, the database. */
+  saveError: string | null;
+  dismissSaveError(): void;
   currentUser: User | null;
   supabaseMode: boolean;
   // auth
@@ -288,7 +298,7 @@ interface AppContextValue extends AppState {
   // per-video discussion (YouTube-style comments under a topic video)
   videoCommentsFor(videoId: string): VideoComment[];
   addVideoComment(videoId: string, courseId: string, text: string, parentId?: string | null, mentionIds?: string[]): void;
-  editVideoComment(id: string, text: string): void;
+  editVideoComment(id: string, text: string, mentionIds?: string[]): void;
   deleteVideoComment(id: string): void;
   toggleVideoCommentLike(id: string): void;
   // notifications
@@ -299,7 +309,8 @@ interface AppContextValue extends AppState {
   // sessions
   toggleAttendance(sessionId: string): void;
   // admin — courses
-  saveCourse(course: Course): void;
+  /** Resolves once the database has the topic, or says why not. The editor waits for it before leaving. */
+  saveCourse(course: Course): Promise<{ ok: boolean; error?: string }>;
   deleteCourse(courseId: string): void;
   togglePublish(courseId: string): void;
   toggleTrending(courseId: string): void;
@@ -335,7 +346,8 @@ interface AppContextValue extends AppState {
   saveArticle(article: Article): void;
   deleteArticle(id: string): void;
   // admin — announcements
-  saveAnnouncement(a: Announcement): void;
+  /** Resolves once the database has it, so an email sent straight after reads this version. */
+  saveAnnouncement(a: Announcement): Promise<{ ok: boolean }>;
   deleteAnnouncement(id: string): void;
   markAnnouncementNotified(id: string, notifiedAt: string | null, notifiedUserIds: string[]): void;
   // admin — FAQ + privacy
@@ -352,6 +364,8 @@ interface AppContextValue extends AppState {
 
 const AppContext = React.createContext<AppContextValue | null>(null);
 
+const SAVE_ERROR = "Your last change could not be saved. Check your connection, then reload the page to see what was saved.";
+
 function uid(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -359,6 +373,8 @@ function uid(prefix: string) {
 export function AppProvider({ auth, children }: { auth: AuthBridge; children: React.ReactNode }) {
   const [state, setState] = React.useState<AppState>(realMode ? emptyState : seedState);
   const [hydrated, setHydrated] = React.useState(false);
+  const [fresh, setFresh] = React.useState(false); // see AppContextValue.fresh
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   // Sign-up extras (age/gender/phone/…) collected before the profile row exists;
   // applied by the hydration effect once Clerk has a session + the row is provisioned.
   const pendingSignup = React.useRef<SignUpData | null>(null);
@@ -379,6 +395,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         /* ignore corrupt storage */
       }
       setHydrated(true);
+      setFresh(true);
       return;
     }
 
@@ -387,9 +404,11 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const sb = getSupabase();
     if (!sb) {
       setHydrated(true);
+      setFresh(true);
       return;
     }
     const userId = auth.userId;
+    setFresh(false); // a different session: what is in the store is not this user's load yet
 
     // Instant paint from this user's cached snapshot (stale-while-revalidate), so
     // pages don't sit on a spinner waiting for the full load on every reload.
@@ -489,6 +508,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         currentUserId: userId,
       }));
       setHydrated(true);
+      setFresh(true);
     })();
 
     return () => {
@@ -569,7 +589,10 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
   }, [hydrated, state.currentUserId]);
 
   const value = React.useMemo<AppContextValue>(() => {
-    const sb = getSupabase();
+    // The local demo (no Clerk) keeps everything in localStorage. It has no session,
+    // so the database would refuse every write anyway; sending them only made a local
+    // run fire rejected requests at the real project.
+    const sb = realMode ? getSupabase() : null;
     const currentUser = state.users.find((u) => u.id === state.currentUserId) ?? null;
     const who = (userId?: string) => userId ?? state.currentUserId ?? "";
 
@@ -673,8 +696,22 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const patchUser = (userId: string, fn: (u: User) => User) =>
       setState((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? fn(u) : u)) }));
 
-    const fire = (p: PromiseLike<unknown> | undefined) => {
-      if (p) Promise.resolve(p).then(undefined, (e) => console.error("[supabase]", e));
+    // Sends a write the screen has already applied. supabase-js resolves with
+    // `{ error }` instead of throwing, so a refused write (expired session, a database
+    // rule, a clash) used to pass as success: the screen kept the change and the next
+    // reload silently lost it. Both shapes are checked now, logged, and shown to the
+    // person (SaveErrorBanner). `quiet` = log only, for writes the database refuses by
+    // design because the server makes them for real.
+    const fire = (p: PromiseLike<unknown> | undefined, quiet = false) => {
+      if (!p) return;
+      const failed = (e: unknown) => {
+        console.error("[supabase] write failed", e);
+        if (!quiet) setSaveError(SAVE_ERROR);
+      };
+      Promise.resolve(p).then((r) => {
+        const error = (r as { error?: unknown } | null | undefined)?.error;
+        if (error) failed(error);
+      }, failed);
     };
 
     // Owner-only user mutations (grant/revoke/ban/delete) go through a service-role
@@ -703,6 +740,9 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     return {
       ...state,
       hydrated,
+      fresh,
+      saveError,
+      dismissSaveError: () => setSaveError(null),
       currentUser,
       supabaseMode: realMode,
 
@@ -851,7 +891,10 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
             c.id === courseId ? { ...c, enrolledCount: c.enrolledCount + 1 } : c,
           ),
         }));
-        if (sb) fire(db.enroll(sb, currentUser.id, courseId));
+        // The database lets a learner enrol themselves only in a FREE topic ("enrollments
+        // free self-enrol"). A paid topic opened through a pass is refused by that rule,
+        // so the refusal is logged, not shown.
+        if (sb) fire(db.enroll(sb, currentUser.id, courseId), (getCourse(courseId)?.price ?? 0) > 0);
       },
       renewEnrollment(courseId) {
         // Restart the access timer for a subscription/category/free entitlement.
@@ -897,9 +940,11 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
               )
             : [...s.enrollments, { userId: currentUser.id, courseId, enrolledAt: at }],
         }));
+        // Purchases are written by the server after a verified payment; the browser's
+        // own copy is refused by rule, so it stays quiet.
         if (sb && !skipPersist) {
-          fire(db.purchase(sb, currentUser.id, courseId));
-          fire(db.reEnroll(sb, currentUser.id, courseId));
+          fire(db.purchase(sb, currentUser.id, courseId), true);
+          fire(db.reEnroll(sb, currentUser.id, courseId), true);
         }
       },
       subscribeAllAccess(skipPersist) {
@@ -912,10 +957,13 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           subscriptionValidUntil: validUntil.toISOString(),
         }));
         if (sb && !skipPersist)
-          fire(db.updateProfile(sb, currentUser.id, {
-            subscription_plan: "all_access",
-            subscription_valid_until: validUntil.toISOString(),
-          }));
+          fire(
+            db.updateProfile(sb, currentUser.id, {
+              subscription_plan: "all_access",
+              subscription_valid_until: validUntil.toISOString(),
+            }),
+            true,
+          );
       },
       purchaseBundle(categories, skipPersist) {
         if (!currentUser || !categories.length) return;
@@ -936,12 +984,15 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
             : {}),
         }));
         if (sb && !skipPersist) {
-          for (const c of categories) fire(db.grantCategoryPass(sb, currentUser.id, c));
+          for (const c of categories) fire(db.grantCategoryPass(sb, currentUser.id, c), true);
           if (allThree)
-            fire(db.updateProfile(sb, currentUser.id, {
-              subscription_plan: "all_access",
-              subscription_valid_until: validUntil.toISOString(),
-            }));
+            fire(
+              db.updateProfile(sb, currentUser.id, {
+                subscription_plan: "all_access",
+                subscription_valid_until: validUntil.toISOString(),
+              }),
+              true,
+            );
         }
       },
 
@@ -1346,15 +1397,41 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           for (const n of notifs) fire(db.insertNotification(sb, n));
         }
       },
-      editVideoComment(id, text) {
-        if (!text.trim()) return;
+      editVideoComment(id, text, mentionIds) {
+        const existing = state.videoComments.find((c) => c.id === id);
+        if (!text.trim() || !existing) return;
+        // Someone tagged for the first time in an edit gets the same notification as a
+        // fresh tag. Only when the author edits: an admin fixing a comment tags no one.
+        const added =
+          currentUser && existing.userId === currentUser.id
+            ? (mentionIds ?? []).filter((m) => m && m !== currentUser.id && !existing.mentions.includes(m))
+            : [];
+        const mentions = [...existing.mentions, ...added];
+        const createdAt = new Date().toISOString();
+        const notifs: AppNotification[] = added.map((rid) => ({
+          id: uid("nt"),
+          userId: rid,
+          type: "mention",
+          actorId: currentUser!.id,
+          actorName: currentUser!.name,
+          videoId: existing.videoId,
+          courseId: existing.courseId,
+          commentId: id,
+          preview: text.trim().slice(0, 120),
+          read: false,
+          createdAt,
+        }));
         setState((s) => ({
           ...s,
           videoComments: s.videoComments.map((c) =>
-            c.id === id ? { ...c, text: text.trim(), editedAt: new Date().toISOString() } : c,
+            c.id === id ? { ...c, text: text.trim(), mentions, editedAt: createdAt } : c,
           ),
+          notifications: [...notifs, ...s.notifications],
         }));
-        if (sb) fire(db.updateVideoComment(sb, id, text.trim()));
+        if (sb) {
+          fire(db.updateVideoComment(sb, id, text.trim(), mentions));
+          for (const n of notifs) fire(db.insertNotification(sb, n));
+        }
       },
       deleteVideoComment(id) {
         // remove the comment and any direct replies to it
@@ -1443,21 +1520,32 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
 
       // ── admin: courses ──
-      saveCourse(course) {
-        if (!hasPermission(currentUser, "content")) return;
+      async saveCourse(course) {
+        if (!hasPermission(currentUser, "content")) return { ok: false, error: "You don't have permission to edit topics." };
         // Sub-admins (admins limited by a permission set) can't publish directly —
-        // their topic is sent to the owner for approval.
+        // their topic is sent to the owner for approval. An owner publishing a topic
+        // that was waiting for approval has approved it, so it leaves the queue.
         const sub = !!currentUser?.isAdmin && !isOwner(currentUser);
         const finalCourse: Course = sub
           ? { ...course, published: false, pendingApproval: true, submittedBy: currentUser!.id }
-          : { ...course, pendingApproval: course.pendingApproval ?? false };
+          : { ...course, pendingApproval: course.published ? false : (course.pendingApproval ?? false) };
+        // Not optimistic: a topic is many rows, and the editor must not close on a
+        // save that did not happen (the draft would be lost with it).
+        if (sb) {
+          try {
+            await db.saveCourse(sb, finalCourse);
+          } catch (e) {
+            console.error("[supabase] saveCourse", e);
+            return { ok: false, error: e instanceof Error ? e.message : "The database did not accept it." };
+          }
+        }
         setState((s) => ({
           ...s,
           courses: s.courses.some((c) => c.id === finalCourse.id)
             ? s.courses.map((c) => (c.id === finalCourse.id ? finalCourse : c))
             : [finalCourse, ...s.courses],
         }));
-        if (sb) fire(db.saveCourse(sb, finalCourse));
+        return { ok: true };
       },
       deleteCourse(courseId) {
         if (!isOwner(currentUser)) return; // owner-only: sub-admins can't delete topics
@@ -1702,7 +1790,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         setState((s) => ({ ...s, pricing: tiers }));
         if (sb) {
           fire(db.savePricing(sb, tiers));
-          fire(db.saveUpgradeInfoFlag(sb, tiers.showUpgradeInfo !== false));
+          fire(db.saveUpgradeInfoFlag(sb, tiers.showUpgradeInfo !== false), true); // optional column, best effort
         }
       },
 
@@ -1762,7 +1850,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         }));
         if (sb) {
           fire(db.saveArticle(sb, article));
-          fire(db.setArticleArchived(sb, article.id, article.archived ?? false));
+          fire(db.setArticleArchived(sb, article.id, article.archived ?? false), true); // optional column, best effort
         }
       },
       deleteArticle(id) {
@@ -1772,15 +1860,24 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
 
       // ── admin: announcements ──
-      saveAnnouncement(a) {
-        if (!hasPermission(currentUser, "announcements")) return;
+      async saveAnnouncement(a) {
+        if (!hasPermission(currentUser, "announcements")) return { ok: false };
         setState((s) => ({
           ...s,
           announcements: s.announcements.some((x) => x.id === a.id)
             ? s.announcements.map((x) => (x.id === a.id ? a : x))
             : [a, ...s.announcements],
         }));
-        if (sb) fire(db.saveAnnouncement(sb, a));
+        if (!sb) return { ok: true };
+        try {
+          const { error } = await db.saveAnnouncement(sb, a);
+          if (error) throw error;
+          return { ok: true };
+        } catch (e) {
+          console.error("[supabase] saveAnnouncement", e);
+          setSaveError(SAVE_ERROR);
+          return { ok: false };
+        }
       },
       deleteAnnouncement(id) {
         if (!hasPermission(currentUser, "announcements")) return;
@@ -1832,7 +1929,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         setState(seedState());
       },
     };
-  }, [state, hydrated, auth]);
+  }, [state, hydrated, fresh, saveError, auth]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

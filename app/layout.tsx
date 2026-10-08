@@ -6,6 +6,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { ClerkAuthBridge } from "@/lib/auth/ClerkAuthBridge";
 import { MockAuthBridge } from "@/lib/auth/MockAuthBridge";
+import { SaveErrorBanner } from "@/components/app/SaveErrorBanner";
 import { isClerkConfigured } from "@/lib/clerk/config";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
@@ -213,11 +214,17 @@ export default function RootLayout({
               signUpFallbackRedirectUrl="/select-role"
               afterSignOutUrl="/"
             >
-              <ClerkAuthBridge>{children}</ClerkAuthBridge>
+              <ClerkAuthBridge>
+                {children}
+                <SaveErrorBanner />
+              </ClerkAuthBridge>
             </ClerkProvider>
           ) : (
             // Mock auth: app runs entirely on localStorage demo data, no keys needed.
-            <MockAuthBridge>{children}</MockAuthBridge>
+            <MockAuthBridge>
+              {children}
+              <SaveErrorBanner />
+            </MockAuthBridge>
           )}
         </ThemeProvider>
         <Analytics />

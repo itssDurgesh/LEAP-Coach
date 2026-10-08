@@ -23,32 +23,57 @@ function labelFor(a?: LeapAction) {
         : "";
 }
 
+/** `**bold**`, `*italic*` and `` `code` `` inside one line; any marker left unpaired is dropped. */
+function renderInline(line: string) {
+  return line.split(/(\*{2,3}[^*]+\*{2,3}|__[^_]+__|\*[^*\s][^*]*\*|`[^`]+`)/g).map((part, j) => {
+    const bold = /^(\*{2,3}|__)(.+?)(\*{2,3}|__)$/.exec(part);
+    if (bold)
+      return (
+        <strong key={j} className="font-semibold">
+          {bold[2]}
+        </strong>
+      );
+    if (/^\*[^*]+\*$/.test(part)) return <em key={j}>{part.slice(1, -1)}</em>;
+    if (/^`[^`]+`$/.test(part)) return part.slice(1, -1);
+    return part.replace(/\*{2,}|`/g, "");
+  });
+}
+
 /**
- * The tutor answers in light Markdown: **bold**, "* " bullets and "#" headings.
- * Shown as plain text, the symbols were left in the bubble; this turns them into
- * the formatting they stand for (and nothing else, so no HTML is ever injected).
+ * The tutor is told to answer in plain text, but models still slip into Markdown
+ * (**bold**, "* " bullets, indented sub-bullets, "#" headings, "1." steps, ">" quotes).
+ * Shown as-is, those symbols were left in the bubble; this turns them into the
+ * formatting they stand for (and nothing else, so no HTML is ever injected).
  */
 function renderReply(text: string) {
   return text.split(/\r?\n/).map((raw, i) => {
-    if (!raw.trim()) return <span key={i} className="block h-2.5" />;
-    const heading = /^\s*#{1,6}\s+/.test(raw);
-    const bullet = /^\s*[*-]\s+/.test(raw);
-    const line = raw.replace(/^\s*(#{1,6}|[*-])\s+/, "");
-    const parts = line.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
-      part.length > 4 && part.startsWith("**") && part.endsWith("**") ? (
-        <strong key={j} className="font-semibold">
-          {part.slice(2, -2)}
-        </strong>
-      ) : (
-        part
-      ),
-    );
+    const line = raw.replace(/^\s*>\s?/, "");
+    // Blank lines and "---" / "***" rules are just a gap between paragraphs.
+    if (!line.trim() || /^\s*([-*_])\1{2,}\s*$/.test(line)) return <span key={i} className="block h-2.5" />;
+
+    const heading = /^\s*#{1,6}\s+(.*)$/.exec(line);
+    if (heading)
+      return (
+        <span key={i} className="block font-semibold">
+          {renderInline(heading[1].replace(/\s+#+\s*$/, ""))}
+        </span>
+      );
+
+    const item = /^(\s*)([*+•-]|\d{1,2}[.)])\s+(.*)$/.exec(line);
+    if (item) {
+      const nested = item[1].replace(/\t/g, "  ").length >= 2;
+      const marker = /\d/.test(item[2]) ? item[2].replace(")", ".") : "•";
+      return (
+        <span key={i} className={cn("flex gap-2", nested && "pl-4")}>
+          <span className="shrink-0 tabular-nums">{marker}</span>
+          <span className="min-w-0">{renderInline(item[3])}</span>
+        </span>
+      );
+    }
+
     return (
-      <span
-        key={i}
-        className={cn("block", heading && "font-semibold", bullet && "relative pl-4 before:absolute before:left-0.5 before:content-['•']")}
-      >
-        {parts}
+      <span key={i} className="block">
+        {renderInline(line.trimStart())}
       </span>
     );
   });
@@ -112,6 +137,7 @@ export function LeapChat({
     setTyping(true);
 
     const mock = () => leapReply(course, video, trimmed || labelFor(action), action);
+    const unavailable = "I couldn't answer that just now. Please try again in a moment.";
     let reply: string;
     try {
       const res = await fetch("/api/leap/chat", {
@@ -119,16 +145,18 @@ export function LeapChat({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           courseTitle: course.title,
-          video: { title: video.title, summary: video.summary, transcript: video.transcript },
+          // The transcript is the tutor's only source; the summary is deliberately not sent.
+          video: { title: video.title, transcript: video.transcript },
           messages: history,
           action,
         }),
       });
       const data = await res.json();
-      // Falls back to the local mock when Gemini isn't configured or errors out.
-      reply = data?.reply && !data.fallback ? (data.reply as string) : mock();
+      // The canned mock is only for a setup with no AI key (the route says `fallback`).
+      // Any other failure says so, because the mock is not written from the transcript.
+      reply = data?.fallback ? mock() : typeof data?.reply === "string" && data.reply ? data.reply : unavailable;
     } catch {
-      reply = mock();
+      reply = unavailable;
     }
 
     setMessages((m) => [

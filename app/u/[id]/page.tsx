@@ -84,7 +84,7 @@ function Profile() {
         <Avatar src={user.avatarUrl} name={user.name} size={96} ring={false} className={V2_AVATAR} />
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-heading text-[32px] font-bold leading-[38px] tracking-[-0.015em] text-heading">{user.name}</h1>
+            <h1 className="min-w-0 break-words font-heading text-[32px] font-bold leading-[38px] tracking-[-0.015em] text-heading">{user.name}</h1>
             {isAdmin ? (
               <span className={cn(CHIP, "bg-surface text-v2-body")}>Admin</span>
             ) : (

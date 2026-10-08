@@ -17,18 +17,25 @@ import {
   Upload,
   ImageIcon,
   BookMarked,
+  Headphones,
+  Loader2,
+  Paperclip,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Select, Field } from "@/components/ui/Field";
 import { useApp } from "@/lib/store/AppProvider";
-import { Course, Question, Role, ROLES, courseCategories, isOwner } from "@/lib/types";
+import { Course, Question, Resource, Role, ROLES, courseCategories, isOwner } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
 import { uploadMedia } from "@/lib/supabase/storage";
+import { isClerkConfigured } from "@/lib/clerk/config";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 interface DraftQuestion {
   tmpId: string;
+  /** The saved question's id; absent until its first save. Kept so learners' past answers still match it. */
+  id?: string;
   type: "mcq" | "fill_blank";
   prompt: string;
   options: string[];
@@ -37,18 +44,32 @@ interface DraftQuestion {
 }
 interface DraftVideo {
   tmpId: string;
+  /**
+   * The saved session's id; absent until its first save. A session keeps its id for
+   * life: learners' progress, notes and discussion hang off it, so it must not move
+   * to another session when one above it is removed.
+   */
+  id?: string;
   title: string;
   muxPlaybackId: string;
+  /** What the learner gets for this session: a Mux video or an uploaded audio recording. */
+  media: "video" | "audio";
+  audioUrl: string | null;
+  audioName: string;
   durationMins: number;
   summary: string;
   notesPdfName: string;
   /** undefined = not loaded (leave stored file alone) · null = clear it · string = set it. */
   notesPdfUrl?: string | null;
   transcript: string;
+  resources: Resource[];
 }
 interface DraftAssignment {
   tmpId: string;
-  afterVideoOrder: number;
+  /** The saved checkpoint's id; absent until its first save. Learners' submissions hang off it. */
+  id?: string;
+  /** tmpId of the session this checkpoint follows. A link, not a position, so it stays with its session. */
+  sessionTmpId: string;
   title: string;
   questions: DraftQuestion[];
 }
@@ -77,16 +98,45 @@ interface Draft {
 const tmp = () => Math.random().toString(36).slice(2, 9);
 const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-/**
- * Uploads to the `media` bucket and hands back a short public URL. Previously
- * base64'd the file into the row, which loadAll then shipped to every user.
- */
+/** Uploads to the `media` bucket and hands the short public URL to `onDone`; a failed upload is reported, not stored. */
 function uploadThen(file: File, folder: string, onDone: (url: string, name: string) => void) {
-  void uploadMedia(file, folder).then((r) => onDone(r.url, r.name));
+  return uploadFile(file, folder).then((r) => {
+    if (r) onDone(r.url, r.name);
+  });
+}
+
+/**
+ * uploadMedia falls back to a base64 data URL when Storage rejects a file. In a
+ * database row that is megabytes every learner downloads on every page load, so a
+ * failed upload is reported instead. In the local demo (no sign-in, so Storage
+ * refuses everything) the data URL is all there is, so it is kept.
+ */
+async function uploadFile(file: File, folder: string): Promise<{ url: string; name: string } | null> {
+  const r = await uploadMedia(file, folder);
+  if (!r.stored && isClerkConfigured && isSupabaseConfigured) {
+    window.alert(`“${file.name}” could not be uploaded. It may be over the storage size limit, or the connection dropped. Please try again.`);
+    return null;
+  }
+  return r;
+}
+
+/** The recording's length in whole minutes, read from the file itself (null if the browser can't tell). */
+function audioMinutes(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio();
+    const done = (mins: number | null) => {
+      URL.revokeObjectURL(url);
+      resolve(mins);
+    };
+    audio.onloadedmetadata = () => done(Number.isFinite(audio.duration) ? Math.max(1, Math.round(audio.duration / 60)) : null);
+    audio.onerror = () => done(null);
+    audio.src = url;
+  });
 }
 
 function newVideo(): DraftVideo {
-  return { tmpId: tmp(), title: "", muxPlaybackId: "", durationMins: 20, summary: "", notesPdfName: "", notesPdfUrl: null, transcript: "" };
+  return { tmpId: tmp(), title: "", muxPlaybackId: "", media: "video", audioUrl: null, audioName: "", durationMins: 20, summary: "", notesPdfName: "", notesPdfUrl: null, transcript: "", resources: [] };
 }
 
 function blankDraft(): Draft {
@@ -113,7 +163,58 @@ function blankDraft(): Draft {
   };
 }
 
+/** `base`, or `base-2`, `base-3`… when another topic already has it (slugs are unique in the database). */
+function uniqueSlug(base: string, taken: Set<string>): string {
+  let slug = base;
+  for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`;
+  return slug;
+}
+
+/** Older saves filled in this made-up name for a session with no notes file; it is not an upload. */
+const isAutoNotesName = (courseId: string, name?: string) =>
+  !!name && name.startsWith(`${courseId}-session-`) && name.endsWith("-notes.pdf");
+
+/** A session learners can actually play: a real Mux id (not the `mux_…` placeholder) or an uploaded recording. */
+const hasMedia = (v: DraftVideo) =>
+  v.media === "audio" ? !!v.audioUrl : !!v.muxPlaybackId.trim() && !v.muxPlaybackId.startsWith("mux_");
+
+/** What must be fixed before this draft can be saved, or (with `publish`) go live. Empty = nothing. */
+function blockersFor(d: Draft, publish: boolean): string[] {
+  const out: string[] = [];
+  if (!d.title.trim()) out.push("Give the topic a title (Basic Info).");
+  if (!publish) return out;
+  for (const a of d.assignments) {
+    const session = d.videos.findIndex((v) => v.tmpId === a.sessionTmpId) + 1;
+    a.questions
+      .filter((q) => q.prompt.trim())
+      .forEach((q, i) => {
+        const options = q.options.filter((o) => o.trim());
+        // Without a marked answer among the options, no learner can ever get it right.
+        if (options.length < 2 || !options.includes(q.correctAnswer))
+          out.push(`Checkpoint after session ${session}, question ${i + 1}: add at least two options and mark the correct one (Assignments).`);
+      });
+  }
+  return out;
+}
+
 function toDraft(c: Course): Draft {
+  const sessions = c.videos.slice().sort((a, b) => a.order - b.order);
+  const videos: DraftVideo[] = sessions.map((v) => ({
+    tmpId: tmp(),
+    id: v.id,
+    title: v.title,
+    muxPlaybackId: v.muxPlaybackId,
+    media: v.audioUrl ? "audio" : "video",
+    audioUrl: v.audioUrl ?? null,
+    audioName: v.audioName ?? "",
+    durationMins: Math.round(v.durationSeconds / 60),
+    summary: v.summary,
+    notesPdfName: isAutoNotesName(c.id, v.notesPdfName) ? "" : (v.notesPdfName ?? ""),
+    notesPdfUrl: v.notesPdfUrl, // keep undefined as-is — see DraftVideo
+    transcript: v.transcript,
+    resources: v.resources ?? [],
+  }));
+  const sessionAt = new Map(sessions.map((v, i) => [v.order, videos[i].tmpId]));
   return {
     id: c.id,
     title: c.title,
@@ -131,29 +232,20 @@ function toDraft(c: Course): Draft {
     workbookUrl: c.workbookUrl ?? null,
     hashtags: [...c.hashtags, "", "", "", ""].slice(0, 4),
     tracks: c.tracks,
-    videos: c.videos
-      .slice()
-      .sort((a, b) => a.order - b.order)
-      .map((v) => ({
-        tmpId: tmp(),
-        title: v.title,
-        muxPlaybackId: v.muxPlaybackId,
-        durationMins: Math.round(v.durationSeconds / 60),
-        summary: v.summary,
-        notesPdfName: v.notesPdfName ?? "",
-        notesPdfUrl: v.notesPdfUrl, // keep undefined as-is — see DraftVideo
-
-        transcript: v.transcript,
-      })),
+    videos,
     assignments: c.assignments
       .slice()
       .sort((a, b) => a.afterVideoOrder - b.afterVideoOrder)
+      // A checkpoint with no session to follow can never be opened by a learner.
+      .filter((a) => sessionAt.has(a.afterVideoOrder))
       .map((a) => ({
         tmpId: tmp(),
-        afterVideoOrder: a.afterVideoOrder,
+        id: a.id,
+        sessionTmpId: sessionAt.get(a.afterVideoOrder)!,
         title: a.title,
         questions: a.questions.map((q) => ({
           tmpId: tmp(),
+          id: q.id,
           type: q.type,
           prompt: q.prompt,
           options: [...q.options, "", "", "", ""].slice(0, 4),
@@ -165,32 +257,37 @@ function toDraft(c: Course): Draft {
   };
 }
 
-function toCourse(d: Draft, existing?: Course): Course {
+function toCourse(d: Draft, existing: Course | undefined, takenSlugs: Set<string>): Course {
   const categories = d.categories.length ? d.categories : ["professional" as Role];
   const videos = d.videos.map((v, i) => ({
-    id: `${d.id}_v${i + 1}`,
+    // Never derived from the position: see DraftVideo.id.
+    id: v.id ?? `${d.id}_v_${v.tmpId}`,
     courseId: d.id,
     title: v.title || `Session ${i + 1}`,
     order: i + 1,
     durationSeconds: Math.round((v.durationMins || 0) * 60),
     muxPlaybackId: v.muxPlaybackId || `mux_${d.id}_v${i + 1}`,
+    // The Mux id is kept when a session is switched to audio, so switching back loses nothing.
+    audioUrl: v.media === "audio" ? v.audioUrl : null,
+    audioName: v.media === "audio" && v.audioUrl ? v.audioName : null,
     transcript: v.transcript,
     summary: v.summary,
-    notesPdfName: v.notesPdfName || `${d.id}-session-${i + 1}-notes.pdf`,
+    notesPdfName: v.notesPdfName.trim(),
     notesPdfUrl: v.notesPdfUrl,
-    resources: existing?.videos.find((x) => x.order === i + 1)?.resources ?? [],
+    resources: v.resources.map((r) => ({ ...r, title: r.title.trim() || "Resource" })),
   }));
+  const orderOf = new Map(d.videos.map((v, i) => [v.tmpId, i + 1]));
   const assignments = d.assignments
-    .filter((a) => a.afterVideoOrder >= 1 && a.afterVideoOrder <= videos.length)
+    .filter((a) => orderOf.has(a.sessionTmpId))
     .map((a) => ({
-      id: `${d.id}_a${a.afterVideoOrder}`,
+      id: a.id ?? `${d.id}_a_${a.tmpId}`,
       courseId: d.id,
-      afterVideoOrder: a.afterVideoOrder,
-      title: a.title || `Checkpoint after session ${a.afterVideoOrder}`,
+      afterVideoOrder: orderOf.get(a.sessionTmpId)!,
+      title: a.title || `Checkpoint after session ${orderOf.get(a.sessionTmpId)}`,
       questions: a.questions
         .filter((q) => q.prompt.trim())
         .map<Question>((q) => ({
-          id: `${d.id}_q${a.afterVideoOrder}_${q.tmpId}`,
+          id: q.id ?? `${d.id}_q_${q.tmpId}`,
           type: q.type,
           prompt: q.prompt,
           options: q.options.filter((o) => o.trim()),
@@ -202,7 +299,7 @@ function toCourse(d: Draft, existing?: Course): Course {
 
   return {
     id: d.id,
-    slug: existing?.slug ?? (slugify(d.title) || d.id),
+    slug: existing?.slug ?? uniqueSlug(slugify(d.title) || d.id, takenSlugs),
     title: d.title || "Untitled topic",
     description: d.description,
     category: categories[0],
@@ -242,23 +339,33 @@ function toCourse(d: Draft, existing?: Course): Course {
 
 const STEPS = [
   { label: "Basic Info", icon: Info },
-  { label: "Videos", icon: VideoIcon },
+  { label: "Sessions", icon: VideoIcon },
   { label: "Notes", icon: FileText },
+  { label: "Resources", icon: Paperclip },
   { label: "Transcripts", icon: ScrollText },
   { label: "Assignments", icon: ClipboardList },
   { label: "Review & Publish", icon: Eye },
 ];
 
 export function CourseWizard({ initial }: { initial?: Course }) {
-  const { saveCourse, tracks, currentUser } = useApp();
+  const { saveCourse, tracks, currentUser, courses } = useApp();
   const router = useRouter();
   const [step, setStep] = React.useState(0);
   const [draft, setDraft] = React.useState<Draft>(() => (initial ? toDraft(initial) : blankDraft()));
   const owner = isOwner(currentUser);
+  const [saving, setSaving] = React.useState(false);
+  const [problem, setProblem] = React.useState<{ title: string; items: string[] } | null>(null);
+  // Files still on their way up. Saving before they land would save the topic without them.
+  const [uploading, setUploading] = React.useState(0);
+  const trackUpload = React.useCallback((busy: boolean) => setUploading((n) => Math.max(0, n + (busy ? 1 : -1))), []);
 
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
   const setVideo = (i: number, patch: Partial<DraftVideo>) =>
     setDraft((d) => ({ ...d, videos: d.videos.map((v, idx) => (idx === i ? { ...v, ...patch } : v)) }));
+  // By tmpId and from the latest state: several files upload one after another, and
+  // a session can be removed while one is still on its way.
+  const patchVideo = (tmpId: string, patch: (v: DraftVideo) => Partial<DraftVideo>) =>
+    setDraft((d) => ({ ...d, videos: d.videos.map((v) => (v.tmpId === tmpId ? { ...v, ...patch(v) } : v)) }));
   const setAssignment = (i: number, patch: Partial<DraftAssignment>) =>
     setDraft((d) => ({ ...d, assignments: d.assignments.map((a, idx) => (idx === i ? { ...a, ...patch } : a)) }));
 
@@ -268,16 +375,60 @@ export function CourseWizard({ initial }: { initial?: Course }) {
       categories: d.categories.includes(r) ? d.categories.filter((x) => x !== r) : [...d.categories, r],
     }));
 
+  // One checkpoint per session: the lesson page only ever looks for the first.
+  const freeSession = draft.videos.find((v) => !draft.assignments.some((a) => a.sessionTmpId === v.tmpId));
+
   function addAssignment() {
-    const used = new Set(draft.assignments.map((a) => a.afterVideoOrder));
-    const nextOrder = draft.videos.map((_, i) => i + 1).find((o) => !used.has(o)) ?? draft.videos.length;
-    set({
-      assignments: [...draft.assignments, { tmpId: tmp(), afterVideoOrder: Math.max(1, nextOrder), title: "", questions: [] }],
-    });
+    if (!freeSession) return;
+    set({ assignments: [...draft.assignments, { tmpId: tmp(), sessionTmpId: freeSession.tmpId, title: "", questions: [] }] });
   }
 
-  function save(publish: boolean) {
-    saveCourse(toCourse({ ...draft, published: publish }, initial));
+  /** Removes a session together with its checkpoint. Says first what learners lose when it was already saved. */
+  function removeSession(v: DraftVideo, i: number) {
+    const checkpoint = draft.assignments.find((a) => a.sessionTmpId === v.tmpId);
+    if (v.id || checkpoint) {
+      const lost = v.id
+        ? `When you save, learners' progress, notes and discussion for this session are deleted${
+            checkpoint ? ", along with its checkpoint and their results for it" : ""
+          }.`
+        : "Its checkpoint is removed too.";
+      if (!window.confirm(`Remove session ${i + 1}${v.title ? ` “${v.title}”` : ""}?\n\n${lost}`)) return;
+    }
+    setDraft((d) => ({
+      ...d,
+      videos: d.videos.filter((x) => x.tmpId !== v.tmpId),
+      assignments: d.assignments.filter((a) => a.sessionTmpId !== v.tmpId),
+    }));
+  }
+
+  function removeAssignment(a: DraftAssignment) {
+    if (a.id && !window.confirm("Remove this checkpoint?\n\nWhen you save, learners' results for it are deleted.")) return;
+    setDraft((d) => ({ ...d, assignments: d.assignments.filter((x) => x.tmpId !== a.tmpId) }));
+  }
+
+  async function save(publish: boolean) {
+    const blockers = blockersFor(draft, publish);
+    if (blockers.length) {
+      setProblem({ title: publish ? "Fix these before it can go live:" : "Fix this before saving:", items: blockers });
+      return;
+    }
+    if (publish) {
+      const empty = draft.videos.map((v, i) => (hasMedia(v) ? 0 : i + 1)).filter(Boolean);
+      const which = empty.length === 1 ? `Session ${empty[0]} has` : `Sessions ${empty.join(", ")} have`;
+      if (empty.length && !window.confirm(`${which} no video or audio yet. Learners would see a placeholder player there.\n\nContinue anyway?`)) return;
+    }
+    // A sub-admin's save always goes to the main admin for approval, which unpublishes the topic until then.
+    if (!owner && initial?.published && !window.confirm("This topic is live. Saving sends it to the main admin for approval, and learners cannot open it until it is approved.\n\nSave anyway?")) return;
+
+    setProblem(null);
+    setSaving(true);
+    const takenSlugs = new Set(courses.filter((c) => c.id !== draft.id).map((c) => c.slug));
+    const result = await saveCourse(toCourse({ ...draft, published: publish }, initial, takenSlugs));
+    if (!result.ok) {
+      setSaving(false);
+      setProblem({ title: "The topic was not saved. Your edits are still here; try again.", items: [result.error ?? "The database did not accept it."] });
+      return;
+    }
     router.push("/admin/courses");
   }
 
@@ -311,7 +462,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
       </div>
 
       {/* Step content */}
-      <div>
+      <div className="min-w-0">
         <Card padded>
           <h2 className="font-heading text-xl font-bold text-heading">{STEPS[step].label}</h2>
 
@@ -362,6 +513,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                   </div>
                   <div className="space-y-2">
                     <UploadButton
+                      onBusy={trackUpload}
                       accept="image/*"
                       label="Upload image"
                       onFile={(f) => uploadThen(f, "course-thumbnails", (url) => set({ thumbnailUrl: url }))}
@@ -379,6 +531,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                 <Field label="Level">
                   <Select value={draft.level} onChange={(e) => set({ level: e.target.value as Course["level"] })}>
                     <option>Beginner</option>
+                    <option>Intermediate</option>
                     <option>Advanced</option>
                   </Select>
                 </Field>
@@ -452,24 +605,76 @@ export function CourseWizard({ initial }: { initial?: Course }) {
 
           {step === 1 && (
             <div className="mt-5 space-y-4">
-              <p className="text-sm text-muted">Add a video per session (Mux playback ID + duration). Order defines the roadmap.</p>
+              <p className="text-sm text-muted">
+                Each session is either a video (Mux playback ID) or an audio recording you upload. Order defines the roadmap.
+              </p>
               {draft.videos.map((v, i) => (
                 <div key={v.tmpId} className="rounded-xl border border-hair p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <span className="font-heading text-sm font-semibold text-heading">Session {i + 1}</span>
                     {draft.videos.length > 1 && (
-                      <button onClick={() => set({ videos: draft.videos.filter((_, idx) => idx !== i) })} className="text-faint hover:text-red-600">
+                      <button type="button" title="Remove session" onClick={() => removeSession(v, i)} className="text-faint hover:text-red-600">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     )}
                   </div>
                   <div className="space-y-2.5">
                     <Input value={v.title} onChange={(e) => setVideo(i, { title: e.target.value })} placeholder="Session title" />
+                    <div className="inline-flex rounded-full bg-surface-2 p-1" role="group" aria-label={`Session ${i + 1} format`}>
+                      {(["video", "audio"] as const).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          aria-pressed={v.media === m}
+                          onClick={() => setVideo(i, { media: m })}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium capitalize transition-colors",
+                            v.media === m ? "bg-v2-strong text-v2-on-strong" : "text-muted hover:text-heading",
+                          )}
+                        >
+                          {m === "video" ? <VideoIcon className="h-3.5 w-3.5" /> : <Headphones className="h-3.5 w-3.5" />}
+                          {m}
+                        </button>
+                      ))}
+                    </div>
                     <div className="grid gap-2.5 sm:grid-cols-2">
-                      <Input value={v.muxPlaybackId} onChange={(e) => setVideo(i, { muxPlaybackId: e.target.value })} placeholder="Mux playback ID" />
+                      {v.media === "video" ? (
+                        <Input value={v.muxPlaybackId} onChange={(e) => setVideo(i, { muxPlaybackId: e.target.value })} placeholder="Mux playback ID" />
+                      ) : (
+                        <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                          <UploadButton
+                            onBusy={trackUpload}
+                            accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac"
+                            label={v.audioUrl ? "Replace audio" : "Upload audio"}
+                            onFile={async (f) => {
+                              const [up, mins] = await Promise.all([uploadFile(f, "session-audio"), audioMinutes(f)]);
+                              if (up) patchVideo(v.tmpId, () => ({ audioUrl: up.url, audioName: up.name, ...(mins ? { durationMins: mins } : {}) }));
+                            }}
+                          />
+                          {v.audioUrl && (
+                            <span className="inline-flex min-w-0 items-center gap-2 text-sm text-heading">
+                              <span className="truncate">{v.audioName || "Audio file"}</span>
+                              <button
+                                type="button"
+                                title="Remove audio"
+                                onClick={() => setVideo(i, { audioUrl: null, audioName: "" })}
+                                className="shrink-0 text-faint hover:text-red-600"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <Input type="number" min={1} value={v.durationMins} onChange={(e) => setVideo(i, { durationMins: Number(e.target.value) })} placeholder="Duration (mins)" />
                     </div>
-                    <Input value={v.summary} onChange={(e) => setVideo(i, { summary: e.target.value })} placeholder="One-line summary (used by the LEAP AI tutor)" />
+                    {v.media === "audio" &&
+                      (v.audioUrl ? (
+                        <audio controls preload="none" src={v.audioUrl} className="h-10 w-full" />
+                      ) : (
+                        <p className="text-xs text-faint">MP3, M4A, WAV or OGG. Learners hear this in place of a video.</p>
+                      ))}
+                    <Input value={v.summary} onChange={(e) => setVideo(i, { summary: e.target.value })} placeholder="One-line summary (shown under the session title)" />
                   </div>
                 </div>
               ))}
@@ -495,13 +700,26 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                     className="min-w-[160px] flex-1"
                   />
                   <UploadButton
+                    onBusy={trackUpload}
                     accept=".pdf,.doc,.docx,application/pdf"
                     // notesPdfUrl is not in the bulk read any more; the stored file NAME is,
                     // so use that to decide whether a file already exists.
                     label={v.notesPdfName ? "Replace" : "Upload"}
                     onFile={(f) => uploadThen(f, "class-notes", (url, name) => setVideo(i, { notesPdfUrl: url, notesPdfName: name }))}
                   />
-                  {v.notesPdfName && <Badge variant="success"><Check className="h-3 w-3" /> Uploaded</Badge>}
+                  {v.notesPdfName && (
+                    <>
+                      <Badge variant="success"><Check className="h-3 w-3" /> Uploaded</Badge>
+                      <button
+                        type="button"
+                        title="Remove notes file"
+                        onClick={() => setVideo(i, { notesPdfUrl: null, notesPdfName: "" })}
+                        className="text-faint hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -509,7 +727,77 @@ export function CourseWizard({ initial }: { initial?: Course }) {
 
           {step === 3 && (
             <div className="mt-5 space-y-4">
-              <p className="text-sm text-muted">Paste each session&rsquo;s transcript. The LEAP AI tutor is grounded strictly in this text.</p>
+              <p className="text-sm text-muted">
+                Add as many files as you like to each session (PDF or Word). Learners find them in the Resources tab of that lesson.
+              </p>
+              {draft.videos.map((v, i) => (
+                <div key={v.tmpId} className="rounded-xl border border-hair p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="min-w-0 truncate font-heading text-sm font-semibold text-heading">
+                      Session {i + 1}
+                      {v.title ? ` · ${v.title}` : ""}
+                    </span>
+                    <UploadButton
+                      onBusy={trackUpload}
+                      multiple
+                      accept=".pdf,.doc,.docx,application/pdf"
+                      label="Add files"
+                      onFile={async (f) => {
+                        const up = await uploadFile(f, "resources");
+                        if (!up) return;
+                        const resource: Resource = {
+                          id: `r_${tmp()}`,
+                          title: up.name.replace(/\.[a-z0-9]+$/i, ""),
+                          type: /\.pdf$/i.test(up.name) ? "pdf" : "doc",
+                          url: up.url,
+                        };
+                        patchVideo(v.tmpId, (cur) => ({ resources: [...cur.resources, resource] }));
+                      }}
+                    />
+                  </div>
+                  {v.resources.length === 0 ? (
+                    <p className="mt-2 text-xs text-faint">No files yet.</p>
+                  ) : (
+                    <ul className="mt-3 space-y-2">
+                      {v.resources.map((r) => (
+                        <li key={r.id} className="flex items-center gap-2.5">
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-surface-2 text-muted">
+                            <FileText className="h-4 w-4" />
+                          </span>
+                          <Input
+                            value={r.title}
+                            aria-label="Resource name"
+                            onChange={(e) =>
+                              patchVideo(v.tmpId, (cur) => ({
+                                resources: cur.resources.map((x) => (x.id === r.id ? { ...x, title: e.target.value } : x)),
+                              }))
+                            }
+                            className="min-w-0 flex-1 py-2 text-sm"
+                          />
+                          <Badge variant="neutral" className="shrink-0 uppercase">{r.type}</Badge>
+                          <a href={r.url} target="_blank" rel="noopener noreferrer" title="Open file" className="shrink-0 text-faint hover:text-heading">
+                            <Eye className="h-4 w-4" />
+                          </a>
+                          <button
+                            type="button"
+                            title="Remove"
+                            onClick={() => patchVideo(v.tmpId, (cur) => ({ resources: cur.resources.filter((x) => x.id !== r.id) }))}
+                            className="shrink-0 text-faint hover:text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="mt-5 space-y-4">
+              <p className="text-sm text-muted">Paste each session&rsquo;s transcript. The LEAP AI tutor answers only from this text, so a session with no transcript has no tutor.</p>
               {draft.videos.map((v, i) => (
                 <Field key={v.tmpId} label={`Session ${i + 1}${v.title ? ` · ${v.title}` : ""}`}>
                   <Textarea value={v.transcript} onChange={(e) => setVideo(i, { transcript: e.target.value })} placeholder="Full transcript…" />
@@ -518,7 +806,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
             </div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <div className="mt-5 space-y-5">
               <p className="text-sm text-muted">
                 Add checkpoints wherever you like — choose the session each one unlocks after. Mark the correct option per question.
@@ -530,14 +818,22 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                 <AssignmentEditor
                   key={a.tmpId}
                   assignment={a}
-                  videoCount={draft.videos.length}
+                  sessions={draft.videos.map((v) => ({
+                    tmpId: v.tmpId,
+                    taken: draft.assignments.some((x) => x !== a && x.sessionTmpId === v.tmpId),
+                  }))}
                   onChange={(patch) => setAssignment(i, patch)}
-                  onRemove={() => set({ assignments: draft.assignments.filter((_, idx) => idx !== i) })}
+                  onRemove={() => removeAssignment(a)}
                 />
               ))}
-              <Button variant="outline" onClick={addAssignment} disabled={draft.videos.length === 0}>
-                <Plus className="h-4 w-4" /> Add checkpoint
-              </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button variant="outline" onClick={addAssignment} disabled={!freeSession}>
+                  <Plus className="h-4 w-4" /> Add checkpoint
+                </Button>
+                {!freeSession && draft.assignments.length > 0 && (
+                  <span className="text-xs text-faint">Every session already has a checkpoint.</span>
+                )}
+              </div>
 
               {/* Final workbook */}
               <div className="rounded-xl border border-hair p-4">
@@ -550,6 +846,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <UploadButton
+                    onBusy={trackUpload}
                     accept=".pdf,.doc,.docx,application/pdf"
                     label={draft.workbookUrl ? "Replace workbook" : "Upload workbook"}
                     onFile={(f) => uploadThen(f, "workbooks", (url, name) => set({ workbookUrl: url, workbookName: name }))}
@@ -567,11 +864,11 @@ export function CourseWizard({ initial }: { initial?: Course }) {
             </div>
           )}
 
-          {step === 5 && (
+          {step === 6 && (
             <div className="mt-5 space-y-4">
               <div className="rounded-xl border border-hair bg-surface-2 p-4">
                 <p className="font-heading text-lg font-bold text-heading">{draft.title || "Untitled topic"}</p>
-                <p className="mt-1 text-sm text-muted">{draft.description || "No description."}</p>
+                <p className="mt-1 whitespace-pre-line text-sm text-muted">{draft.description || "No description."}</p>
                 <div className="mt-3 flex flex-wrap gap-2 text-sm">
                   {draft.categories.map((c) => (
                     <Badge key={c} variant="navy" className="capitalize">{c}</Badge>
@@ -582,11 +879,24 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                 <ul className="mt-3 space-y-1 text-sm text-muted">
                   <li>• {draft.videos.length} sessions ({draft.videos.reduce((s, v) => s + (v.durationMins || 0), 0)} mins)</li>
                   <li>• {draft.assignments.filter((a) => a.questions.some((q) => q.prompt.trim())).length} checkpoints</li>
+                  <li>• {draft.videos.filter((v) => v.media === "audio" && v.audioUrl).length} audio sessions</li>
+                  <li>• {draft.videos.reduce((s, v) => s + v.resources.length, 0)} resource files</li>
                   <li>• Workbook: {draft.workbookName ?? "none"}</li>
                   <li>• Access: {draft.accessDurationDays > 0 ? `${draft.accessDurationDays} days after purchase` : "1 year after purchase"}</li>
                   <li>• Instructor: {draft.instructorName || "—"}</li>
                 </ul>
               </div>
+
+              {problem && (
+                <div role="alert" className="rounded-[14px] border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <p className="font-semibold">{problem.title}</p>
+                  <ul className="mt-1.5 list-disc space-y-1 pl-5">
+                    {problem.items.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {!owner && (
                 <div className="rounded-[14px] bg-v2-gold-soft p-4 text-sm text-heading">
@@ -595,12 +905,15 @@ export function CourseWizard({ initial }: { initial?: Course }) {
               )}
 
               <div className="flex flex-wrap gap-3">
-                <Button onClick={() => save(true)}>
-                  <Check className="h-4 w-4" /> {owner ? "Publish topic" : "Submit for approval"}
+                <Button onClick={() => save(true)} disabled={saving || uploading > 0}>
+                  <Check className="h-4 w-4" /> {saving ? "Saving…" : owner ? "Publish topic" : "Submit for approval"}
                 </Button>
-                <Button variant="outline" onClick={() => save(false)}>
+                <Button variant="outline" onClick={() => save(false)} disabled={saving || uploading > 0}>
                   Save as draft
                 </Button>
+                {uploading > 0 && (
+                  <span className="self-center text-sm text-muted">Waiting for {uploading === 1 ? "an upload" : "uploads"} to finish…</span>
+                )}
               </div>
             </div>
           )}
@@ -622,23 +935,47 @@ export function CourseWizard({ initial }: { initial?: Course }) {
   );
 }
 
-function UploadButton({ accept, label, onFile }: { accept: string; label: string; onFile: (f: File) => void }) {
+function UploadButton({
+  accept,
+  label,
+  onFile,
+  multiple,
+  onBusy,
+}: {
+  accept: string;
+  label: string;
+  /** Called once per chosen file, one after another; the button waits for a returned promise. */
+  onFile: (f: File) => void | Promise<void>;
+  multiple?: boolean;
+  /** Told when an upload starts (true) and when it has finished (false). */
+  onBusy?: (busy: boolean) => void;
+}) {
   const ref = React.useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = React.useState(false);
   return (
     <>
       <input
         ref={ref}
         type="file"
         accept={accept}
+        multiple={multiple}
         className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onFile(f);
+        onChange={async (e) => {
+          const files = Array.from(e.target.files ?? []);
           e.target.value = "";
+          if (!files.length) return;
+          setBusy(true);
+          onBusy?.(true);
+          try {
+            for (const f of files) await onFile(f);
+          } finally {
+            setBusy(false);
+            onBusy?.(false);
+          }
         }}
       />
-      <Button type="button" variant="outline" size="sm" onClick={() => ref.current?.click()}>
-        <Upload className="h-4 w-4" /> {label}
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => ref.current?.click()}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {busy ? "Uploading…" : label}
       </Button>
     </>
   );
@@ -646,12 +983,13 @@ function UploadButton({ accept, label, onFile }: { accept: string; label: string
 
 function AssignmentEditor({
   assignment,
-  videoCount,
+  sessions,
   onChange,
   onRemove,
 }: {
   assignment: DraftAssignment;
-  videoCount: number;
+  /** Every session in roadmap order; `taken` = another checkpoint already follows it. */
+  sessions: { tmpId: string; taken: boolean }[];
   onChange: (patch: Partial<DraftAssignment>) => void;
   onRemove: () => void;
 }) {
@@ -674,12 +1012,12 @@ function AssignmentEditor({
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-heading">Checkpoint after session</span>
           <Select
-            value={assignment.afterVideoOrder}
-            onChange={(e) => onChange({ afterVideoOrder: Number(e.target.value) })}
+            value={assignment.sessionTmpId}
+            onChange={(e) => onChange({ sessionTmpId: e.target.value })}
             className="w-20 py-1.5"
           >
-            {Array.from({ length: Math.max(1, videoCount) }, (_, i) => i + 1).map((o) => (
-              <option key={o} value={o}>{o}</option>
+            {sessions.map((s, i) => (
+              <option key={s.tmpId} value={s.tmpId} disabled={s.taken}>{i + 1}</option>
             ))}
           </Select>
         </div>
@@ -738,7 +1076,10 @@ function AssignmentEditor({
                     onChange={(e) => {
                       const options = q.options.map((o, idx) => (idx === oi ? e.target.value : o));
                       const patch: Partial<DraftQuestion> = { options };
-                      if (q.correctAnswer === opt) patch.correctAnswer = e.target.value;
+                      // Keeps the marked answer in step when its text is edited. `opt &&`: an
+                      // empty option equals the empty "no answer marked yet", which made the
+                      // first option typed into a new question the correct answer by itself.
+                      if (opt && q.correctAnswer === opt) patch.correctAnswer = e.target.value;
                       update(i, patch);
                     }}
                     placeholder={`Option ${oi + 1}`}

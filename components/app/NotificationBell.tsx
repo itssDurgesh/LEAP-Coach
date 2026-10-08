@@ -13,10 +13,11 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
   if (!currentUser) return null;
 
   // Notifications come from per-video discussions; deep-link to that video's player.
-  const linkFor = (videoId?: string | null) => {
+  const linkFor = (videoId?: string | null, commentId?: string | null) => {
     if (videoId) {
       const found = getVideoById(videoId);
-      if (found) return `/learn/${found.course.id}/${found.video.order}`;
+      if (found)
+        return `/learn/${found.course.id}/${found.video.order}?tab=discussion${commentId ? `&c=${commentId}` : ""}`;
     }
     return currentUser.isAdmin ? "/admin" : "/dashboard";
   };
@@ -27,7 +28,8 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
   const unread = mine.filter((n) => !n.read).length;
 
   return (
-    <div className="relative">
+    // On phones the panel is placed against the header bar, not the bell, so it spans the screen instead of running off the left edge.
+    <div className="sm:relative">
       <button
         onClick={() => setOpen((v) => !v)}
         className={cn("relative grid h-10 w-10 place-items-center rounded-xl text-heading hover:bg-surface-2", buttonClassName)}
@@ -44,7 +46,7 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-2xl border border-hair bg-card shadow-card-hover">
+          <div className="absolute inset-x-4 top-full z-20 mt-2 overflow-hidden sm:inset-x-auto sm:right-0 sm:top-auto sm:w-80 rounded-2xl border border-hair bg-card shadow-card-hover">
             <div className="flex items-center justify-between border-b border-hair px-4 py-3">
               <p className="font-heading font-semibold text-heading">Notifications</p>
               {unread > 0 && (
@@ -63,7 +65,7 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
               {mine.map((n) => (
                 <Link
                   key={n.id}
-                  href={linkFor(n.videoId)}
+                  href={linkFor(n.videoId, n.commentId)}
                   onClick={() => {
                     markNotificationRead(n.id);
                     setOpen(false);

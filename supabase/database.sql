@@ -133,7 +133,9 @@ create table if not exists public.videos (
   summary          text,
   notes_pdf_url    text,
   notes_file_url   text,                        -- uploaded class-notes file
-  resources        jsonb default '[]'
+  audio_url        text,                        -- set when the session is an audio recording, not a video
+  audio_name       text,                        -- the uploaded audio file's name
+  resources        jsonb default '[]'           -- per-session files / links: [{id,title,type,url}]
 );
 
 create table if not exists public.assignments (
@@ -572,6 +574,8 @@ alter table public.courses       add column if not exists pending_approval boole
 alter table public.courses       add column if not exists submitted_by text;
 alter table public.courses       add column if not exists access_duration_days int;
 alter table public.videos        add column if not exists notes_file_url text;
+alter table public.videos        add column if not exists audio_url text;
+alter table public.videos        add column if not exists audio_name text;
 alter table public.articles      add column if not exists images jsonb default '[]';
 alter table public.articles      add column if not exists archived boolean default false;
 alter table public.notifications add column if not exists video_id text;

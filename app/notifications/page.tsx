@@ -80,7 +80,11 @@ function Notifications() {
           return (
             <Link
               key={n.id}
-              href={found ? `/learn/${found.course.id}/${found.video.order}` : "/dashboard"}
+              href={
+                found
+                  ? `/learn/${found.course.id}/${found.video.order}?tab=discussion${n.commentId ? `&c=${n.commentId}` : ""}`
+                  : "/dashboard"
+              }
               onClick={() => markNotificationRead(n.id)}
               className={cn(ROW, n.read ? "hover:bg-surface" : "bg-v2-gold-soft")}
             >

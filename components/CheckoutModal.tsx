@@ -46,7 +46,7 @@ interface CheckoutModalProps {
 }
 
 export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bundleCategories }: CheckoutModalProps) {
-  const { currentUser, purchaseCourse, subscribeAllAccess, enrollFree, purchaseBundle, pricing } = useApp();
+  const { currentUser, purchaseCourse, subscribeAllAccess, enrollFree, purchaseBundle, pricing, supabaseMode } = useApp();
   const profileComplete = isProfileComplete(currentUser);
   // Pay-the-difference credits only ACTIVE catalogs (an expired one is charged again),
   // mirroring the authoritative server price in lib/payments/server.ts.
@@ -64,6 +64,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
   const [couponInput, setCouponInput] = React.useState("");
   const [applying, setApplying] = React.useState(false);
   const [couponError, setCouponError] = React.useState("");
+  const [payError, setPayError] = React.useState("");
   const [applied, setApplied] = React.useState<{ code: string; discountPercent: number; finalAmountInr: number } | null>(null);
 
   React.useEffect(() => {
@@ -74,6 +75,7 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
       setCouponInput("");
       setApplied(null);
       setCouponError("");
+      setPayError("");
     }
   }, [open, forcePlan, course]);
 
@@ -162,21 +164,35 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
         }, 2800);
         return;
       }
-      // No server (pure mock) or route refused (live mode) → local-only grant.
-      grantAccess(false);
+      localGrantOrFail(r?.error);
     } catch {
-      grantAccess(false);
+      localGrantOrFail();
     }
+  }
+
+  /** The payment did not start: say so and give the Pay button back. Nothing was charged. */
+  function failPay(message?: string) {
+    setPayError(message || "We couldn't start the payment. Nothing was charged. Please try again in a moment.");
+    setStatus("idle");
+  }
+
+  // A grant made only in this browser is real only where there is no database (the
+  // local demo). With one, the purchase tables are written by the server alone, so a
+  // local grant showed "Payment successful" for access that was gone on the next reload.
+  function localGrantOrFail(message?: string) {
+    if (supabaseMode) failPay(message);
+    else grantAccess(false);
   }
 
   async function pay() {
     if (!profileComplete) return; // gate below blocks this, but guard anyway
+    setPayError("");
     setStatus("processing");
 
     if (!RAZORPAY_LIVE) return mockPay();
 
     // 1) Create a real order server-side (amount is authoritative there).
-    let order: { orderId?: string; amount?: number; currency?: string; keyId?: string; fallback?: boolean } | null;
+    let order: { orderId?: string; amount?: number; currency?: string; keyId?: string; fallback?: boolean; error?: string } | null;
     try {
       const res = await fetch("/api/payments/razorpay/order", {
         method: "POST",
@@ -192,10 +208,17 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
     } catch {
       order = null;
     }
-    if (!order || order.fallback || !order.orderId) return mockPay();
+    // `fallback` = the server has no Razorpay keys, so this is a demo checkout. Any
+    // other missing order on a real setup is a failure (signed out, rate limited,
+    // "you already own this topic"…), not a reason to hand out a pretend purchase.
+    if (order?.fallback || (!order?.orderId && !supabaseMode)) return mockPay();
+    if (!order?.orderId) return failPay(order?.error);
 
     const ready = await loadRazorpayScript();
-    if (!ready || !window.Razorpay) return mockPay();
+    if (!ready || !window.Razorpay) {
+      if (!supabaseMode) return mockPay();
+      return failPay("The payment window could not load. Check your connection or ad blocker, then try again. Nothing was charged.");
+    }
 
     // 2) Open Razorpay Checkout; 3) verify the signature server-side before granting.
     const rzp = new window.Razorpay({
@@ -479,6 +502,12 @@ export function CheckoutModal({ course, open, onClose, onComplete, forcePlan, bu
                 </span>
               </div>
             </div>
+
+            {payError && (
+              <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
+                {payError}
+              </p>
+            )}
 
             <Button onClick={pay} loading={status === "processing"} className="mt-5 w-full" size="lg">
               {status === "processing" ? (

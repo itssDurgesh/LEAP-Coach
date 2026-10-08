@@ -36,8 +36,11 @@ export async function POST(req: NextRequest) {
 
   const admin = createClient(url, service, { auth: { persistSession: false } });
 
-  const { data: me } = await admin.from("profiles").select("is_admin").eq("id", userId).maybeSingle();
-  if (!me?.is_admin) return NextResponse.json({ ok: false, error: "Admin access required." }, { status: 403 });
+  // The owner, or a sub-admin holding the "payments" permission (the screen this
+  // button is on). It used to accept any admin, whatever their permissions.
+  const { data: me } = await admin.from("profiles").select("is_admin, permissions").eq("id", userId).maybeSingle();
+  const allowed = !!me?.is_admin && (me.permissions == null || (me.permissions as string[]).includes("payments"));
+  if (!allowed) return NextResponse.json({ ok: false, error: "Payments access required." }, { status: 403 });
 
   const { data: pay } = await admin.from("payments").select("*").eq("id", body.paymentId).maybeSingle();
   if (!pay) return NextResponse.json({ ok: false, error: "Payment not found." }, { status: 404 });

@@ -250,7 +250,8 @@ function SessionForm({
           <Input
             type="datetime-local"
             value={toLocalInput(form.startsAt)}
-            onChange={(e) => set({ startsAt: new Date(e.target.value).toISOString() })}
+            // Clearing the field gives "", which is not a date: keep the last valid one.
+            onChange={(e) => e.target.value && set({ startsAt: new Date(e.target.value).toISOString() })}
           />
         </Field>
         <Field label="Duration (mins)">

@@ -6,7 +6,6 @@ import { Heart, Pencil, Trash2, Shield, Send, Reply, MessageCircle } from "lucid
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
-import { Textarea } from "@/components/ui/Field";
 import { MentionInput, mentionIdsFromText, MentionUser } from "@/components/discussion/MentionInput";
 import { MentionText } from "@/components/discussion/MentionText";
 import { useApp } from "@/lib/store/AppProvider";
@@ -145,7 +144,8 @@ function CommentItem({
   }
 
   return (
-    <div className="flex gap-2.5">
+    // The id is what a notification link scrolls to (?c=<comment id> on the lesson page).
+    <div id={`vc-${comment.id}`} className="flex gap-2.5">
       <Link href={profileHref(author?.username, comment.userId)} className="shrink-0 hover:opacity-90">
         <Avatar src={author?.avatarUrl} name={comment.userName} size={36} />
       </Link>
@@ -167,9 +167,9 @@ function CommentItem({
           </div>
           {editing ? (
             <div className="mt-1.5">
-              <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} className="min-h-[52px] bg-card" />
+              <MentionInput value={draft} onChange={setDraft} users={mentionUsers} rows={2} />
               <div className="mt-2 flex gap-2">
-                <Button size="sm" onClick={() => { editVideoComment(comment.id, draft); setEditing(false); }}>Save</Button>
+                <Button size="sm" onClick={() => { editVideoComment(comment.id, draft, mentionIdsFromText(draft, mentionUsers)); setEditing(false); }}>Save</Button>
                 <Button size="sm" variant="ghost" onClick={() => { setDraft(comment.text); setEditing(false); }}>Cancel</Button>
               </div>
             </div>

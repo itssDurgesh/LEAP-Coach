@@ -17,6 +17,18 @@ export interface GrantInput {
   categories?: string[];
 }
 
+/**
+ * Awaits a database call and throws if it was refused. supabase-js resolves with
+ * `{ error }` instead of throwing, so without this a failed write looked like a
+ * successful one: a payment was marked "granted", and the buyer emailed that their
+ * access was active, when the access rows had never been written.
+ */
+async function must<T extends { error: unknown }>(q: PromiseLike<T>): Promise<T> {
+  const r = await q;
+  if (r.error) throw r.error;
+  return r;
+}
+
 /** Generate our receipt id, e.g. rcpt_lt3k9f2a. */
 function receiptId(): string {
   return `rcpt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -35,10 +47,12 @@ export async function grantAccess(
   const setAllAccess = async () => {
     const validUntil = new Date();
     validUntil.setFullYear(validUntil.getFullYear() + 1);
-    await admin
-      .from("profiles")
-      .update({ subscription_plan: "all_access", subscription_valid_until: validUntil.toISOString() })
-      .eq("id", userId);
+    await must(
+      admin
+        .from("profiles")
+        .update({ subscription_plan: "all_access", subscription_valid_until: validUntil.toISOString() })
+        .eq("id", userId),
+    );
   };
 
   // Grant/refresh a catalog pass, stamping granted_at=now so a re-purchase of an
@@ -51,21 +65,22 @@ export async function grantAccess(
 
   try {
     if (plan === "all") {
-      await grantPasses(CATS);
+      await must(grantPasses(CATS));
       await setAllAccess();
       if (courseId)
-        await admin
-          .from("enrollments")
-          .upsert({ user_id: userId, course_id: courseId, enrolled_at: now }, { onConflict: "user_id,course_id" });
+        await must(
+          admin
+            .from("enrollments")
+            .upsert({ user_id: userId, course_id: courseId, enrolled_at: now }, { onConflict: "user_id,course_id" }),
+        );
     } else if (plan === "bundle") {
       if (!categories.length) return { ok: false, error: "Nothing to grant." };
-      await grantPasses(categories);
+      await must(grantPasses(categories));
       // Promote to all-access only when all THREE catalogs are currently active
       // (an expired pass mustn't grant blanket access — the learner must re-buy it).
-      const { data: owned } = await admin
-        .from("category_passes")
-        .select("category, granted_at")
-        .eq("user_id", userId);
+      const { data: owned } = await must(
+        admin.from("category_passes").select("category, granted_at").eq("user_id", userId),
+      );
       const cutoff = Date.now() - ACCESS_MS;
       const active = new Set(
         (owned ?? [])
@@ -75,12 +90,16 @@ export async function grantAccess(
       if (CATS.every((c) => active.has(c))) await setAllAccess();
     } else if (courseId) {
       // Stamp purchased_at=now so re-buying an expired topic restarts its 1-year window.
-      await admin
-        .from("course_purchases")
-        .upsert({ user_id: userId, course_id: courseId, purchased_at: now }, { onConflict: "user_id,course_id" });
-      await admin
-        .from("enrollments")
-        .upsert({ user_id: userId, course_id: courseId, enrolled_at: now }, { onConflict: "user_id,course_id" });
+      await must(
+        admin
+          .from("course_purchases")
+          .upsert({ user_id: userId, course_id: courseId, purchased_at: now }, { onConflict: "user_id,course_id" }),
+      );
+      await must(
+        admin
+          .from("enrollments")
+          .upsert({ user_id: userId, course_id: courseId, enrolled_at: now }, { onConflict: "user_id,course_id" }),
+      );
     } else {
       return { ok: false, error: "Nothing to grant." };
     }
@@ -123,28 +142,33 @@ export async function processPayment(admin: SupabaseClient, input: ProcessInput)
 
   // 1) Record (idempotent on razorpay_payment_id). ignoreDuplicates → [] if it existed.
   const newId = receiptId();
-  const { data: inserted } = await admin
-    .from("payments")
-    .upsert(
-      {
-        id: newId,
-        user_id: userId,
-        razorpay_order_id: razorpayOrderId,
-        razorpay_payment_id: razorpayPaymentId,
-        plan: plan ?? null,
-        course_id: courseId || null,
-        categories,
-        coupon_code: couponCode || null,
-        amount_inr: amountInr,
-        currency: "INR",
-        status: "captured",
-        grant_status: "pending",
-        source,
-        notes,
-      },
-      { onConflict: "razorpay_payment_id", ignoreDuplicates: true },
-    )
-    .select("id, grant_status");
+  // A receipt that cannot be written is thrown, not skipped: /verify then tells the
+  // buyer the payment is being confirmed and the webhook retries, instead of access
+  // being granted with no receipt behind it.
+  const { data: inserted } = await must(
+    admin
+      .from("payments")
+      .upsert(
+        {
+          id: newId,
+          user_id: userId,
+          razorpay_order_id: razorpayOrderId,
+          razorpay_payment_id: razorpayPaymentId,
+          plan: plan ?? null,
+          course_id: courseId || null,
+          categories,
+          coupon_code: couponCode || null,
+          amount_inr: amountInr,
+          currency: "INR",
+          status: "captured",
+          grant_status: "pending",
+          source,
+          notes,
+        },
+        { onConflict: "razorpay_payment_id", ignoreDuplicates: true },
+      )
+      .select("id, grant_status"),
+  );
 
   let paymentId: string;
   let existed: boolean;
@@ -154,12 +178,11 @@ export async function processPayment(admin: SupabaseClient, input: ProcessInput)
     grantStatus = (inserted[0].grant_status as ProcessResult["grantStatus"]) ?? "pending";
     existed = false;
   } else {
-    const { data: existing } = await admin
-      .from("payments")
-      .select("id, grant_status")
-      .eq("razorpay_payment_id", razorpayPaymentId)
-      .maybeSingle();
-    paymentId = (existing?.id as string) ?? newId;
+    const { data: existing } = await must(
+      admin.from("payments").select("id, grant_status").eq("razorpay_payment_id", razorpayPaymentId).maybeSingle(),
+    );
+    if (!existing?.id) throw new Error(`payment ${razorpayPaymentId} could not be recorded`);
+    paymentId = existing.id as string;
     grantStatus = (existing?.grant_status as ProcessResult["grantStatus"]) ?? "pending";
     existed = true;
   }
@@ -172,7 +195,10 @@ export async function processPayment(admin: SupabaseClient, input: ProcessInput)
   // 2) Grant access, then record the outcome.
   const g = await grantAccess(admin, userId, { plan, courseId, categories });
   const finalStatus: ProcessResult["grantStatus"] = g.ok ? "granted" : "grant_failed";
-  await admin.from("payments").update({ grant_status: finalStatus }).eq("id", paymentId);
+  // Access is already decided; if only this label fails, the receipt stays "pending"
+  // and shows under Needs attention, where Retry sets it right.
+  const { error: statusError } = await admin.from("payments").update({ grant_status: finalStatus }).eq("id", paymentId);
+  if (statusError) console.error("[grant] could not record grant status", paymentId, statusError);
 
   // 3) Count the coupon once, only on the first successful fulfilment.
   if (g.ok && !existed && couponCode) {

@@ -219,7 +219,7 @@ export interface Payment {
 export interface Resource {
   id: string;
   title: string;
-  type: "book" | "article" | "link" | "pdf";
+  type: "book" | "article" | "link" | "pdf" | "doc"; // pdf / doc = a file the admin uploaded
   author?: string;
   url: string;
 }
@@ -231,6 +231,8 @@ export interface Video {
   order: number; // 1-based
   durationSeconds: number;
   muxPlaybackId: string; // mock for now
+  audioUrl?: string | null; // set when the session is an audio recording instead of a video
+  audioName?: string | null; // the uploaded audio file's name
   transcript: string;
   summary: string; // short summary used for AI context + roadmap
   notesPdfName?: string; // notes file name

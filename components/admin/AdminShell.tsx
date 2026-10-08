@@ -178,7 +178,8 @@ export function AdminShell({
       )}
 
       <div className="flex min-h-screen min-w-0 flex-col">
-        <header className="flex items-center justify-between gap-4 px-5 pb-1 pt-7 sm:px-6 lg:pr-8">
+        {/* Below the desktop layout the bar stays on screen, so the Menu button is always in reach. */}
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-4 bg-surface px-5 pb-3 pt-4 sm:px-6 lg:static lg:bg-transparent lg:pb-1 lg:pr-8 lg:pt-7">
           <div className="flex min-w-0 items-center gap-3">
             <button
               onClick={() => setOpen(true)}

@@ -23,6 +23,12 @@ import { GEMINI_MODEL } from "./config";
  */
 const THINKING_BUDGET = 128;
 
+/**
+ * The longest a learner waits for one reply, retries included. There was no limit:
+ * a stalled call held the chat on its typing dots until the platform cut it off.
+ */
+const DEADLINE_MS = 25_000;
+
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 export interface GeminiRequest {
@@ -67,8 +73,9 @@ function buildBody(req: GeminiRequest, withThinkingConfig: boolean): string {
 export async function generateContent(req: GeminiRequest): Promise<GeminiReply | null> {
   const headers = { "Content-Type": "application/json", "x-goog-api-key": req.key };
 
+  const signal = AbortSignal.timeout(DEADLINE_MS); // one clock for the call and its retries
   const send = (withThinkingConfig: boolean) =>
-    fetch(ENDPOINT, { method: "POST", headers, body: buildBody(req, withThinkingConfig) });
+    fetch(ENDPOINT, { method: "POST", headers, body: buildBody(req, withThinkingConfig), signal });
 
   try {
     let res = await send(true);

@@ -183,7 +183,8 @@ function CourseDetail() {
           </div>
 
           <h1 className="text-balance font-heading text-[32px] font-bold leading-[38px] tracking-[-0.015em] text-white">{course.title}</h1>
-          <p className="text-[15px] leading-6 text-v2-on-navy-muted">{course.description}</p>
+          {/* pre-line keeps the line breaks and blank lines the admin typed in Content Studio. */}
+          <p className="whitespace-pre-line text-[15px] leading-6 text-v2-on-navy-muted">{course.description}</p>
 
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-medium leading-5 text-white">
             <Star className="h-3.5 w-3.5 fill-gold-400 text-gold-400" />

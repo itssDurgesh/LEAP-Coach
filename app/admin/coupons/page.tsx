@@ -163,7 +163,9 @@ function Coupons() {
       active: true,
       maxRedemptions: form.maxRedemptions ? Math.max(1, Number(form.maxRedemptions)) : null,
       redemptions: 0,
-      expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
+      // The end of the chosen day, local time. A bare date parses as midnight UTC,
+      // which ended the coupon at 5:30 am India time on its last day.
+      expiresAt: form.expiresAt ? new Date(`${form.expiresAt}T23:59:59`).toISOString() : null,
       createdAt: new Date().toISOString(),
     });
     setForm({ code: "", discountPercent: 10, category: "all", maxRedemptions: "", expiresAt: "" });
