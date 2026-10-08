@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Award, Check, CheckCircle2, ClipboardCheck, Clock, Download, FileText, Lock, Play, Star } from "lucide-react";
+import { ArrowLeft, ArrowRight, Award, Check, CheckCircle2, ChevronDown, ClipboardCheck, Clock, Download, FileText, Lock, Play, Star } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { CourseThumb } from "@/components/CourseThumb";
 import { CheckoutModal } from "@/components/CheckoutModal";
@@ -24,6 +24,52 @@ const DOT = "grid h-8 w-8 shrink-0 place-items-center rounded-full";
 const CHIP = "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold leading-[18px]";
 const pad = (n: number) => String(n).padStart(2, "0");
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * The topic's description inside the navy card. A full description (several
+ * paragraphs and a numbered list) made the card taller than the screen, so it
+ * opens on the first paragraph, at most four lines, with "Read more" for the rest.
+ * pre-line keeps the line breaks and blank lines the admin typed in Content Studio.
+ */
+function TopicDescription({ text }: { text: string }) {
+  const full = text.trim();
+  const intro = full.split(/\n\s*\n/)[0];
+  const [open, setOpen] = React.useState(false);
+  // The first paragraph alone can run past four lines; only the browser knows, and it changes with the width.
+  const [clipped, setClipped] = React.useState(false);
+  const ref = React.useRef<HTMLParagraphElement>(null);
+
+  React.useEffect(() => {
+    const el = ref.current;
+    if (open || !el) return;
+    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [open, intro]);
+
+  if (!full) return null;
+  const hasMore = intro.length < full.length || clipped;
+  return (
+    <div>
+      <p ref={ref} className={cn("whitespace-pre-line text-[15px] leading-6 text-v2-on-navy-muted", !open && "line-clamp-4")}>
+        {open ? full : intro}
+      </p>
+      {(open || hasMore) && (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="mt-1.5 inline-flex items-center gap-1 rounded text-sm font-semibold text-gold-400 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
+        >
+          {open ? "Show less" : "Read more"}
+          <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", open && "rotate-180")} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function CourseDetailPage() {
   return (
@@ -183,8 +229,7 @@ function CourseDetail() {
           </div>
 
           <h1 className="text-balance font-heading text-[32px] font-bold leading-[38px] tracking-[-0.015em] text-white">{course.title}</h1>
-          {/* pre-line keeps the line breaks and blank lines the admin typed in Content Studio. */}
-          <p className="whitespace-pre-line text-[15px] leading-6 text-v2-on-navy-muted">{course.description}</p>
+          <TopicDescription text={course.description} />
 
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-medium leading-5 text-white">
             <Star className="h-3.5 w-3.5 fill-gold-400 text-gold-400" />
