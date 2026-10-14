@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Outfit, Inter, Bricolage_Grotesque, Figtree } from "next/font/google";
+import localFont from "next/font/local";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -10,16 +10,20 @@ import { SaveErrorBanner } from "@/components/app/SaveErrorBanner";
 import { isClerkConfigured } from "@/lib/clerk/config";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
-const outfit = Outfit({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
+// Self-hosted rather than next/font/google: Google Fonts sometimes answers with
+// `/l/font?kit=…&skey=…` URLs, which Turbopack cannot parse, and the build fails
+// (vercel/next.js#99114). These are the latin variable files Google serves for the
+// same requests, so each weight range below matches the weights we asked for before.
+const outfit = localFont({
+  src: "./fonts/outfit-latin.woff2",
+  weight: "300 800",
   display: "swap",
   variable: "--font-outfit",
 });
 
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+const inter = localFont({
+  src: "./fonts/inter-latin.woff2",
+  weight: "400 700",
   display: "swap",
   variable: "--font-inter",
 });
@@ -28,17 +32,17 @@ const inter = Inter({
 // families above for these; public and admin pages keep Outfit + Inter.
 // `preload: false` because this layout also serves the public pages, which do not
 // use them: they are fetched only when a learner page asks for them.
-const bricolage = Bricolage_Grotesque({
-  subsets: ["latin"],
-  weight: ["600", "700"],
+const bricolage = localFont({
+  src: "./fonts/bricolage-grotesque-latin.woff2",
+  weight: "600 700",
   display: "swap",
   preload: false,
   variable: "--font-bricolage",
 });
 
-const figtree = Figtree({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+const figtree = localFont({
+  src: "./fonts/figtree-latin.woff2",
+  weight: "400 700",
   display: "swap",
   preload: false,
   variable: "--font-figtree",
