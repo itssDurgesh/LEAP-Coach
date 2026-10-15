@@ -18,14 +18,6 @@ const CouponSchema = z.object({
 export async function POST(req: NextRequest) {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return NextResponse.json({ ok: false, fallback: true });
 
-  // Throttle coupon-preview calls (per IP) to prevent code-guessing / enumeration.
-  const limited = enforceRate(req, "payment", null, { ok: false });
-  if (limited) return limited;
-
-  const parsed = await parseJson(req, CouponSchema);
-  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
-  const body = parsed.data;
-
   // Bind to the buyer so a bundle/upgrade preview prices the difference correctly.
   let userId: string | undefined;
   if (isClerkConfigured) {
@@ -36,6 +28,15 @@ export async function POST(req: NextRequest) {
       userId = undefined;
     }
   }
+
+  // Throttle coupon-preview calls to prevent code-guessing / enumeration. Per user, so
+  // a room of learners on one Wi-Fi doesn't share a single bucket; per IP when signed out.
+  const limited = enforceRate(req, "payment", userId, { ok: false });
+  if (limited) return limited;
+
+  const parsed = await parseJson(req, CouponSchema);
+  if (!parsed.ok) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
+  const body = parsed.data;
 
   const q = await quotePrice({
     plan: body.plan,

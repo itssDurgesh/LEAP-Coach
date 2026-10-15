@@ -21,8 +21,20 @@ export async function POST(req: NextRequest) {
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
   if (!keyId || !keySecret) return NextResponse.json({ ok: false, fallback: true });
 
-  // Throttle to curb abuse of the signature-verify + Razorpay-fetch path.
-  const limited = enforceRate(req, "payment", null, { ok: false });
+  // Identify the buyer from their Clerk session (cookie supplied by clerkMiddleware)
+  // first, so the throttle below counts per person. Keyed by IP, everyone paying from
+  // one shared Wi-Fi shared one bucket, so a busy room could trip it — and a 429 here
+  // means the learner was charged but not granted access.
+  let userId: string | null = null;
+  try {
+    ({ userId } = await auth());
+  } catch {
+    return NextResponse.json({ ok: false, error: "Auth not configured." }, { status: 500 });
+  }
+
+  // Throttle to curb abuse of the signature-verify + Razorpay-fetch path
+  // (per user; falls back to per IP when signed out).
+  const limited = enforceRate(req, "payment", userId, { ok: false });
   if (limited) return limited;
 
   const parsed = await parseJson(req, VerifySchema);
@@ -40,18 +52,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Signature mismatch." }, { status: 400 });
   }
 
-  // 2) Identify the authenticated user from their Clerk session (cookie supplied
-  //    by clerkMiddleware). The Clerk user id is the profiles primary key.
+  // 2) Require the authenticated user read above. The Clerk user id is the
+  //    profiles primary key.
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const service = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !service) {
     return NextResponse.json({ ok: false, error: "Server not configured." }, { status: 500 });
-  }
-  let userId: string | null = null;
-  try {
-    ({ userId } = await auth());
-  } catch {
-    return NextResponse.json({ ok: false, error: "Auth not configured." }, { status: 500 });
   }
   if (!userId) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
 
