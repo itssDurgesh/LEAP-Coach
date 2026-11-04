@@ -31,7 +31,9 @@ function readPosition(key: string) {
  * time, which is what "Resume video" promises. The page mounts one instance per
  * video (`key`), so the saved place is read once, on mount.
  */
-export function MuxVideoPlayer({ course, video, learnerId, onEnded, onDuration }: MuxVideoPlayerProps) {
+// Memoized: the lesson page re-renders on store changes and tab switches, and the
+// player (a heavy web component) has nothing to update unless its own props change.
+export const MuxVideoPlayer = React.memo(function MuxVideoPlayer({ course, video, learnerId, onEnded, onDuration }: MuxVideoPlayerProps) {
   const ref = React.useRef<MuxPlayerRefAttributes>(null);
   const key = `leap-video-pos:${learnerId ?? "anon"}:${video.id}`;
   const [startTime] = React.useState(() => readPosition(key));
@@ -87,4 +89,4 @@ export function MuxVideoPlayer({ course, video, learnerId, onEnded, onDuration }
       />
     </div>
   );
-}
+});

@@ -18,7 +18,7 @@ interface MockVideoPlayerProps {
   nextHref?: string | null;
 }
 
-export function MockVideoPlayer({
+export const MockVideoPlayer = React.memo(function MockVideoPlayer({
   course,
   video,
   isVishal,
@@ -40,21 +40,20 @@ export function MockVideoPlayer({
 
   React.useEffect(() => {
     if (!playing) return;
-    const id = window.setInterval(() => {
-      setT((prev) => {
-        const next = prev + dur / 60; // ~12s to finish at 200ms ticks
-        if (next >= dur) {
-          window.clearInterval(id);
-          setPlaying(false);
-          setEnded(true);
-          onEnded?.();
-          return dur;
-        }
-        return next;
-      });
-    }, 200);
+    // ~12s to finish at 200ms ticks
+    const id = window.setInterval(() => setT((prev) => Math.min(dur, prev + dur / 60)), 200);
     return () => window.clearInterval(id);
-  }, [playing, dur, onEnded]);
+  }, [playing, dur]);
+
+  // Reaching the end is handled here, not inside the state updater above: an updater
+  // runs while React renders, and this one used to update the store (onEnded) from
+  // there — React's "cannot update a component while rendering another" case.
+  React.useEffect(() => {
+    if (!playing || t < dur) return;
+    setPlaying(false);
+    setEnded(true);
+    onEnded?.();
+  }, [playing, t, dur, onEnded]);
 
   const pct = Math.min(100, (t / dur) * 100);
 
@@ -184,4 +183,4 @@ export function MockVideoPlayer({
       </div>
     </div>
   );
-}
+});

@@ -22,7 +22,7 @@ interface AudioSessionPlayerProps {
  * and marks the session complete when the recording ends. The page mounts one
  * instance per session (`key`).
  */
-export function AudioSessionPlayer({ course, video, learnerId, onEnded, onDuration }: AudioSessionPlayerProps) {
+export const AudioSessionPlayer = React.memo(function AudioSessionPlayer({ course, video, learnerId, onEnded, onDuration }: AudioSessionPlayerProps) {
   const ref = React.useRef<HTMLAudioElement>(null);
   const key = `leap-video-pos:${learnerId ?? "anon"}:${video.id}`;
   const lastSaved = React.useRef(0);
@@ -89,4 +89,4 @@ export function AudioSessionPlayer({ course, video, learnerId, onEnded, onDurati
       </audio>
     </div>
   );
-}
+});
