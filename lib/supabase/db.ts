@@ -624,13 +624,17 @@ export const markNotificationRead = (sb: SupabaseClient, id: string) =>
 export const markAllNotificationsRead = (sb: SupabaseClient, userId: string) =>
   sb.from("notifications").update({ read: true }).eq("user_id", userId);
 
-/** Just the signed-in user's notifications — used by the bell's light polling. */
-export async function fetchNotifications(sb: SupabaseClient, userId: string): Promise<AppNotification[]> {
-  const { data } = await sb
+/**
+ * Just the signed-in user's notifications — used by the bell's light polling.
+ * null when the request failed, so a dropped connection doesn't empty the bell.
+ */
+export async function fetchNotifications(sb: SupabaseClient, userId: string): Promise<AppNotification[] | null> {
+  const { data, error } = await sb
     .from("notifications")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(100);
+  if (error) return null;
   return ((data ?? []) as Row[]).map(mapNotification);
 }

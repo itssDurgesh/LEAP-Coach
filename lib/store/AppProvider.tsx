@@ -64,13 +64,36 @@ import * as db from "@/lib/supabase/db";
 import { normalizeCode } from "@/lib/coupons";
 import { topicCredit, topicComplete } from "@/lib/credits";
 import { baseUsername, uniqueUsername } from "@/lib/username";
+import { clearPaintCaches, paintCacheKey } from "@/lib/store/paint-cache";
 import type { AuthBridge } from "@/lib/auth/types";
 
 const STORAGE_KEY = "leap-coach-state-v1";
-// Per-user stale-while-revalidate cache for Supabase mode: paint instantly from the
-// last snapshot on reload, then refresh in the background. Keyed by user id so one
-// account never sees another's cached data.
-const SB_CACHE_PREFIX = "leap-sb-cache-v1:";
+// Per-user stale-while-revalidate cache for Supabase mode (paint-cache.ts): paint
+// instantly from the last snapshot on reload, then refresh in the background. Keyed
+// by user id so one account never sees another's cached data.
+
+/**
+ * Run `fn` once the browser is idle, at least `delayMs` from now (and at most ~2s
+ * after that, so it still happens on a busy page). Returns a cancel function.
+ */
+function afterIdle(delayMs: number, fn: () => void): () => void {
+  let idleId: number | undefined;
+  const timer = setTimeout(() => {
+    if (typeof window.requestIdleCallback === "function") idleId = window.requestIdleCallback(fn, { timeout: 2000 });
+    else fn();
+  }, delayMs);
+  return () => {
+    clearTimeout(timer);
+    if (idleId !== undefined) window.cancelIdleCallback?.(idleId);
+  };
+}
+
+/** Same notifications, same order, same read state: nothing for the bell to redraw. */
+function sameNotifications(a: AppNotification[], b: AppNotification[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i].id !== b[i].id || a[i].read !== b[i].read) return false;
+  return true;
+}
 
 // Real backend = Clerk for auth + Supabase for data. Active only when both are
 // configured; otherwise the whole app runs on the localStorage mock. Clerk owns
@@ -107,6 +130,65 @@ function applyTopicCredit(
   );
   return { users: nextUsers, patch: { learning_credits: learningCredits, topic_credits: topicCredits } };
 }
+
+// ── Lookup indexes ──
+// The store's lookup helpers run during render, often inside loops: the admin
+// overview calls courseProgress for every enrollment, and each call checked every
+// video against the WHOLE progress list. That cost grew as users × progress rows,
+// so at 3,000 learners one render of the admin overview took ~10 seconds, and a
+// learner's pages slowed down the same way as their history grew. The indexes are
+// built once per change of the array they cover. Each keeps the FIRST match, so a
+// lookup returns exactly what the Array.find / Array.some it replaced returned.
+
+/** Composite key for (user, thing) lookups. NUL cannot occur inside an id. */
+const pair = (a: string, b: string) => `${a}\u0000${b}`;
+
+function firstBy<T>(items: T[], key: (item: T) => string): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const item of items) {
+    const k = key(item);
+    if (!map.has(k)) map.set(k, item);
+  }
+  return map;
+}
+
+/** Group in original order, then sort each group: same result as filter-then-sort. */
+function groupSorted<T>(items: T[], key: (item: T) => string, compare: (a: T, b: T) => number): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const list = map.get(k);
+    if (list) list.push(item);
+    else map.set(k, [item]);
+  }
+  for (const list of map.values()) list.sort(compare);
+  return map;
+}
+
+interface CourseIndex {
+  byId: Map<string, Course>;
+  bySlug: Map<string, Course>;
+  /** First course (in store order) holding each video id, as the old loop over courses found it. */
+  video: Map<string, { course: Course; video: Video }>;
+  assignment: Map<string, { course: Course; assignment: Assignment }>;
+}
+
+function indexCourses(courses: Course[]): CourseIndex {
+  const idx: CourseIndex = { byId: new Map(), bySlug: new Map(), video: new Map(), assignment: new Map() };
+  for (const course of courses) {
+    if (!idx.byId.has(course.id)) idx.byId.set(course.id, course);
+    if (!idx.bySlug.has(course.slug)) idx.bySlug.set(course.slug, course);
+    // `?? []`: this runs for every page, inside the provider around the whole site.
+    // One malformed topic must break only the screens that show it (each caught by
+    // app/error.tsx), not every page at once.
+    for (const video of course.videos ?? []) if (!idx.video.has(video.id)) idx.video.set(video.id, { course, video });
+    for (const assignment of course.assignments ?? [])
+      if (!idx.assignment.has(assignment.id)) idx.assignment.set(assignment.id, { course, assignment });
+  }
+  return idx;
+}
+
+const NO_SUBMISSIONS: Submission[] = [];
 
 interface AppState {
   users: User[];
@@ -378,6 +460,12 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
   // Sign-up extras (age/gender/phone/…) collected before the profile row exists;
   // applied by the hydration effect once Clerk has a session + the row is provisioned.
   const pendingSignup = React.useRef<SignUpData | null>(null);
+  // The latest auth bridge, read when a sign-in/out method actually runs. Clerk
+  // gives the bridge a new identity whenever its own state ticks (a session-token
+  // refresh, the tab regaining focus); with the bridge in the context value's
+  // dependencies, each tick re-rendered every screen of the app for nothing.
+  const authRef = React.useRef(auth);
+  authRef.current = auth;
 
   // Feed the Clerk session-token getter to the Supabase data client so every query
   // carries the user's JWT (for RLS). Set during render so it's in place before the
@@ -414,7 +502,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     // pages don't sit on a spinner waiting for the full load on every reload.
     if (userId) {
       try {
-        const raw = localStorage.getItem(SB_CACHE_PREFIX + userId);
+        const raw = localStorage.getItem(paintCacheKey(userId));
         if (raw) {
           const cached = JSON.parse(raw) as Partial<AppState>;
           setState((s) => ({ ...s, ...cached, currentUserId: userId }));
@@ -519,31 +607,44 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
 
   // ── Persist to localStorage, DEBOUNCED (mock mode only) ──
   // Serializing the whole app state on every state change is wasteful; debounce so a
-  // burst of changes (or a background poll) writes at most once per ~500ms.
+  // burst of changes (or a background poll) writes at most once per ~500ms, and do
+  // it when the browser is idle so the serialization never lands mid-interaction.
   React.useEffect(() => {
     if (!hydrated || realMode) return;
-    const id = setTimeout(() => {
+    return afterIdle(500, () => {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       } catch {
         /* ignore quota errors */
       }
-    }, 500);
-    return () => clearTimeout(id);
+    });
   }, [state, hydrated]);
 
   // ── Cache the per-user snapshot (Supabase mode) for instant reloads — DEBOUNCED + slimmed ──
+  // Stringifying the store is synchronous and grows with the data; on a phone it
+  // could stall a tap or a keystroke, so it waits for an idle moment as well.
   React.useEffect(() => {
     if (!hydrated || !realMode || !state.currentUserId) return;
-    const id = setTimeout(() => {
+    const key = paintCacheKey(state.currentUserId);
+    return afterIdle(500, () => {
       try {
-        localStorage.setItem(SB_CACHE_PREFIX + state.currentUserId, JSON.stringify(cacheSnapshot(state)));
+        localStorage.setItem(key, JSON.stringify(cacheSnapshot(state)));
       } catch {
-        /* ignore quota errors — falls back to a full load next time */
+        // Over quota: drop stale snapshots (older versions, other accounts) and retry once.
+        clearPaintCaches(key);
+        try {
+          localStorage.setItem(key, JSON.stringify(cacheSnapshot(state)));
+        } catch {
+          /* still too big — falls back to a full load next time */
+        }
       }
-    }, 500);
-    return () => clearTimeout(id);
+    });
   }, [state, hydrated]);
+
+  // Older snapshot versions and other accounts' snapshots only take up quota.
+  React.useEffect(() => {
+    if (realMode && hydrated && state.currentUserId) clearPaintCaches(paintCacheKey(state.currentUserId));
+  }, [hydrated, state.currentUserId]);
 
   // ── Ensure the signed-in user has a unique @username (tagging resolves by handle).
   // Covers OAuth signups and profiles created before usernames existed.
@@ -570,10 +671,20 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const uid = state.currentUserId;
     let active = true;
     const refresh = async () => {
+      // A tab in the background has no bell to show: skip it, and let the focus
+      // handler catch up on return. Every open tab of every learner used to query
+      // the database once a minute, all day.
+      if (document.hidden) return;
       try {
         const mine = await db.fetchNotifications(sb, uid);
-        if (!active) return;
-        setState((s) => (s.currentUserId === uid ? { ...s, notifications: mine } : s));
+        // null = the request failed: keep what the bell shows rather than empty it.
+        if (!active || !mine) return;
+        // Unchanged (the usual case) → keep the same state object, so React skips
+        // the re-render. Replacing it re-rendered every screen and re-saved the
+        // whole snapshot each minute and on each tab focus.
+        setState((s) =>
+          s.currentUserId !== uid || sameNotifications(s.notifications, mine) ? s : { ...s, notifications: mine },
+        );
       } catch {
         /* transient network error — next tick will retry */
       }
@@ -588,34 +699,54 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     };
   }, [hydrated, state.currentUserId]);
 
+  // Lookup indexes (see the note above `pair`). Separate memos, so a change to one
+  // list (a new notification, a like) does not rebuild the indexes of the others.
+  const courseIdx = React.useMemo(() => indexCourses(state.courses), [state.courses]);
+  const userById = React.useMemo(() => firstBy(state.users, (u) => u.id), [state.users]);
+  const completedVideos = React.useMemo(() => {
+    const done = new Set<string>();
+    for (const p of state.progress) if (p.completed) done.add(pair(p.userId, p.videoId));
+    return done;
+  }, [state.progress]);
+  const enrolledPairs = React.useMemo(
+    () => new Set(state.enrollments.map((e) => pair(e.userId, e.courseId))),
+    [state.enrollments],
+  );
+  const submissionsByPair = React.useMemo(
+    () => groupSorted(state.submissions, (s) => pair(s.userId, s.assignmentId), (a, b) => a.attemptNumber - b.attemptNumber),
+    [state.submissions],
+  );
+  const ratingByPair = React.useMemo(
+    () => firstBy(state.courseRatings, (r) => pair(r.userId, r.courseId)),
+    [state.courseRatings],
+  );
+  const commentsByVideo = React.useMemo(
+    () => groupSorted(state.videoComments, (c) => c.videoId, (a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
+    [state.videoComments],
+  );
+
   const value = React.useMemo<AppContextValue>(() => {
     // The local demo (no Clerk) keeps everything in localStorage. It has no session,
     // so the database would refuse every write anyway; sending them only made a local
     // run fire rejected requests at the real project.
     const sb = realMode ? getSupabase() : null;
-    const currentUser = state.users.find((u) => u.id === state.currentUserId) ?? null;
+    const currentUser = (state.currentUserId && userById.get(state.currentUserId)) || null;
     const who = (userId?: string) => userId ?? state.currentUserId ?? "";
+    const userFor = (userId?: string) => userById.get(who(userId));
 
     // ── helpers ──
-    const getCourse = (id: string) => state.courses.find((c) => c.id === id);
-    const getCourseBySlug = (slug: string) => state.courses.find((c) => c.slug === slug);
-    const getVideoById = (id: string) => {
-      for (const c of state.courses) {
-        const v = c.videos.find((x) => x.id === id);
-        if (v) return { course: c, video: v };
-      }
-      return undefined;
-    };
+    const getCourse = (id: string) => courseIdx.byId.get(id);
+    const getCourseBySlug = (slug: string) => courseIdx.bySlug.get(slug);
+    const getVideoById = (id: string) => courseIdx.video.get(id);
 
-    const isEnrolled = (courseId: string, userId?: string) =>
-      state.enrollments.some((e) => e.userId === who(userId) && e.courseId === courseId);
+    const isEnrolled = (courseId: string, userId?: string) => enrolledPairs.has(pair(who(userId), courseId));
 
     // Entitlement to a course, IGNORING time-expiry (owns it / all-access / category pass / free).
     const hasGrant = (courseId: string, userId?: string) => {
       const course = getCourse(courseId);
       if (!course) return false;
       if (course.price === 0) return true;
-      const u = state.users.find((x) => x.id === who(userId));
+      const u = userFor(userId);
       if (!u) return false;
       if (u.subscriptionPlan === "all_access") return true;
       if (courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c))) return true; // category pass
@@ -628,7 +759,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       const course = getCourse(courseId);
       if (!course) return false;
       if (course.price === 0) return true;
-      const u = state.users.find((x) => x.id === who(userId));
+      const u = userFor(userId);
       if (!u) return false;
       if (u.subscriptionPlan === "all_access") return true;
       return courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c));
@@ -638,21 +769,22 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     // across every entitlement that grants it (à-la-carte purchase, catalog pass,
     // all-access). null = never expires (free topic / undated legacy entitlement).
     const courseExpiresAt = (courseId: string, userId?: string) =>
-      courseAccessExpiry(state.users.find((x) => x.id === who(userId)), getCourse(courseId));
+      courseAccessExpiry(userFor(userId), getCourse(courseId));
     const courseExpired = (courseId: string, userId?: string) =>
-      isCourseAccessExpired(state.users.find((x) => x.id === who(userId)), getCourse(courseId));
+      isCourseAccessExpired(userFor(userId), getCourse(courseId));
 
     // Access = a valid entitlement AND the per-course timer hasn't lapsed (applies to everyone).
     const hasAccess = (courseId: string, userId?: string) =>
       hasGrant(courseId, userId) && !courseExpired(courseId, userId);
 
-    const isVideoCompleted = (videoId: string, userId?: string) =>
-      state.progress.some((p) => p.userId === who(userId) && p.videoId === videoId && p.completed);
+    const isVideoCompleted = (videoId: string, userId?: string) => completedVideos.has(pair(who(userId), videoId));
+
+    /** This user's attempts at one checkpoint, oldest first. Shared: never mutate it. */
+    const submissionsFor = (assignmentId: string, userId?: string) =>
+      submissionsByPair.get(pair(who(userId), assignmentId)) ?? NO_SUBMISSIONS;
 
     const assignmentResult = (assignmentId: string, userId?: string) => {
-      const subs = state.submissions
-        .filter((s) => s.userId === who(userId) && s.assignmentId === assignmentId)
-        .sort((a, b) => a.attemptNumber - b.attemptNumber);
+      const subs = submissionsFor(assignmentId, userId);
       const passed = subs.some((s) => s.passed);
       const bestScore = subs.reduce((m, s) => Math.max(m, s.score), 0);
       return { attempts: subs.length, passed, bestScore, last: subs[subs.length - 1] };
@@ -682,14 +814,10 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     };
 
     const assignmentUnlocked = (assignmentId: string, userId?: string) => {
-      for (const c of state.courses) {
-        const a = c.assignments.find((x) => x.id === assignmentId);
-        if (a) {
-          const gateVideo = c.videos.find((v) => v.order === a.afterVideoOrder);
-          return gateVideo ? isVideoCompleted(gateVideo.id, userId) : false;
-        }
-      }
-      return false;
+      const found = courseIdx.assignment.get(assignmentId);
+      if (!found) return false;
+      const gateVideo = found.course.videos.find((v) => v.order === found.assignment.afterVideoOrder);
+      return gateVideo ? isVideoCompleted(gateVideo.id, userId) : false;
     };
 
     // ── state setters ──
@@ -749,7 +877,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       // ── auth (Clerk in real mode; in-state demo accounts in mock mode) ──
       async signIn(email, password) {
         if (realMode) {
-          const r = await auth.signInWithPassword(email, password ?? "");
+          const r = await authRef.current.signInWithPassword(email, password ?? "");
           if (!r.ok) return { ok: false, error: r.error };
           // Clerk's session is now active; the hydration effect loads this user's
           // data. Show the loader until then so guards don't see a null user.
@@ -767,7 +895,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           // Stash the profile extras; the hydration effect persists them once Clerk
           // has a session and the profile row is provisioned.
           pendingSignup.current = data;
-          const r = await auth.signUp(data.email, data.password ?? "", data.name);
+          const r = await authRef.current.signUp(data.email, data.password ?? "", data.name);
           if (!r.ok) {
             pendingSignup.current = null;
             return { ok: false, error: r.error };
@@ -809,7 +937,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
       async verifyEmailCode(code) {
         if (!realMode) return { ok: true };
-        const r = await auth.verifyEmailCode(code);
+        const r = await authRef.current.verifyEmailCode(code);
         if (!r.ok) return { ok: false, error: r.error };
         // Session is active now; show the loader until the hydration effect provisions
         // the profile, applies the stashed sign-up extras, and loads the user.
@@ -818,14 +946,14 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
       async resendEmailCode() {
         if (!realMode) return { ok: true };
-        return auth.resendEmailCode();
+        return authRef.current.resendEmailCode();
       },
       async adminSignIn(email, password) {
         if (realMode) {
           // No separate admin password in Clerk mode — admin is the profiles.is_admin
           // flag. Sign in via Clerk; AdminShell admits the user iff their loaded
           // profile is an admin, else bounces back to /admin/login.
-          const r = await auth.signInWithPassword(email, password);
+          const r = await authRef.current.signInWithPassword(email, password);
           if (!r.ok) return { ok: false, error: r.error };
           setHydrated(false);
           return { ok: true };
@@ -837,10 +965,10 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       async oauthSignIn(provider) {
         if (!realMode) return { ok: false, error: "Sign-in is not configured." };
         // Clerk redirects the browser to the provider; control returns via /sso-callback.
-        return auth.signInOAuth(provider);
+        return authRef.current.signInOAuth(provider);
       },
       async requestPasswordReset(email) {
-        if (realMode) return auth.requestPasswordReset(email);
+        if (realMode) return authRef.current.requestPasswordReset(email);
         // Mock mode: just confirm the account exists — no email is actually sent.
         const u = state.users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
         if (!u) return { ok: false, error: "No account found for that email." };
@@ -848,7 +976,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
       async resetPassword(code, newPassword) {
         if (realMode) {
-          const r = await auth.resetPassword(code, newPassword);
+          const r = await authRef.current.resetPassword(code, newPassword);
           if (!r.ok) return { ok: false, error: r.error };
           // Clerk activated the new session; show the loader until the profile loads.
           setHydrated(false);
@@ -863,7 +991,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           // Clerk clears the session and redirects to "/" (afterSignOutUrl). Don't
           // pre-null currentUserId in real mode — that makes AdminShell's "not an admin"
           // effect fire and bounce to /admin/login, racing the sign-out redirect.
-          await auth.signOut();
+          await authRef.current.signOut();
           return;
         }
         setState((s) => ({ ...s, currentUserId: null }));
@@ -1037,16 +1165,9 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       assignmentUnlocked,
       assignmentResult,
       submitAssignment(assignmentId, answers, attempts) {
-        let assignment: Assignment | undefined;
-        let courseId = "";
-        for (const c of state.courses) {
-          const a = c.assignments.find((x) => x.id === assignmentId);
-          if (a) {
-            assignment = a;
-            courseId = c.id;
-            break;
-          }
-        }
+        const found = courseIdx.assignment.get(assignmentId);
+        const assignment: Assignment | undefined = found?.assignment;
+        const courseId = found?.course.id ?? "";
         const userId = state.currentUserId ?? "";
         const prior = assignmentResult(assignmentId);
         const feedback = (assignment?.questions ?? []).map((q) => {
@@ -1109,21 +1230,17 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       myRatingFor(courseId, userId) {
         const uidNow = userId ?? currentUser?.id;
         if (!uidNow) return undefined;
-        return state.courseRatings.find((r) => r.courseId === courseId && r.userId === uidNow);
+        return ratingByPair.get(pair(uidNow, courseId));
       },
       isCourseComplete(courseId, userId) {
         const uidNow = userId ?? currentUser?.id;
         if (!uidNow) return false;
-        const course = state.courses.find((c) => c.id === courseId);
+        const course = getCourse(courseId);
         if (!course || !course.videos.length) return false;
-        const allVideos = course.videos.every((v) =>
-          state.progress.some((p) => p.userId === uidNow && p.videoId === v.id && p.completed),
-        );
+        const allVideos = course.videos.every((v) => completedVideos.has(pair(uidNow, v.id)));
         if (!allVideos) return false;
         // A topic is not finished while a checkpoint is still unpassed.
-        return course.assignments.every((a) =>
-          state.submissions.some((sub) => sub.userId === uidNow && sub.assignmentId === a.id && sub.passed),
-        );
+        return course.assignments.every((a) => submissionsFor(a.id, uidNow).some((sub) => sub.passed));
       },
       submitCourseRating(courseId, stars, review) {
         if (!currentUser) return;
@@ -1343,9 +1460,8 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
 
       // ── per-video discussion (YouTube-style comments under a topic video) ──
       videoCommentsFor(videoId) {
-        return state.videoComments
-          .filter((c) => c.videoId === videoId)
-          .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+        // A copy, so a caller can never reorder the shared index.
+        return (commentsByVideo.get(videoId) ?? []).slice();
       },
       addVideoComment(videoId, courseId, text, parentId, mentionIds) {
         if (!currentUser || !text.trim()) return;
@@ -1929,7 +2045,19 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         setState(seedState());
       },
     };
-  }, [state, hydrated, fresh, saveError, auth]);
+  }, [
+    state,
+    hydrated,
+    fresh,
+    saveError,
+    courseIdx,
+    userById,
+    completedVideos,
+    enrolledPairs,
+    submissionsByPair,
+    ratingByPair,
+    commentsByVideo,
+  ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
