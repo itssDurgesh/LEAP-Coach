@@ -61,7 +61,15 @@ function UsersAdmin() {
   const [viewing, setViewing] = React.useState<User | null>(null);
   const [accessFor, setAccessFor] = React.useState<User | null>(null);
 
-  const enrollCount = (id: string) => enrollments.filter((e) => e.userId === id).length;
+  // One pass over enrollments, not one per row (and per sort comparison): with
+  // thousands of learners the per-row filter made every keystroke in the search
+  // box rescan the whole enrollments list once per learner.
+  const enrollCounts = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of enrollments) counts.set(e.userId, (counts.get(e.userId) ?? 0) + 1);
+    return counts;
+  }, [enrollments]);
+  const enrollCount = (id: string) => enrollCounts.get(id) ?? 0;
 
   const preFiltered = learners.filter((u) => {
     if (role !== "all" && u.role !== role) return false;
@@ -261,7 +269,7 @@ function UsersAdmin() {
             <tbody className="divide-y divide-hair">
               {filtered.map((u) => {
                 const tier = tierForCredits(u.learningCredits);
-                const courses = enrollments.filter((e) => e.userId === u.id).length;
+                const courses = enrollCount(u.id);
                 return (
                   <tr key={u.id} className="hover:bg-surface-2">
                     <td className="px-5 py-3">
