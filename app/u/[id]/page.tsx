@@ -43,11 +43,26 @@ function Stat({ icon: Icon, tint, value, label }: { icon: LucideIcon; tint: stri
 function Profile() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const { currentUser, users, enrollments, courses, tracks, videoComments, submissions, progress, courseProgress } = useApp();
+  const { currentUser, users, enrollments, courses, tracks, countVideoComments, submissions, progress, courseProgress } = useApp();
   const [allTopics, setAllTopics] = React.useState(false);
 
   // The route param can be a user id or a @username handle.
   const user = users.find((u) => u.id === id || (u.username && u.username === id));
+
+  // Counted by the database: discussions are no longer all loaded up front (each
+  // lesson page fetches its own), so the store cannot count them.
+  const [comments, setComments] = React.useState<{ userId: string; count: number | null } | null>(null);
+  const count = React.useRef(countVideoComments);
+  count.current = countVideoComments;
+  const profileId = user?.id;
+  React.useEffect(() => {
+    if (!profileId) return;
+    let active = true;
+    count.current(profileId).then((n) => active && setComments({ userId: profileId, count: n }));
+    return () => {
+      active = false;
+    };
+  }, [profileId]);
 
   if (!user) {
     return (
@@ -70,7 +85,7 @@ function Profile() {
     .filter((e) => e.userId === user.id)
     .map((e) => courses.find((c) => c.id === e.courseId))
     .filter(Boolean) as typeof courses;
-  const commentCount = videoComments.filter((c) => c.userId === user.id).length;
+  const commentCount = comments?.userId === user.id && comments.count !== null ? comments.count : "–";
   const shownTopics = allTopics ? enrolledCourses : enrolledCourses.slice(0, TOPICS_SHOWN);
   const hiddenTopics = enrolledCourses.length - shownTopics.length;
 

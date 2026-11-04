@@ -1,13 +1,13 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, ClipboardCheck, Download, ExternalLink, Loader2, Paperclip, Play, Trash2 } from "lucide-react";
 import { LogoMark } from "@/components/ui/Logo";
 import { AppShell } from "@/components/app/AppShell";
 import { MockVideoPlayer } from "@/components/learn/MockVideoPlayer";
-import { MuxVideoPlayer } from "@/components/learn/MuxVideoPlayer";
 import { AudioSessionPlayer } from "@/components/learn/AudioSessionPlayer";
 import { LeapChat } from "@/components/learn/LeapChat";
 import { RatingModal } from "@/components/learn/RatingModal";
@@ -16,7 +16,24 @@ import { SegTabs, V2Card, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
 import { cn, formatClock, timeAgo } from "@/lib/utils";
 import { downloadNotesPdf, downloadLessonNotesPdf } from "@/lib/pdf";
+import { loadTranscript, useTranscript } from "@/lib/transcripts";
 import { Course, Video } from "@/lib/types";
+
+// The Mux player (with its HLS engine) is about 300KB of compressed JavaScript, more
+// than everything else on this page put together. As a static import it was part of
+// the page's own bundle, so every lesson, audio sessions included, waited for it
+// before anything on the page responded. It now loads only for a Mux video, and
+// while it arrives the box it will fill is already on screen, at its final size.
+const MuxVideoPlayer = dynamic(() => import("@/components/learn/MuxVideoPlayer").then((m) => m.MuxVideoPlayer), {
+  ssr: false,
+  loading: () => (
+    <div className="overflow-hidden rounded-3xl bg-navy-950 shadow-lift ring-1 ring-white/10">
+      <div className="grid aspect-video w-full place-items-center">
+        <Loader2 className="h-7 w-7 animate-spin text-white/60" />
+      </div>
+    </div>
+  ),
+});
 
 type BottomTab = "notes" | "transcript" | "resources" | "discussion";
 
@@ -83,11 +100,8 @@ function Player({ course, video }: { course: Course; video: Video }) {
     isVideoCompleted,
     courseProgress,
     assignmentResult,
-    notesFor,
-    notesForCourse,
-    addNote,
-    deleteNote,
     videoCommentsFor,
+    loadVideoComments,
     isVideoUnlocked,
     videoNotesUrl,
     isCourseComplete,
@@ -98,9 +112,30 @@ function Player({ course, video }: { course: Course; video: Video }) {
   const [rightTab, setRightTab] = React.useState<"chat" | "notes" | "next">("chat");
   // The player's own reading of the clip length; the stored one is what the admin typed in.
   const [realDuration, setRealDuration] = React.useState<{ videoId: string; seconds: number } | null>(null);
-  const [noteText, setNoteText] = React.useState("");
   const [rateOpen, setRateOpen] = React.useState(false);
   const promptedRef = React.useRef(false);
+  const transcript = useTranscript(video);
+
+  // This video's discussion: the store's bulk load leaves discussions out, so it is
+  // read here, and read again each time the lesson is opened, which keeps it fresh.
+  const loadComments = React.useRef(loadVideoComments);
+  loadComments.current = loadVideoComments;
+  React.useEffect(() => {
+    void loadComments.current(video.id);
+  }, [video.id]);
+
+  // Stable handlers for the media players, which are memoized: an inline arrow is a
+  // new prop on every render and made the player re-render with the page each time.
+  const markComplete = React.useRef(markVideoComplete);
+  markComplete.current = markVideoComplete;
+  const onEnded = React.useCallback(() => markComplete.current(video.id), [video.id]);
+  const onDuration = React.useCallback(
+    (seconds: number) =>
+      setRealDuration((d) =>
+        d?.videoId === video.id && Math.abs(d.seconds - seconds) < 1 ? d : { videoId: video.id, seconds },
+      ),
+    [video.id],
+  );
 
   // A reply / @mention notification links here with ?tab=discussion&c=<comment id>:
   // open the discussion and bring that comment into view, instead of landing on
@@ -146,8 +181,6 @@ function Player({ course, video }: { course: Course; video: Video }) {
     setRateOpen(true);
   }, [complete, alreadyRated, learnerId, course.id]);
 
-  const courseNotes = notesForCourse(course.id);
-
   const completed = isVideoCompleted(video.id);
   const prog = courseProgress(course.id);
   const isVishal = course.instructorName.includes("Vishal");
@@ -157,8 +190,6 @@ function Player({ course, video }: { course: Course; video: Video }) {
   const gateRes = gateAssignment ? assignmentResult(gateAssignment.id) : null;
   const playerNextHref =
     (!gateAssignment || gateRes?.passed) && next ? `/learn/${course.id}/${next.order}` : null;
-
-  const myNotes = notesFor(video.id);
 
   /**
    * Class-notes download.
@@ -180,12 +211,15 @@ function Player({ course, video }: { course: Course; video: Video }) {
       a.click();
       return;
     }
+    // The PDF is made from the summary and the transcript; without a transcript
+    // (it could not be read) it still has the summary.
+    const text = await loadTranscript(video).catch(() => "");
     await downloadLessonNotesPdf(
       course.title,
       video.order,
       video.title,
       video.summary,
-      video.transcript,
+      text,
       video.notesPdfName ?? `${course.slug}-session-${video.order}-notes`,
     );
   }
@@ -199,6 +233,16 @@ function Player({ course, video }: { course: Course; video: Video }) {
 
   // The rest of the topic, for the "Up next" tab.
   const upNext = course.videos.filter((v) => v.order > video.order).sort((a, b) => a.order - b.order);
+  // The first few sentences, as key points. Splitting a long transcript is not free,
+  // so it happens once per transcript rather than on every render.
+  const keyPoints = React.useMemo(
+    () =>
+      transcript.text
+        .split(/(?<=[.!?])\s+/)
+        .filter(Boolean)
+        .slice(0, 4),
+    [transcript.text],
+  );
   // The last video has nothing after it, so that tab is not offered there.
   const sideTab = rightTab === "next" && upNext.length === 0 ? "chat" : rightTab;
   const durationSeconds = realDuration?.videoId === video.id ? realDuration.seconds : video.durationSeconds;
@@ -235,12 +279,8 @@ function Player({ course, video }: { course: Course; video: Video }) {
               course={course}
               video={video}
               learnerId={currentUser?.id}
-              onEnded={() => markVideoComplete(video.id)}
-              onDuration={(seconds) =>
-                setRealDuration((d) =>
-                  d?.videoId === video.id && Math.abs(d.seconds - seconds) < 1 ? d : { videoId: video.id, seconds },
-                )
-              }
+              onEnded={onEnded}
+              onDuration={onDuration}
             />
           ) : video.muxPlaybackId && !video.muxPlaybackId.startsWith("mux_") ? (
             <MuxVideoPlayer
@@ -248,12 +288,8 @@ function Player({ course, video }: { course: Course; video: Video }) {
               course={course}
               video={video}
               learnerId={currentUser?.id}
-              onEnded={() => markVideoComplete(video.id)}
-              onDuration={(seconds) =>
-                setRealDuration((d) =>
-                  d?.videoId === video.id && Math.abs(d.seconds - seconds) < 1 ? d : { videoId: video.id, seconds },
-                )
-              }
+              onEnded={onEnded}
+              onDuration={onDuration}
             />
           ) : (
             <MockVideoPlayer
@@ -261,7 +297,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
               video={video}
               isVishal={isVishal}
               alreadyCompleted={completed}
-              onEnded={() => markVideoComplete(video.id)}
+              onEnded={onEnded}
               nextHref={playerNextHref}
             />
           )}
@@ -353,11 +389,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
                 </div>
                 {video.summary && <p className="mt-4 text-[15px] leading-6 text-v2-body">{video.summary}</p>}
                 <ul className="mt-4 space-y-3.5">
-                  {video.transcript
-                    .split(/(?<=[.!?])\s+/)
-                    .filter(Boolean)
-                    .slice(0, 4)
-                    .map((line, i) => (
+                  {keyPoints.map((line, i) => (
                       <li key={i} className="flex gap-3 text-sm font-medium leading-5 text-heading">
                         <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-lv-self" />
                         {line.trim()}
@@ -369,7 +401,20 @@ function Player({ course, video }: { course: Course; video: Video }) {
 
             {bottomTab === "transcript" && (
               <div className="scrollbar-thin max-h-80 overflow-y-auto pr-2">
-                <p className="whitespace-pre-line text-[15px] leading-7 text-v2-body">{video.transcript}</p>
+                {transcript.status === "loading" ? (
+                  <p className="flex items-center gap-2 text-sm font-medium text-muted">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading the transcript…
+                  </p>
+                ) : transcript.status === "error" ? (
+                  <p className="text-sm font-medium text-muted">
+                    The transcript could not be loaded.{" "}
+                    <button type="button" onClick={transcript.retry} className="font-semibold text-heading underline">
+                      Try again
+                    </button>
+                  </p>
+                ) : (
+                  <p className="whitespace-pre-line text-[15px] leading-7 text-v2-body">{transcript.text}</p>
+                )}
                 <p className="mt-5 text-xs font-medium text-muted">
                   Transcript auto-syncs with the video when timestamps are available.
                 </p>
@@ -439,11 +484,15 @@ function Player({ course, video }: { course: Course; video: Video }) {
             </div>
 
             <div className="min-h-0 flex-1">
-              {/* The chat stays mounted behind the other tabs, so the conversation is still there on return. */}
+              {/* The chat and the notes stay mounted behind the other tabs, so the
+                  conversation and a half-written note are still there on return. */}
               <div className={cn("h-full", sideTab !== "chat" && "hidden")}>
                 <LeapChat course={course} video={video} showHeader={false} />
               </div>
-              {sideTab === "chat" ? null : sideTab === "next" ? (
+              <div className={cn("h-full", sideTab !== "notes" && "hidden")}>
+                <NotesTab course={course} video={video} />
+              </div>
+              {sideTab === "next" && (
                 <div className="scrollbar-thin h-full space-y-1.5 overflow-y-auto px-5 pb-5 pt-1">
                   {upNext.map((v, i) => {
                     const body = (
@@ -472,64 +521,6 @@ function Player({ course, video }: { course: Course; video: Video }) {
                     );
                   })}
                 </div>
-              ) : (
-                <div className="flex h-full flex-col">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      addNote(video.id, noteText);
-                      setNoteText("");
-                    }}
-                    className="shrink-0 px-5"
-                  >
-                    <textarea
-                      value={noteText}
-                      onChange={(e) => setNoteText(e.target.value)}
-                      placeholder="Jot a private note for this lesson…"
-                      aria-label="New note"
-                      className="block min-h-[72px] w-full resize-none rounded-2xl bg-surface px-4 py-3 text-sm leading-5 text-heading placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
-                    />
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                      <button type="submit" disabled={!noteText.trim()} className={v2Button("strong", "sm")}>
-                        Save note
-                      </button>
-                      {courseNotes.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => downloadNotesPdf(course, courseNotes, currentUser?.name)}
-                          className={v2Button("ghost", "sm", "px-2")}
-                          title="Combine every note you've saved across this topic into one PDF"
-                        >
-                          <Download className="h-3.5 w-3.5" /> All my notes ({courseNotes.length}) · PDF
-                        </button>
-                      )}
-                    </div>
-                  </form>
-                  <div className="scrollbar-thin mt-3 flex-1 space-y-2.5 overflow-y-auto px-5 pb-5">
-                    {myNotes.length ? (
-                      myNotes.map((n) => (
-                        <div key={n.id} className="group rounded-2xl bg-surface p-3.5">
-                          <p className="whitespace-pre-line text-sm leading-5 text-heading">{n.text}</p>
-                          <div className="mt-2 flex items-center justify-between">
-                            <span className="text-xs font-medium text-muted">{timeAgo(n.createdAt)}</span>
-                            <button
-                              type="button"
-                              onClick={() => deleteNote(n.id)}
-                              className="text-muted opacity-0 transition-all duration-200 hover:text-lv-people-dark focus-visible:opacity-100 group-hover:opacity-100"
-                              aria-label="Delete note"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="px-1 py-8 text-center text-sm font-medium text-muted">
-                        Your private notes for this lesson will appear here.
-                      </p>
-                    )}
-                  </div>
-                </div>
               )}
             </div>
           </V2Card>
@@ -537,6 +528,79 @@ function Player({ course, video }: { course: Course; video: Video }) {
       </div>
 
       <RatingModal course={course} open={rateOpen} onClose={() => setRateOpen(false)} />
+    </div>
+  );
+}
+
+
+/**
+ * The learner's private notes for this lesson. Its own component so the draft lives
+ * here: as state of the whole lesson page, every keystroke re-rendered the page,
+ * the player, the tutor chat and the lesson text with it.
+ */
+function NotesTab({ course, video }: { course: Course; video: Video }) {
+  const { currentUser, notesFor, notesForCourse, addNote, deleteNote } = useApp();
+  const [noteText, setNoteText] = React.useState("");
+  const courseNotes = notesForCourse(course.id);
+  const myNotes = notesFor(video.id);
+
+  return (
+    <div className="flex h-full flex-col">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          addNote(video.id, noteText);
+          setNoteText("");
+        }}
+        className="shrink-0 px-5"
+      >
+        <textarea
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder="Jot a private note for this lesson…"
+          aria-label="New note"
+          className="block min-h-[72px] w-full resize-none rounded-2xl bg-surface px-4 py-3 text-sm leading-5 text-heading placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-400"
+        />
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <button type="submit" disabled={!noteText.trim()} className={v2Button("strong", "sm")}>
+            Save note
+          </button>
+          {courseNotes.length > 0 && (
+            <button
+              type="button"
+              onClick={() => downloadNotesPdf(course, courseNotes, currentUser?.name)}
+              className={v2Button("ghost", "sm", "px-2")}
+              title="Combine every note you've saved across this topic into one PDF"
+            >
+              <Download className="h-3.5 w-3.5" /> All my notes ({courseNotes.length}) · PDF
+            </button>
+          )}
+        </div>
+      </form>
+      <div className="scrollbar-thin mt-3 flex-1 space-y-2.5 overflow-y-auto px-5 pb-5">
+        {myNotes.length ? (
+          myNotes.map((n) => (
+            <div key={n.id} className="group rounded-2xl bg-surface p-3.5">
+              <p className="whitespace-pre-line text-sm leading-5 text-heading">{n.text}</p>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="text-xs font-medium text-muted">{timeAgo(n.createdAt)}</span>
+                <button
+                  type="button"
+                  onClick={() => deleteNote(n.id)}
+                  className="text-muted opacity-0 transition-all duration-200 hover:text-lv-people-dark focus-visible:opacity-100 group-hover:opacity-100"
+                  aria-label="Delete note"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="px-1 py-8 text-center text-sm font-medium text-muted">
+            Your private notes for this lesson will appear here.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

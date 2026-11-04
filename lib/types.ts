@@ -233,7 +233,9 @@ export interface Video {
   muxPlaybackId: string; // mock for now
   audioUrl?: string | null; // set when the session is an audio recording instead of a video
   audioName?: string | null; // the uploaded audio file's name
-  transcript: string;
+  // undefined = not loaded yet: the bulk load leaves transcripts out, and the lesson
+  // page / topic editor fetch them on demand (lib/transcripts.ts). "" = no transcript.
+  transcript?: string;
   summary: string; // short summary used for AI context + roadmap
   notesPdfName?: string; // notes file name
   notesPdfUrl?: string | null; // uploaded notes (data URL or storage URL)

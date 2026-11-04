@@ -15,7 +15,7 @@ function sentences(text: string): string[] {
 export type LeapAction = "summarize" | "quiz" | "deeper" | undefined;
 
 export function leapReply(course: Course, video: Video, userText: string, action?: LeapAction): string {
-  const sents = sentences(video.transcript);
+  const sents = sentences(video.transcript ?? "");
   const lower = userText.toLowerCase();
   const act =
     action ??

@@ -5,6 +5,8 @@ import { ArrowRight, Send, FileText, HelpCircle, Layers } from "lucide-react";
 import { LogoMark } from "@/components/ui/Logo";
 import { Course, Video, ChatMessage } from "@/lib/types";
 import { leapReply, leapWelcome, LeapAction } from "@/lib/mock/leapAI";
+import { loadTranscript } from "@/lib/transcripts";
+import { MAX_TRANSCRIPT_CHARS } from "@/lib/ai/limits";
 import { cn } from "@/lib/utils";
 
 const quickActions: { label: string; action: Exclude<LeapAction, undefined>; icon: typeof FileText }[] = [
@@ -93,7 +95,9 @@ function TypingDots() {
   );
 }
 
-export function LeapChat({
+// Memoized: it sits on the lesson page, which re-renders for reasons that never
+// concern the chat (store updates, switching the lesson tabs).
+export const LeapChat = React.memo(function LeapChat({
   course,
   video,
   showHeader = true,
@@ -136,17 +140,23 @@ export function LeapChat({
     setInput("");
     setTyping(true);
 
-    const mock = () => leapReply(course, video, trimmed || labelFor(action), action);
     const unavailable = "I couldn't answer that just now. Please try again in a moment.";
     let reply: string;
     try {
+      // The store leaves transcripts out of its bulk load; this fetches the one for
+      // this session (once) the first time the learner asks something.
+      const transcript = await loadTranscript(video);
+      // Only what the tutor reads: the whole transcript went up with every message,
+      // and one over the route's size limit made every question fail.
+      const context = transcript.trim().slice(0, MAX_TRANSCRIPT_CHARS);
+      const mock = () => leapReply(course, { ...video, transcript }, trimmed || labelFor(action), action);
       const res = await fetch("/api/leap/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           courseTitle: course.title,
           // The transcript is the tutor's only source; the summary is deliberately not sent.
-          video: { title: video.title, transcript: video.transcript },
+          video: { title: video.title, transcript: context },
           messages: history,
           action,
         }),
@@ -267,4 +277,4 @@ export function LeapChat({
       </form>
     </div>
   );
-}
+});

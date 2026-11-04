@@ -61,7 +61,8 @@ interface DraftVideo {
   notesPdfName: string;
   /** undefined = not loaded (leave stored file alone) · null = clear it · string = set it. */
   notesPdfUrl?: string | null;
-  transcript: string;
+  /** undefined = not loaded (saving leaves the stored transcript alone), like notesPdfUrl. */
+  transcript?: string;
   resources: Resource[];
 }
 interface DraftAssignment {
@@ -800,7 +801,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
               <p className="text-sm text-muted">Paste each session&rsquo;s transcript. The LEAP AI tutor answers only from this text, so a session with no transcript has no tutor.</p>
               {draft.videos.map((v, i) => (
                 <Field key={v.tmpId} label={`Session ${i + 1}${v.title ? ` · ${v.title}` : ""}`}>
-                  <Textarea value={v.transcript} onChange={(e) => setVideo(i, { transcript: e.target.value })} placeholder="Full transcript…" />
+                  <Textarea value={v.transcript ?? ""} onChange={(e) => setVideo(i, { transcript: e.target.value })} placeholder="Full transcript…" />
                 </Field>
               ))}
             </div>

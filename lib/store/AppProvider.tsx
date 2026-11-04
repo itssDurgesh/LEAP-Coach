@@ -260,15 +260,18 @@ function emptyState(): AppState {
   };
 }
 
-// A lighter copy of the state for the localStorage paint-cache: drop heavy video
-// transcripts (they're refetched by loadAll) so JSON.stringify stays fast and we don't
-// blow the ~5MB localStorage quota. Used for the Supabase-mode snapshot only.
+// A lighter copy of the state for the localStorage paint-cache, so JSON.stringify
+// stays fast and we don't blow the ~5MB localStorage quota. Used for the
+// Supabase-mode snapshot only. Leaves out what is fetched on demand anyway:
+// transcripts (a topic an admin just saved carries them; undefined = "not loaded")
+// and video discussions (each lesson page fetches its own).
 function cacheSnapshot(state: AppState): AppState {
   return {
     ...state,
+    videoComments: [],
     courses: state.courses.map((c) =>
-      c.videos.some((v) => v.transcript)
-        ? { ...c, videos: c.videos.map((v) => (v.transcript ? { ...v, transcript: "" } : v)) }
+      c.videos.some((v) => v.transcript !== undefined)
+        ? { ...c, videos: c.videos.map((v) => (v.transcript !== undefined ? { ...v, transcript: undefined } : v)) }
         : c,
     ),
   };
@@ -378,6 +381,13 @@ interface AppContextValue extends AppState {
   deleteComment(id: string): void;
   toggleCommentLike(id: string): void;
   // per-video discussion (YouTube-style comments under a topic video)
+  /**
+   * Fetch (or refresh) one video's discussion into the store. The bulk load leaves
+   * discussions out; the lesson page calls this for the video it shows.
+   */
+  loadVideoComments(videoId: string): Promise<void>;
+  /** How many discussion comments a person has written; null if it could not be counted. */
+  countVideoComments(userId: string): Promise<number | null>;
   videoCommentsFor(videoId: string): VideoComment[];
   addVideoComment(videoId: string, courseId: string, text: string, parentId?: string | null, mentionIds?: string[]): void;
   editVideoComment(id: string, text: string, mentionIds?: string[]): void;
@@ -528,7 +538,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
             )
           : Promise.resolve();
 
-      const [data] = await Promise.all([db.loadAll(sb), ensurePromise]);
+      const [data] = await Promise.all([db.loadAll(sb, userId), ensurePromise]);
       if (!active) return;
 
       // Guarantee the signed-in user is in `users` (loadAll can miss a just-created
@@ -1459,6 +1469,28 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
 
       // ── per-video discussion (YouTube-style comments under a topic video) ──
+      async loadVideoComments(videoId) {
+        if (!sb) return; // the local demo already holds every comment
+        const started = Date.now();
+        const list = await db.fetchVideoComments(sb, videoId);
+        if (!list) return; // the read failed: keep what is on screen
+        const fetched = new Set(list.map((c) => c.id));
+        setState((s) => ({
+          ...s,
+          videoComments: [
+            // Other videos' threads stay as they are. Of this one's, keep only a
+            // comment posted while the read was in flight: it may not be in it yet.
+            ...s.videoComments.filter(
+              (c) => c.videoId !== videoId || (!fetched.has(c.id) && Date.parse(c.createdAt) >= started - 5_000),
+            ),
+            ...list,
+          ],
+        }));
+      },
+      async countVideoComments(userId) {
+        if (!sb) return state.videoComments.filter((c) => c.userId === userId).length;
+        return db.countVideoComments(sb, userId);
+      },
       videoCommentsFor(videoId) {
         // A copy, so a caller can never reorder the shared index.
         return (commentsByVideo.get(videoId) ?? []).slice();

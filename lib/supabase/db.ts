@@ -37,7 +37,9 @@ const mapTrack = (r: Row): LeadershipTrack => ({ id: r.id, label: r.label });
 const mapTip = (r: Row): DailyTip => ({ id: r.id, text: r.text, author: r.author, targetRole: r.target_role, active: r.active });
 const mapResource = (r: Row): RecommendedResource => ({ id: r.id, title: r.title, type: r.type, author: r.author, blurb: r.blurb, targetRole: r.target_role, accent: r.accent });
 const mapQuestion = (r: Row): Question => ({ id: r.id, type: r.type, prompt: r.prompt, options: r.options ?? [], correctAnswer: r.correct_answer, explanation: r.explanation });
-const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, audioUrl: r.audio_url ?? null, audioName: r.audio_name ?? null, transcript: r.transcript ?? "", summary: r.summary ?? "", notesPdfName: r.notes_pdf_url || undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
+// transcript / notes_file_url: undefined = "not part of this read" (both are fetched
+// on demand), which tells saveCourse to leave the stored value alone.
+const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, audioUrl: r.audio_url ?? null, audioName: r.audio_name ?? null, transcript: r.transcript === undefined ? undefined : (r.transcript ?? ""), summary: r.summary ?? "", notesPdfName: r.notes_pdf_url || undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
 const mapCourseRating = (r: Row): CourseRating => ({ id: r.id, userId: r.user_id, courseId: r.course_id, stars: r.stars, review: r.review ?? null, createdAt: r.created_at, updatedAt: r.updated_at ?? null });
 const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.course_id, enrolledAt: r.enrolled_at, completedAt: r.completed_at });
 const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at });
@@ -137,7 +139,7 @@ export interface LoadedData {
   resources: RecommendedResource[];
   community: CommunityPost[];
   comments: PostComment[];
-  videoComments: VideoComment[];
+  // No videoComments: they are fetched per video by the lesson page (fetchVideoComments).
   notifications: AppNotification[];
   teamMembers: TeamMember[];
   books: Book[];
@@ -156,7 +158,30 @@ export interface LoadedData {
   siteContent: SiteContent | null;
 }
 
-const VIDEO_COLS = "id,course_id,title,order_index,duration_seconds,mux_playback_id,transcript,summary,notes_pdf_url,resources";
+// `transcript` is not in the bulk read: a full session transcript is tens of KB, and
+// every visitor downloaded every session's transcript on every page load, although
+// only the lesson page (one session at a time) and the topic editor read them. See
+// fetchVideoTranscript / fetchCourseTranscripts.
+const VIDEO_COLS = "id,course_id,title,order_index,duration_seconds,mux_playback_id,summary,notes_pdf_url,resources";
+
+/**
+ * What the learner screens show about OTHER people: names and handles on comments
+ * and @mentions, and the public profile page. Leaves out email, phone, age, gender,
+ * plan, permissions and activity timestamps, which every signed-in browser used to
+ * download (and keep in localStorage) for every account. Admins get full rows.
+ */
+const PUBLIC_PROFILE_COLS =
+  "id,name,username,avatar_url,role,headline,bio,company,region,nationality,learning_credits,topic_credits,is_admin,banned,created_at";
+
+/** Everyone's public profile fields; full rows if a column is missing on an older database. */
+async function publicProfiles(sb: SupabaseClient): Promise<Row[]> {
+  const res = await sb.from("profiles").select(PUBLIC_PROFILE_COLS);
+  if (!res.error) return (res.data ?? []) as Row[];
+  console.error("[supabase] profiles: reading full rows", res.error.message);
+  return rows(sb.from("profiles").select("*"));
+}
+
+const SKIP: Promise<Row[]> = Promise.resolve([]);
 
 /**
  * The course tree. audio_url / audio_name arrive with the 2026-10-09 migration; on
@@ -171,48 +196,55 @@ async function courseRows(sb: SupabaseClient): Promise<Row[]> {
   return rows(select(VIDEO_COLS));
 }
 
-/** Fetch + assemble the entire app state from Supabase (RLS scopes per-user rows). */
-export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
+/**
+ * Fetch + assemble the app state from Supabase (RLS scopes per-user rows).
+ *
+ * `userId` is the signed-in user, or null for a visitor. A visitor can only reach
+ * the public pages (home, about, team, FAQ, privacy, pricing, sign-in), so they get
+ * the public content those pages show and nothing else. They used to run all thirty
+ * reads, including every profile, comment and like on the platform.
+ */
+export async function loadAll(sb: SupabaseClient, userId: string | null): Promise<LoadedData> {
+  const signedIn = Boolean(userId);
+  const forUser = (q: () => PromiseLike<unknown>) => (signedIn ? rows(q()) : SKIP);
+
   const [
-    // videos/assignments/questions are embedded in `courses` now → their slots are empty.
-    profiles, purchases, tracks, courses, , , ,
-    tips, resources, sessions, attendees, enrollments, progress, submissions, notes, posts, likes, coupons,
-    categoryPasses, pricingRows, comments, commentLikes, notifications, teamMembers, books, siteRows, articleRows, paymentRows,
-    videoCommentRows, videoCommentLikeRows, announcementRows, faqRows, sitePageRows, courseRatingRows,
+    profiles, me, purchases, tracks, courses,
+    tips, resources, sessions, attendees, enrollments, progress, submissions, notes, coupons,
+    categoryPasses, pricingRows, notifications, teamMembers, books, siteRows, articleRows, paymentRows,
+    announcementRows, faqRows, sitePageRows, courseRatingRows,
   ] = await Promise.all([
-    rows(sb.from("profiles").select("*")),
-    rows(sb.from("course_purchases").select("*")),
+    signedIn ? publicProfiles(sb) : SKIP,
+    // The signed-in user's own full row (the public read above leaves out e.g. email).
+    signedIn ? rows(sb.from("profiles").select("*").eq("id", userId!)) : SKIP,
+    forUser(() => sb.from("course_purchases").select("*")),
     rows(sb.from("leadership_tracks").select("*")),
     // Whole course tree in ONE query via PostgREST embedding (was 4 separate fetches:
-    // courses + videos + assignments + questions). videos/assignments/questions below
-    // are kept as empty placeholders so the positional destructure stays aligned.
-    // videos(...) is enumerated rather than videos(*) so notes_file_url stays out
-    // of the bulk read. It holds the uploaded class-notes file, which is a base64
-    // data URL on older rows — 572KB on this project, 99.7% of the whole courses
-    // payload, downloaded by every user on every page load. The player fetches it
-    // for one video on demand instead (fetchVideoNotesUrl).
+    // courses + videos + assignments + questions). videos(...) is enumerated rather
+    // than videos(*) so notes_file_url and transcript stay out of the bulk read.
+    // notes_file_url holds the uploaded class-notes file, which is a base64 data URL
+    // on older rows — 572KB on this project, 99.7% of the whole courses payload,
+    // downloaded by every user on every page load. The player fetches it for one
+    // video on demand instead (fetchVideoNotesUrl), and the transcript likewise.
     courseRows(sb),
-    Promise.resolve([] as Row[]),
-    Promise.resolve([] as Row[]),
-    Promise.resolve([] as Row[]),
-    rows(sb.from("daily_tips").select("*")),
-    rows(sb.from("recommended_resources").select("*")),
-    rows(sb.from("live_sessions").select("*")),
-    rows(sb.from("session_attendees").select("*")),
-    rows(sb.from("enrollments").select("*")),
-    rows(sb.from("video_progress").select("*")),
-    rows(sb.from("submissions").select("*")),
-    rows(sb.from("user_notes").select("*")),
-    // Global Discussion board was removed — skip these reads (saves round-trips + payload).
-    Promise.resolve([] as Row[]),
-    Promise.resolve([] as Row[]),
-    rows(sb.from("coupons").select("*")),
-    rows(sb.from("category_passes").select("*")),
+    forUser(() => sb.from("daily_tips").select("*")),
+    forUser(() => sb.from("recommended_resources").select("*")),
+    forUser(() => sb.from("live_sessions").select("*")),
+    forUser(() => sb.from("session_attendees").select("*")),
+    forUser(() => sb.from("enrollments").select("*")),
+    forUser(() => sb.from("video_progress").select("*")),
+    forUser(() => sb.from("submissions").select("*")),
+    forUser(() => sb.from("user_notes").select("*")),
+    // Global Discussion board was removed: community_posts, post_likes, post_comments
+    // and comment_likes are no longer read.
+    forUser(() => sb.from("coupons").select("*")),
+    forUser(() => sb.from("category_passes").select("*")),
     rows(sb.from("pricing_tiers").select("*")),
-    // Global Discussion board removed — skip post_comments + comment_likes reads too.
-    Promise.resolve([] as Row[]),
-    Promise.resolve([] as Row[]),
-    rows(sb.from("notifications").select("*")),
+    // Only the bell's own list, exactly what its polling fetches. Admins can read
+    // every user's notifications, and used to download all of them on each load.
+    forUser(() =>
+      sb.from("notifications").select("*").eq("user_id", userId!).order("created_at", { ascending: false }).limit(100),
+    ),
     // photo_url excluded: on this project four base64 portraits total 2.4MB, and
     // the bulk store load runs on EVERY authenticated page even though team photos
     // only appear on /team and the landing mentors strip. Fetched there on demand.
@@ -223,22 +255,36 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     ),
     rows(sb.from("books").select("*")),
     rows(sb.from("site_content").select("*")),
-    rows(sb.from("articles").select("*")),
-    rows(sb.from("payments").select("*")),
-    rows(sb.from("video_comments").select("*")),
-    rows(sb.from("video_comment_likes").select("*")),
-    rows(sb.from("announcements").select("*")),
+    forUser(() => sb.from("articles").select("*")),
+    forUser(() => sb.from("payments").select("*")),
+    // video_comments + video_comment_likes: fetched per video (fetchVideoComments).
+    forUser(() => sb.from("announcements").select("*")),
     rows(sb.from("faqs").select("*")),
     rows(sb.from("site_pages").select("*")),
-    rows(sb.from("course_ratings").select("*")),
+    // Only this learner's own ratings: the store needs them to show "your rating".
+    // The average shown on each topic is kept on the course row by a trigger.
+    forUser(() => sb.from("course_ratings").select("*").eq("user_id", userId!)),
   ]);
+
+  // Others get the public fields; the signed-in user gets their own full row. An
+  // admin's screens list people's contact details, so admins read full rows.
+  let profileRows = profiles;
+  const own = me[0];
+  if (own?.is_admin) {
+    const full = await sb.from("profiles").select("*");
+    if (!full.error) profileRows = (full.data ?? []) as Row[];
+    else console.error("[supabase] profiles (admin, full rows)", full.error.message);
+  }
+  if (own) {
+    // In place, so the list keeps the order the database returned.
+    profileRows = profileRows.some((p) => p.id === own.id)
+      ? profileRows.map((p) => (p.id === own.id ? own : p))
+      : [...profileRows, own];
+  }
 
   const purchasesByUser = group(purchases, (p) => p.user_id);
   const passesByUser = group(categoryPasses, (p) => p.user_id);
   const attendeesBySession = group(attendees, (a) => a.session_id);
-  const likesByPost = group(likes, (l) => l.post_id);
-  const likesByComment = group(commentLikes, (l) => l.comment_id);
-  const likesByVideoComment = group(videoCommentLikeRows, (l) => l.comment_id);
 
   const assembledCourses: Course[] = courses.map((c) => ({
     id: c.id, slug: c.slug, title: c.title, description: c.description ?? "", category: c.category,
@@ -260,7 +306,7 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
   }));
 
   return {
-    users: profiles.map((p) =>
+    users: profileRows.map((p) =>
       mapProfile(
         p,
         (purchasesByUser[p.id] ?? []) as PurchaseRow[],
@@ -272,14 +318,8 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     tips: tips.map(mapTip),
     resources: resources.map(mapResource),
     sessions: sessions.map((s) => mapSession(s, (attendeesBySession[s.id] ?? []).map((x) => x.user_id))),
-    community: posts.map((p) => mapPost(p, (likesByPost[p.id] ?? []).map((x) => x.user_id)))
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    comments: comments
-      .map((c) => mapComment(c, (likesByComment[c.id] ?? []).map((x) => x.user_id)))
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
-    videoComments: videoCommentRows
-      .map((c) => mapVideoComment(c, (likesByVideoComment[c.id] ?? []).map((x) => x.user_id)))
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
+    community: [],
+    comments: [],
     notifications: notifications.map(mapNotification).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     teamMembers: teamMembers.map(mapTeamMember).sort((a, b) => a.order - b.order),
     books: books.map(mapBook).sort((a, b) => a.order - b.order),
@@ -372,6 +412,49 @@ export async function fetchVideoNotesUrl(sb: SupabaseClient, videoId: string): P
   return (data?.notes_file_url as string | null) ?? null;
 }
 
+/** ONE session's transcript (kept out of loadAll). Throws when it could not be read. */
+export async function fetchVideoTranscript(sb: SupabaseClient, videoId: string): Promise<string> {
+  const { data, error } = await sb.from("videos").select("transcript").eq("id", videoId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data?.transcript as string | null) ?? "";
+}
+
+/** Every session transcript of one topic, by video id — for the topic editor. Throws on failure. */
+export async function fetchCourseTranscripts(sb: SupabaseClient, courseId: string): Promise<Map<string, string>> {
+  const { data, error } = await sb.from("videos").select("id,transcript").eq("course_id", courseId);
+  if (error) throw new Error(error.message);
+  return new Map(((data ?? []) as Row[]).map((r) => [r.id as string, (r.transcript as string | null) ?? ""]));
+}
+
+/**
+ * The discussion under ONE video, with its likes, oldest first. Kept out of loadAll:
+ * every learner used to download every comment and like on the platform on every
+ * page load, a list that only grows. null when the read failed.
+ */
+export async function fetchVideoComments(sb: SupabaseClient, videoId: string): Promise<VideoComment[] | null> {
+  const { data, error } = await sb.from("video_comments").select("*").eq("video_id", videoId);
+  if (error) return null;
+  const list = (data ?? []) as Row[];
+  // Likes by comment id, in chunks so a busy thread can't outgrow the URL.
+  const ids = list.map((c) => c.id as string);
+  const likes: Row[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const res = await sb.from("video_comment_likes").select("comment_id,user_id").in("comment_id", ids.slice(i, i + 100));
+    if (res.error) return null;
+    likes.push(...((res.data ?? []) as Row[]));
+  }
+  const byComment = group(likes, (l) => l.comment_id);
+  return list
+    .map((c) => mapVideoComment(c, (byComment[c.id] ?? []).map((x) => x.user_id)))
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+}
+
+/** How many discussion comments one person has written (the profile page's stat). null on failure. */
+export async function countVideoComments(sb: SupabaseClient, userId: string): Promise<number | null> {
+  const { count, error } = await sb.from("video_comments").select("id", { count: "exact", head: true }).eq("user_id", userId);
+  return error ? null : (count ?? 0);
+}
+
 export const upsertCourseRating = (sb: SupabaseClient, r: CourseRating) =>
   sb.from("course_ratings").upsert(
     {
@@ -427,10 +510,11 @@ export async function saveCourse(sb: SupabaseClient, c: Course) {
   for (const v of c.videos) {
     const row = {
       id: v.id, course_id: c.id, title: v.title, order_index: v.order, duration_seconds: v.durationSeconds,
-      mux_playback_id: v.muxPlaybackId, transcript: v.transcript, summary: v.summary,
+      mux_playback_id: v.muxPlaybackId, summary: v.summary,
       notes_pdf_url: v.notesPdfName || null,
       // undefined = "not loaded, leave the stored value alone"; null = "clear it".
-      // The bulk read no longer populates notesPdfUrl.
+      // The bulk read populates neither notesPdfUrl nor transcript.
+      ...(v.transcript === undefined ? {} : { transcript: v.transcript }),
       ...(v.notesPdfUrl === undefined ? {} : { notes_file_url: v.notesPdfUrl }),
       resources: v.resources,
     };
