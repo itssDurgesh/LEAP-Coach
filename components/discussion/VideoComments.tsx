@@ -7,9 +7,9 @@ import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { MentionInput, mentionIdsFromText, MentionUser } from "@/components/discussion/MentionInput";
-import { MentionText } from "@/components/discussion/MentionText";
+import { MentionText, handleMap } from "@/components/discussion/MentionText";
 import { useApp } from "@/lib/store/AppProvider";
-import { Course, VideoComment, Video } from "@/lib/types";
+import { Course, User, VideoComment, Video } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 
 const profileHref = (username: string | undefined, fallbackId: string) => `/u/${username ?? fallbackId}`;
@@ -31,16 +31,46 @@ function RoleTag({ role }: { role: VideoComment["userRole"] }) {
 /** YouTube-style comments under a single topic video: threaded one reply level,
  *  @mentions (which notify the tagged person), likes, edit/delete (own + admin). */
 export function VideoComments({ course, video, hideHeader }: { course: Course; video: Video; hideHeader?: boolean }) {
-  const { currentUser, users, videoCommentsFor, addVideoComment } = useApp();
+  const { currentUser, users, videoComments, videoCommentsFor, addVideoComment } = useApp();
   const [text, setText] = React.useState("");
 
-  const comments = videoCommentsFor(video.id);
-  const topLevel = comments.filter((c) => c.parentId === null);
-  const repliesOf = (id: string) => comments.filter((c) => c.parentId === id);
+  // Everything below is derived once per change of the data it comes from. It used
+  // to be rebuilt on every render, including every keystroke in the composer, and
+  // each comment row also scanned and re-mapped the whole user list.
+  const comments = React.useMemo(
+    () => videoCommentsFor(video.id),
+    // videoCommentsFor is new on every store update; the comments themselves are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [videoComments, video.id],
+  );
+  const { topLevel, repliesOf } = React.useMemo(() => {
+    const top: VideoComment[] = [];
+    const replies = new Map<string, VideoComment[]>();
+    for (const c of comments) {
+      if (c.parentId === null) top.push(c);
+      else {
+        const list = replies.get(c.parentId);
+        if (list) list.push(c);
+        else replies.set(c.parentId, [c]);
+      }
+    }
+    return { topLevel: top, repliesOf: replies };
+  }, [comments]);
 
-  const mentionUsers: MentionUser[] = users
-    .filter((u) => u.id !== currentUser?.id && !u.banned)
-    .map((u) => ({ id: u.id, name: u.name, username: u.username }));
+  const usersById = React.useMemo(() => {
+    const byId = new Map<string, User>();
+    for (const u of users) if (!byId.has(u.id)) byId.set(u.id, u);
+    return byId;
+  }, [users]);
+  const handles = React.useMemo(() => handleMap(users), [users]);
+  const meId = currentUser?.id;
+  const mentionUsers: MentionUser[] = React.useMemo(
+    () =>
+      users
+        .filter((u) => u.id !== meId && !u.banned)
+        .map((u) => ({ id: u.id, name: u.name, username: u.username })),
+    [users, meId],
+  );
 
   function submit() {
     if (!text.trim()) return;
@@ -94,8 +124,10 @@ export function VideoComments({ course, video, hideHeader }: { course: Course; v
             video={video}
             comment={c}
             rootId={c.id}
-            replies={repliesOf(c.id)}
+            replies={repliesOf.get(c.id)}
             mentionUsers={mentionUsers}
+            usersById={usersById}
+            handles={handles}
           />
         ))}
       </div>
@@ -103,13 +135,17 @@ export function VideoComments({ course, video, hideHeader }: { course: Course; v
   );
 }
 
-function CommentItem({
+// Memoized: typing in the composer above re-renders the thread, and no comment
+// changes because of it.
+const CommentItem = React.memo(function CommentItem({
   course,
   video,
   comment,
   rootId,
   replies,
   mentionUsers,
+  usersById,
+  handles,
 }: {
   course: Course;
   video: Video;
@@ -117,19 +153,20 @@ function CommentItem({
   rootId: string;
   replies?: VideoComment[];
   mentionUsers: MentionUser[];
+  usersById: ReadonlyMap<string, User>;
+  handles: ReadonlyMap<string, MentionUser>;
 }) {
-  const { currentUser, users, toggleVideoCommentLike, editVideoComment, deleteVideoComment, addVideoComment } = useApp();
+  const { currentUser, toggleVideoCommentLike, editVideoComment, deleteVideoComment, addVideoComment } = useApp();
   const [replying, setReplying] = React.useState(false);
   const [replyText, setReplyText] = React.useState("");
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(comment.text);
 
-  const author = users.find((u) => u.id === comment.userId);
+  const author = usersById.get(comment.userId);
   const liked = currentUser ? comment.likedBy.includes(currentUser.id) : false;
   const mine = currentUser?.id === comment.userId;
   const canEdit = mine || !!currentUser?.isAdmin; // admins moderate any comment
   const canDelete = mine || !!currentUser?.isAdmin;
-  const allUsers = users.map((u) => ({ id: u.id, name: u.name, username: u.username }));
 
   function startReply() {
     setReplying(true);
@@ -175,7 +212,7 @@ function CommentItem({
             </div>
           ) : (
             <div className="mt-1 text-sm leading-relaxed text-heading">
-              <MentionText text={comment.text} users={allUsers} />
+              <MentionText text={comment.text} handles={handles} />
             </div>
           )}
         </div>
@@ -222,6 +259,8 @@ function CommentItem({
                 comment={r}
                 rootId={rootId}
                 mentionUsers={mentionUsers}
+                usersById={usersById}
+                handles={handles}
               />
             ))}
           </div>
@@ -254,4 +293,4 @@ function CommentItem({
       </div>
     </div>
   );
-}
+});
