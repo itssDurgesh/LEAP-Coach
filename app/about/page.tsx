@@ -19,7 +19,13 @@ import {
 import { SiteNav } from "@/components/marketing/SiteNav";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { CARD, SectionHead, Tag } from "@/components/marketing/SectionHead";
+import { CounselorGap, DriftingCircle, JourneyPicker } from "@/components/marketing/about/AboutInteractive";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
+import { SmoothScroll } from "@/components/motion/SmoothScroll";
 import { v2Button } from "@/components/v2/button";
+
+// Cards lift a little under the pointer, as on the home page.
+const LIFT = "transition-all duration-300 ease-out-expo hover:-translate-y-1 hover:shadow-v2-lift";
 
 export const metadata = {
   title: { absolute: "About LEAP Coach — Mission, Team & Prof. Vishal Gupta" },
@@ -92,12 +98,6 @@ const disciplines = [
   "Psychology",
 ];
 
-const personas = [
-  { icon: GraduationCap, label: "Students", look: "bg-lv-self-tint text-lv-self-dark" },
-  { icon: Briefcase, label: "Professionals", look: "bg-lv-people-tint text-lv-people-dark" },
-  { icon: Rocket, label: "Entrepreneurs", look: "bg-lv-peers-tint text-lv-peers-dark" },
-];
-
 // One colour per card in "Why LEAP Coach", in order.
 const gapLooks = [
   "bg-lv-self-tint text-lv-self-dark",
@@ -108,37 +108,46 @@ const gapLooks = [
 
 export default function AboutPage() {
   return (
+    // overflow-x-clip: the sideways <Reveal> entrances would otherwise widen the page mid-animation.
     <div className="app-v2 min-h-screen overflow-x-clip bg-surface font-sans text-heading">
+      {/* Momentum scrolling, as on the home page. */}
+      <SmoothScroll />
       <SiteNav />
 
       {/* ── Hero ── */}
       <section className="relative">
-        <span aria-hidden className="absolute -left-16 top-10 h-48 w-48 rounded-full bg-gold-400/20" />
-        <span aria-hidden className="absolute -right-10 bottom-0 h-32 w-32 rounded-full bg-lv-self/20" />
+        <DriftingCircle distance={90} className="absolute -left-16 top-10 h-48 w-48 rounded-full bg-gold-400/20" />
+        <DriftingCircle distance={-60} className="absolute -right-10 bottom-0 h-32 w-32 rounded-full bg-lv-self/20" />
         <div className="relative mx-auto max-w-4xl px-5 pb-16 pt-14 text-center sm:px-8 lg:pb-20 lg:pt-20">
-          <Tag>About · L·E·A·P Coach</Tag>
-          <h1 className="mt-5 text-balance font-heading text-display-lg font-bold text-heading">
-            Creating <span className="text-v2-gold-text sm:whitespace-nowrap">High-Performance Stars</span>
-          </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-lg leading-7 text-v2-body">
-            Leadership Excellence and Authentic Performance: a 24/7 AI-powered friend and life coach
-            for students, professionals, and entrepreneurs.
-          </p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link href="/signup" className={v2Button("primary")}>
-              Start Your Journey <ArrowRight className="h-4 w-4" />
+          <Reveal>
+            <Tag>About · L·E·A·P Coach</Tag>
+          </Reveal>
+          <Reveal delay={0.08}>
+            <h1 className="mt-5 text-balance font-heading text-display-lg font-bold text-heading">
+              Creating <span className="text-v2-gold-text sm:whitespace-nowrap">High-Performance Stars</span>
+            </h1>
+          </Reveal>
+          <Reveal delay={0.16}>
+            <p className="mx-auto mt-5 max-w-2xl text-lg leading-7 text-v2-body">
+              Leadership Excellence and Authentic Performance: a 24/7 AI-powered friend and life coach
+              for students, professionals, and entrepreneurs.
+            </p>
+          </Reveal>
+          <Reveal delay={0.24} className="mt-8 flex flex-wrap justify-center gap-3">
+            <Link href="/signup" className={v2Button("primary", "md", "group")}>
+              Start Your Journey <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
             </Link>
             <Link href="/team" className={v2Button("outline")}>
               Meet the team
             </Link>
-          </div>
+          </Reveal>
         </div>
       </section>
 
       {/* ── What is LEAP Coach ── */}
       <section className="mx-auto max-w-7xl px-5 py-14 sm:px-8 sm:py-16">
         <div className="grid gap-12 lg:grid-cols-[1fr_0.9fr] lg:items-start">
-          <div>
+          <Reveal from="right">
             <SectionHead tag="What is LEAP Coach?" title="Leadership excellence, available 24/7" />
             <div className="mt-5 space-y-4 text-base leading-7 text-v2-body">
               <p>
@@ -159,145 +168,151 @@ export default function AboutPage() {
                 , so learners get timeless wisdom alongside modern life skills.
               </p>
             </div>
-          </div>
+          </Reveal>
 
-          <div className={`${CARD} p-7`}>
+          <Reveal from="left" delay={0.1} className={`${CARD} p-7`}>
             <h3 className="font-heading text-xl font-semibold tracking-[-0.01em] text-heading">Coaching domains</h3>
             <p className="mt-1 text-sm text-v2-body">What LEAP Coach helps you develop:</p>
             <div className="mt-5 flex flex-wrap gap-2">
               {domains.map((d) => (
                 <span
                   key={d}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-sm font-medium text-heading"
+                  className="inline-flex cursor-default items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-sm font-medium text-heading transition-all duration-200 ease-out-expo hover:-translate-y-0.5 hover:bg-v2-gold-soft"
                 >
                   <Sparkles className="h-3.5 w-3.5 text-v2-gold-text" /> {d}
                 </span>
               ))}
             </div>
-            <p className="mt-7 text-sm font-semibold text-heading">Built for three journeys</p>
-            <div className="mt-3 grid grid-cols-3 gap-3">
-              {personas.map((p) => (
-                <div key={p.label} className={`rounded-2xl p-3 text-center ${p.look}`}>
-                  <p.icon className="mx-auto h-5 w-5" />
-                  <p className="mt-1.5 text-xs font-semibold text-heading">{p.label}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+            <JourneyPicker />
+          </Reveal>
         </div>
       </section>
 
       {/* ── Why LEAP Coach ── */}
       <section className="mx-auto max-w-7xl px-5 py-14 sm:px-8 sm:py-16">
-        <SectionHead
-          center
-          tag="Why LEAP Coach?"
-          title="The gap nobody else is filling"
-          text="Behavioural and leadership development is the most under-served need in education and work. LEAP Coach exists to close that gap."
-        />
-        <div className="mt-12 grid gap-5 sm:grid-cols-2">
+        <Reveal>
+          <SectionHead
+            center
+            tag="Why LEAP Coach?"
+            title="The gap nobody else is filling"
+            text="Behavioural and leadership development is the most under-served need in education and work. LEAP Coach exists to close that gap."
+          />
+        </Reveal>
+        <Stagger className="mt-12 grid gap-5 sm:grid-cols-2" gap={0.08}>
           {gaps.map((g, i) => (
-            <div key={g.title} className={`${CARD} p-7`}>
-              <span className={`grid h-12 w-12 place-items-center rounded-full ${gapLooks[i % gapLooks.length]}`}>
-                <g.icon className="h-[22px] w-[22px]" strokeWidth={1.9} />
-              </span>
-              <h3 className="mt-5 font-heading text-xl font-semibold tracking-[-0.01em] text-heading">{g.title}</h3>
-              <p className="mt-2 text-[15px] leading-6 text-v2-body">{g.body}</p>
-            </div>
+            <StaggerItem key={g.title}>
+              <div className={`${CARD} ${LIFT} group h-full p-7`}>
+                <span className={`grid h-12 w-12 place-items-center rounded-full transition-transform duration-300 ease-out-expo group-hover:scale-110 ${gapLooks[i % gapLooks.length]}`}>
+                  <g.icon className="h-[22px] w-[22px]" strokeWidth={1.9} />
+                </span>
+                <h3 className="mt-5 font-heading text-xl font-semibold tracking-[-0.01em] text-heading">{g.title}</h3>
+                <p className="mt-2 text-[15px] leading-6 text-v2-body">{g.body}</p>
+              </div>
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
+        <Reveal className="mt-5">
+          <CounselorGap />
+        </Reveal>
       </section>
 
       {/* ── Vision & Mission ── */}
       <section className="mx-auto max-w-7xl px-5 py-14 sm:px-8 sm:py-16">
         <div className="grid gap-5 lg:grid-cols-2">
           {/* Vision */}
-          <div className="relative overflow-hidden rounded-[28px] bg-v2-navy p-8 shadow-v2-card sm:p-10">
-            <span aria-hidden className="absolute -right-20 -top-24 h-56 w-56 rounded-full bg-gold-400/15" />
-            <span className="relative grid h-12 w-12 place-items-center rounded-full bg-white/10 text-gold-400">
-              <Compass className="h-6 w-6" />
-            </span>
-            <h2 className="relative mt-5 font-heading text-2xl font-bold tracking-[-0.015em] text-white sm:text-3xl">Our Vision</h2>
-            <p className="relative mt-4 text-lg leading-7 text-v2-on-navy-muted">
-              To provide high-quality, evidence-based behavioural education in a practical and engaging
-              manner to students, professionals, and entrepreneurs.
-            </p>
-          </div>
+          <Reveal from="right" className="h-full">
+            <div className={`relative h-full overflow-hidden rounded-[28px] bg-v2-navy p-8 shadow-v2-card sm:p-10 ${LIFT}`}>
+              <span aria-hidden className="absolute -right-20 -top-24 h-56 w-56 rounded-full bg-gold-400/15" />
+              <span className="relative grid h-12 w-12 place-items-center rounded-full bg-white/10 text-gold-400">
+                <Compass className="h-6 w-6" />
+              </span>
+              <h2 className="relative mt-5 font-heading text-2xl font-bold tracking-[-0.015em] text-white sm:text-3xl">Our Vision</h2>
+              <p className="relative mt-4 text-lg leading-7 text-v2-on-navy-muted">
+                To provide high-quality, evidence-based behavioural education in a practical and engaging
+                manner to students, professionals, and entrepreneurs.
+              </p>
+            </div>
+          </Reveal>
 
           {/* Mission */}
-          <div className={`${CARD} p-8 sm:p-10`}>
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-v2-gold-soft text-v2-gold-text">
-              <Target className="h-6 w-6" />
-            </span>
-            <h2 className="mt-5 font-heading text-2xl font-bold tracking-[-0.015em] text-heading sm:text-3xl">Our Mission</h2>
-            <ul className="mt-5 space-y-4">
-              {mission.map((m) => (
-                <li key={m.title} className="flex items-start gap-3.5">
-                  <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface text-v2-gold-text">
-                    <m.icon className="h-[18px] w-[18px]" />
-                  </span>
-                  <div>
-                    <p className="font-heading font-semibold text-heading">{m.title}</p>
-                    <p className="mt-0.5 text-sm leading-5 text-v2-body">{m.body}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <Reveal from="left" delay={0.1} className="h-full">
+            <div className={`${CARD} h-full p-8 sm:p-10 ${LIFT}`}>
+              <span className="grid h-12 w-12 place-items-center rounded-full bg-v2-gold-soft text-v2-gold-text">
+                <Target className="h-6 w-6" />
+              </span>
+              <h2 className="mt-5 font-heading text-2xl font-bold tracking-[-0.015em] text-heading sm:text-3xl">Our Mission</h2>
+              <Stagger className="mt-5 space-y-4" gap={0.1} delay={0.15}>
+                {mission.map((m) => (
+                  <StaggerItem key={m.title} from="left" className="group flex items-start gap-3.5">
+                    <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface text-v2-gold-text transition-colors duration-200 group-hover:bg-v2-gold-soft">
+                      <m.icon className="h-[18px] w-[18px]" />
+                    </span>
+                    <div>
+                      <p className="font-heading font-semibold text-heading">{m.title}</p>
+                      <p className="mt-0.5 text-sm leading-5 text-v2-body">{m.body}</p>
+                    </div>
+                  </StaggerItem>
+                ))}
+              </Stagger>
+            </div>
+          </Reveal>
         </div>
       </section>
 
       {/* ── Disciplines ── */}
       <section className="mx-auto max-w-5xl px-5 py-14 sm:px-8 sm:py-16">
-        <SectionHead
-          center
-          tag="Wisdom from many sources"
-          title="Lessons drawn from across disciplines"
-          text="LEAP Coach draws on a wide range of fields, then integrates scientific research with ancient Indian scriptures to deliver wisdom you can put to use."
-        />
-        <div className="mt-9 flex flex-wrap justify-center gap-2.5">
+        <Reveal>
+          <SectionHead
+            center
+            tag="Wisdom from many sources"
+            title="Lessons drawn from across disciplines"
+            text="LEAP Coach draws on a wide range of fields, then integrates scientific research with ancient Indian scriptures to deliver wisdom you can put to use."
+          />
+        </Reveal>
+        <Stagger className="mt-9 flex flex-wrap justify-center gap-2.5" gap={0.05}>
           {disciplines.map((d) => (
-            <span
-              key={d}
-              className="inline-flex items-center gap-1.5 rounded-full bg-card px-4 py-2 text-sm font-medium text-heading shadow-v2-soft"
-            >
-              <BookOpen className="h-3.5 w-3.5 text-v2-gold-text" /> {d}
-            </span>
+            <StaggerItem key={d}>
+              <span className="inline-flex cursor-default items-center gap-1.5 rounded-full bg-card px-4 py-2 text-sm font-medium text-heading shadow-v2-soft transition-all duration-200 ease-out-expo hover:-translate-y-0.5 hover:shadow-v2-card">
+                <BookOpen className="h-3.5 w-3.5 text-v2-gold-text" /> {d}
+              </span>
+            </StaggerItem>
           ))}
-        </div>
-        <div className="mx-auto mt-9 flex max-w-2xl items-start gap-3 rounded-[20px] bg-v2-gold-soft p-5 text-left">
+        </Stagger>
+        <Reveal className="mx-auto mt-9 flex max-w-2xl items-start gap-3 rounded-[20px] bg-v2-gold-soft p-5 text-left">
           <ScrollText className="mt-0.5 h-5 w-5 shrink-0 text-v2-gold-text" />
           <p className="text-sm leading-6 text-heading">
             <span className="font-semibold">Indian Wisdom, modernised.</span> Life and leadership
             lessons from the Mahabharata, the Upanishads, and more, paired with modern behavioural
             science.
           </p>
-        </div>
+        </Reveal>
       </section>
 
       {/* ── Founder quote ── */}
       <section className="mx-auto max-w-7xl px-5 py-14 sm:px-8 sm:py-16">
-        <figure className="relative overflow-hidden rounded-[28px] bg-v2-gold-soft p-8 sm:p-12">
-          <span aria-hidden className="block font-heading text-6xl leading-none text-gold-500">
-            &ldquo;
-          </span>
-          <blockquote className="mt-1 max-w-3xl text-balance font-heading text-2xl font-semibold leading-snug text-heading sm:text-3xl">
-            The work of a leader is to lead from values — not from fear of judgement.
-          </blockquote>
-          <figcaption className="mt-5 text-sm font-semibold text-v2-gold-text">
-            Prof. Vishal Gupta, Founder · IIM Ahmedabad
-          </figcaption>
-          <Link href="/team" className={v2Button("strong", "sm", "mt-6")}>
-            <Lightbulb className="h-4 w-4" /> Meet the people behind LEAP
-          </Link>
-        </figure>
+        <Reveal blur>
+          <figure className="relative overflow-hidden rounded-[28px] bg-v2-gold-soft p-8 sm:p-12">
+            <span aria-hidden className="block font-heading text-6xl leading-none text-gold-500">
+              &ldquo;
+            </span>
+            <blockquote className="mt-1 max-w-3xl text-balance font-heading text-2xl font-semibold leading-snug text-heading sm:text-3xl">
+              The work of a leader is to lead from values — not from fear of judgement.
+            </blockquote>
+            <figcaption className="mt-5 text-sm font-semibold text-v2-gold-text">
+              Prof. Vishal Gupta, Founder · IIM Ahmedabad
+            </figcaption>
+            <Link href="/team" className={v2Button("strong", "sm", "group mt-6")}>
+              <Lightbulb className="h-4 w-4 transition-transform duration-300 ease-out-expo group-hover:rotate-12" /> Meet the people behind LEAP
+            </Link>
+          </figure>
+        </Reveal>
       </section>
 
       {/* ── CTA ── */}
       <section className="mx-auto max-w-7xl px-5 pb-20 sm:px-8">
-        <div className="relative overflow-hidden rounded-[28px] bg-v2-navy px-6 py-14 text-center shadow-v2-card sm:px-12">
-          <span aria-hidden className="absolute -left-20 -top-24 h-64 w-64 rounded-full bg-gold-400/15" />
-          <span aria-hidden className="absolute -bottom-24 -right-16 h-56 w-56 rounded-full bg-lv-self/20" />
+        <Reveal className="relative overflow-hidden rounded-[28px] bg-v2-navy px-6 py-14 text-center shadow-v2-card sm:px-12">
+          <DriftingCircle distance={50} className="absolute -left-20 -top-24 h-64 w-64 rounded-full bg-gold-400/15" />
+          <DriftingCircle distance={-40} className="absolute -bottom-24 -right-16 h-56 w-56 rounded-full bg-lv-self/20" />
           <h2 className="relative text-balance font-heading text-display font-bold text-white">
             Ready to begin your LEAP?
           </h2>
@@ -305,14 +320,14 @@ export default function AboutPage() {
             Join LEAP Coach today and start your first coaching session in minutes.
           </p>
           <div className="relative mt-8 flex flex-wrap justify-center gap-3">
-            <Link href="/signup" className={v2Button("primary")}>
-              Start Your Journey <ArrowRight className="h-4 w-4" />
+            <Link href="/signup" className={v2Button("primary", "md", "group")}>
+              Start Your Journey <ArrowRight className="h-4 w-4 transition-transform duration-200 ease-out-expo group-hover:translate-x-1" />
             </Link>
             <Link href="/courses" className={v2Button("ghostOnNavy", "md", "border border-white/25")}>
               Explore Topics
             </Link>
           </div>
-        </div>
+        </Reveal>
       </section>
 
       <SiteFooter />
