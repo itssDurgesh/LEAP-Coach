@@ -87,6 +87,8 @@ interface Draft {
   accessDurationDays: number; // 0 = standard 1 year (per-topic override for à-la-carte)
   accent: number;
   thumbnailUrl: string | null;
+  /** One poster for every video of the topic (Sessions step). */
+  videoThumbnailUrl: string | null;
   workbookName: string | null;
   workbookUrl: string | null;
   hashtags: string[];
@@ -154,6 +156,7 @@ function blankDraft(): Draft {
     accessDurationDays: 0,
     accent: 0,
     thumbnailUrl: null,
+    videoThumbnailUrl: null,
     workbookName: null,
     workbookUrl: null,
     hashtags: ["", "", "", ""],
@@ -229,6 +232,7 @@ function toDraft(c: Course): Draft {
     accessDurationDays: c.accessDurationDays ?? 0,
     accent: c.accent,
     thumbnailUrl: c.thumbnailUrl ?? null,
+    videoThumbnailUrl: c.videoThumbnailUrl ?? null,
     workbookName: c.workbookName ?? null,
     workbookUrl: c.workbookUrl ?? null,
     hashtags: [...c.hashtags, "", "", "", ""].slice(0, 4),
@@ -328,6 +332,7 @@ function toCourse(d: Draft, existing: Course | undefined, takenSlugs: Set<string
     accent: d.accent,
     accessDurationDays: d.accessDurationDays && d.accessDurationDays > 0 ? d.accessDurationDays : null,
     thumbnailUrl: d.thumbnailUrl,
+    videoThumbnailUrl: d.videoThumbnailUrl,
     workbookName: d.workbookName,
     workbookUrl: d.workbookUrl,
     pendingApproval: existing?.pendingApproval ?? false,
@@ -609,6 +614,43 @@ export function CourseWizard({ initial }: { initial?: Course }) {
               <p className="text-sm text-muted">
                 Each session is either a video (Mux playback ID) or an audio recording you upload. Order defines the roadmap.
               </p>
+
+              {/* One thumbnail for every session of the topic */}
+              <div className="rounded-xl border border-hair bg-surface-2/40 p-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="aspect-video w-48 shrink-0 overflow-hidden rounded-lg border border-hair bg-surface-2">
+                    {draft.videoThumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={draft.videoThumbnailUrl} alt="Video thumbnail" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="grid h-full w-full place-items-center text-faint">
+                        <ImageIcon className="h-6 w-6" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <p className="font-heading text-sm font-semibold text-heading">Video thumbnail · all sessions</p>
+                    <p className="text-xs text-muted">
+                      Shown on every video of this topic before it plays, and behind its audio sessions. A 16:9 image works
+                      best (1280×720). Without one, each video shows a frame chosen by Mux.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <UploadButton
+                        onBusy={trackUpload}
+                        accept="image/*"
+                        label={draft.videoThumbnailUrl ? "Replace thumbnail" : "Upload thumbnail"}
+                        onFile={(f) => uploadThen(f, "video-thumbnails", (url) => set({ videoThumbnailUrl: url }))}
+                      />
+                      {draft.videoThumbnailUrl && (
+                        <button type="button" onClick={() => set({ videoThumbnailUrl: null })} className="text-xs text-faint hover:text-red-600">
+                          Remove thumbnail
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {draft.videos.map((v, i) => (
                 <div key={v.tmpId} className="rounded-xl border border-hair p-4">
                   <div className="mb-3 flex items-center justify-between">

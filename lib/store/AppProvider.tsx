@@ -189,6 +189,13 @@ function indexCourses(courses: Course[]): CourseIndex {
 }
 
 const NO_SUBMISSIONS: Submission[] = [];
+const NO_PROGRESS: VideoProgress[] = [];
+
+/** ISO time → ms since epoch; 0 for missing or unreadable values. */
+const ms = (iso?: string | null) => {
+  const n = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(n) ? n : 0;
+};
 
 interface AppState {
   users: User[];
@@ -340,6 +347,18 @@ interface AppContextValue extends AppState {
   // progress
   isVideoCompleted(videoId: string, userId?: string): boolean;
   markVideoComplete(videoId: string): void;
+  /**
+   * Remember where the learner is in a video (players call this on pause, on leaving
+   * and every half minute of playback). Drives resume on any device and "continue
+   * where you stopped" across topics.
+   */
+  recordWatch(videoId: string, positionSeconds: number): void;
+  /** The saved place in a video and when it was saved; null when there is none. */
+  watchPosition(videoId: string, userId?: string): { seconds: number; at: number } | null;
+  /** The learner's latest activity in a topic (watching or finishing a video), ms since epoch; 0 = none. */
+  lastActivityAt(courseId: string, userId?: string): number;
+  /** The video of this topic the learner watched most recently, if any. */
+  lastWatchedVideo(courseId: string, userId?: string): { videoId: string; seconds: number; at: number } | null;
   isVideoUnlocked(courseId: string, order: number, userId?: string): boolean;
   courseProgress(courseId: string, userId?: string): { completed: number; total: number; pct: number };
   // assignments
@@ -730,6 +749,12 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     () => firstBy(state.courseRatings, (r) => pair(r.userId, r.courseId)),
     [state.courseRatings],
   );
+  // A learner's progress rows by topic, and by video (one row per user + video).
+  const progressByCourse = React.useMemo(
+    () => groupSorted(state.progress, (p) => pair(p.userId, p.courseId), () => 0),
+    [state.progress],
+  );
+  const progressRow = React.useMemo(() => firstBy(state.progress, (p) => pair(p.userId, p.videoId)), [state.progress]);
   const commentsByVideo = React.useMemo(
     () => groupSorted(state.videoComments, (c) => c.videoId, (a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
     [state.videoComments],
@@ -788,6 +813,25 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       hasGrant(courseId, userId) && !courseExpired(courseId, userId);
 
     const isVideoCompleted = (videoId: string, userId?: string) => completedVideos.has(pair(who(userId), videoId));
+
+    const watchPosition = (videoId: string, userId?: string) => {
+      const row = progressRow.get(pair(who(userId), videoId));
+      return row && row.positionSeconds != null ? { seconds: row.positionSeconds, at: ms(row.lastWatchedAt) } : null;
+    };
+    const lastActivityAt = (courseId: string, userId?: string) => {
+      let latest = 0;
+      for (const p of progressByCourse.get(pair(who(userId), courseId)) ?? NO_PROGRESS)
+        latest = Math.max(latest, ms(p.lastWatchedAt), ms(p.completedAt));
+      return latest;
+    };
+    const lastWatchedVideo = (courseId: string, userId?: string) => {
+      let best: { videoId: string; seconds: number; at: number } | null = null;
+      for (const p of progressByCourse.get(pair(who(userId), courseId)) ?? NO_PROGRESS) {
+        const at = ms(p.lastWatchedAt);
+        if (at && (!best || at > best.at)) best = { videoId: p.videoId, seconds: p.positionSeconds ?? 0, at };
+      }
+      return best;
+    };
 
     /** This user's attempts at one checkpoint, oldest first. Shared: never mutate it. */
     const submissionsFor = (assignmentId: string, userId?: string) =>
@@ -1138,24 +1182,47 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       isVideoCompleted,
       isVideoUnlocked,
       courseProgress,
+      watchPosition,
+      lastActivityAt,
+      lastWatchedVideo,
+      recordWatch(videoId, positionSeconds) {
+        if (!currentUser) return;
+        const found = getVideoById(videoId);
+        if (!found) return;
+        const userId = currentUser.id;
+        const courseId = found.course.id;
+        const at = new Date().toISOString();
+        const seconds = Math.max(0, Math.floor(positionSeconds));
+        setState((s) => {
+          const i = s.progress.findIndex((p) => p.userId === userId && p.videoId === videoId);
+          const progress =
+            i >= 0
+              ? s.progress.map((p, j) => (j === i ? { ...p, positionSeconds: seconds, lastWatchedAt: at } : p))
+              : [...s.progress, { userId, videoId, courseId, completed: false, watchSeconds: 0, completedAt: null, positionSeconds: seconds, lastWatchedAt: at }];
+          return { ...s, progress };
+        });
+        if (sb) void db.saveWatchPosition(sb, { userId, videoId, courseId, positionSeconds: seconds, at });
+      },
       markVideoComplete(videoId) {
         if (!currentUser) return;
         const user = currentUser;
         const found = getVideoById(videoId);
         const dur = found?.video.durationSeconds ?? 0;
         const courseId = found?.course.id ?? "";
-        // Mark this video complete on top of an arbitrary progress list.
+        const now = new Date().toISOString();
+        // Mark this video complete on top of an arbitrary progress list. A finished
+        // video's resume point goes back to the start, so opening it again replays it.
         const withVideoDone = (base: VideoProgress[]): VideoProgress[] => {
           const existing = base.find((p) => p.userId === user.id && p.videoId === videoId);
           return existing
             ? base.map((p) =>
                 p === existing
-                  ? { ...p, completed: true, watchSeconds: dur, completedAt: new Date().toISOString() }
+                  ? { ...p, completed: true, watchSeconds: dur, completedAt: now, positionSeconds: 0, lastWatchedAt: now }
                   : p,
               )
             : [
                 ...base,
-                { userId: user.id, videoId, courseId, completed: true, watchSeconds: dur, completedAt: new Date().toISOString() },
+                { userId: user.id, videoId, courseId, completed: true, watchSeconds: dur, completedAt: now, positionSeconds: 0, lastWatchedAt: now },
               ];
         };
         setState((s) => {
@@ -1166,6 +1233,9 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         });
         if (sb) {
           fire(db.completeVideo(sb, { userId: user.id, videoId, courseId, watchSeconds: dur }));
+          // Separate and best-effort: before the resume columns exist this is refused,
+          // and that must never cost the completion itself.
+          void db.saveWatchPosition(sb, { userId: user.id, videoId, courseId, positionSeconds: 0, at: now });
           const { patch } = applyTopicCredit(state.users, state.courses, courseId, user.id, state.submissions, withVideoDone(state.progress));
           if (patch) fire(db.updateProfile(sb, user.id, patch));
         }
@@ -2089,6 +2159,8 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     submissionsByPair,
     ratingByPair,
     commentsByVideo,
+    progressByCourse,
+    progressRow,
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

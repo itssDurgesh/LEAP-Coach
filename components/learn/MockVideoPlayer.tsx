@@ -70,7 +70,17 @@ export const MockVideoPlayer = React.memo(function MockVideoPlayer({
   return (
     <div className="overflow-hidden rounded-3xl bg-navy-950 shadow-lift ring-1 ring-white/10">
       <div className="group/stage relative aspect-video">
-        {isVishal ? (
+        {/* The topic's video thumbnail (Sessions step of the topic editor) when set. */}
+        {course.videoThumbnailUrl ? (
+          <CourseThumb
+            accent={course.accent}
+            category={course.category}
+            title={video.title}
+            src={course.videoThumbnailUrl}
+            rounded="rounded-none"
+            className="absolute inset-0 h-full w-full"
+          />
+        ) : isVishal ? (
           <ProfessorPhoto
             className="absolute inset-0 h-full w-full"
             rounded="rounded-none"

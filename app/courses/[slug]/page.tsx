@@ -103,6 +103,7 @@ function CourseDetail() {
     notesForCourse,
     isCourseComplete,
     myRatingFor,
+    watchPosition,
   } = app;
 
   const [checkout, setCheckout] = React.useState(false);
@@ -268,7 +269,13 @@ function CourseDetail() {
                   // With every video watched, the button replays the topic from the start.
                   <Link href={resume.kind === "video" ? resume.href : `/learn/${course.id}/1`} className={v2Button("primary")}>
                     <Play className="h-4 w-4 fill-current" />
-                    {resume.kind !== "video" ? "Watch again" : prog.completed > 0 ? "Continue learning" : "Start topic"}
+                    {resume.kind !== "video"
+                      ? "Watch again"
+                      : (resume.seconds ?? 0) > 0
+                        ? `Resume at ${formatClock(resume.seconds ?? 0)}`
+                        : prog.completed > 0
+                          ? "Continue learning"
+                          : "Start topic"}
                   </Link>
                 )}
                 {topicComplete && (
@@ -379,6 +386,8 @@ function CourseDetail() {
                 const done = enrolled && isVideoCompleted(video.id);
                 const open = enrolled && isVideoUnlocked(course.id, video.order);
                 const next = video.order === upNextOrder;
+                // Where the learner stopped in a video they have not finished.
+                const stoppedAt = open && !done ? (watchPosition(video.id)?.seconds ?? 0) : 0;
                 const body = (
                   <>
                     <span
@@ -393,6 +402,7 @@ function CourseDetail() {
                       <p className="truncate text-sm font-semibold leading-5 text-heading">{video.title}</p>
                       <p className="text-xs font-medium text-muted">
                         Video {pad(video.order)} &nbsp;·&nbsp; {formatClock(video.durationSeconds)}
+                        {stoppedAt > 0 && <> &nbsp;·&nbsp; stopped at {formatClock(stoppedAt)}</>}
                       </p>
                     </div>
                     {done ? (

@@ -47,7 +47,7 @@ interface OwnedTopic {
 
 function MyTopics() {
   const app = useApp();
-  const { currentUser, courses, tracks, progress, isEnrolled, courseProgress, courseExpiresAt } = app;
+  const { currentUser, courses, tracks, isEnrolled, courseProgress, courseExpiresAt, lastActivityAt } = app;
   const [filter, setFilter] = React.useState<Filter>("all");
   const [sort, setSort] = React.useState<Sort>("recent");
   if (!currentUser) return null;
@@ -60,10 +60,10 @@ function MyTopics() {
   // à-la-carte, unlocked by a category pass, or covered by the all-access plan.
   const owned = courses.filter((c) => ownsTopic(currentUser, c, isEnrolled(c.id)));
 
-  const myProgress = progress.filter((p) => p.userId === currentUser.id);
   const topics: OwnedTopic[] = owned.map((course) => {
-    const mine = myProgress.filter((p) => p.courseId === course.id);
-    const lastActive = mine.reduce((latest, p) => (p.completedAt ? Math.max(latest, +new Date(p.completedAt)) : latest), 0);
+    // Watching counts as activity, not only finishing a video, so "Recent" puts the
+    // topic the learner was last in first.
+    const lastActive = lastActivityAt(course.id);
     const expiresAt = courseExpiresAt(course.id);
     return {
       course,
@@ -205,7 +205,7 @@ function OwnedTopicCard({ topic, tracks }: { topic: OwnedTopic; tracks: Leadersh
                 "Checkpoint"
               ) : (
                 <>
-                  <Play className="h-3.5 w-3.5 fill-current" /> {completed > 0 ? "Resume" : "Start"}
+                  <Play className="h-3.5 w-3.5 fill-current" /> {completed > 0 || (resume.seconds ?? 0) > 0 ? "Resume" : "Start"}
                 </>
               )}
             </Link>

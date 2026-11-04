@@ -42,7 +42,7 @@ const mapQuestion = (r: Row): Question => ({ id: r.id, type: r.type, prompt: r.p
 const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, audioUrl: r.audio_url ?? null, audioName: r.audio_name ?? null, transcript: r.transcript === undefined ? undefined : (r.transcript ?? ""), summary: r.summary ?? "", notesPdfName: r.notes_pdf_url || undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
 const mapCourseRating = (r: Row): CourseRating => ({ id: r.id, userId: r.user_id, courseId: r.course_id, stars: r.stars, review: r.review ?? null, createdAt: r.created_at, updatedAt: r.updated_at ?? null });
 const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.course_id, enrolledAt: r.enrolled_at, completedAt: r.completed_at });
-const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at });
+const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at, positionSeconds: r.position_seconds ?? null, lastWatchedAt: r.last_watched_at ?? null });
 const mapNote = (r: Row): Note => ({ id: r.id, userId: r.user_id, videoId: r.video_id, text: r.text, createdAt: r.created_at });
 const mapSubmission = (r: Row): Submission => ({ id: r.id, userId: r.user_id, assignmentId: r.assignment_id, courseId: r.course_id, answers: r.answers ?? {}, score: Number(r.score), passed: r.passed, feedback: r.feedback ?? [], attemptNumber: r.attempt_number, submittedAt: r.submitted_at });
 // à-la-carte purchase rows (course_purchases) + catalog-pass rows (category_passes)
@@ -184,6 +184,13 @@ async function publicProfiles(sb: SupabaseClient): Promise<Row[]> {
 const SKIP: Promise<Row[]> = Promise.resolve([]);
 
 /**
+ * What the admin screens read of OTHER learners' checkpoint attempts: counts, scores
+ * and pass rates. The answers and per-question feedback (an explanation string per
+ * question, the bulk of each row) are only ever shown to the learner who wrote them.
+ */
+const SUBMISSION_SUMMARY_COLS = "id,user_id,assignment_id,course_id,score,passed,attempt_number,submitted_at";
+
+/**
  * The course tree. audio_url / audio_name arrive with the 2026-10-09 migration; on
  * a database that has not run it yet the first select errors, so read without them
  * rather than leave every page with no topics.
@@ -210,7 +217,7 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
 
   const [
     profiles, me, purchases, tracks, courses,
-    tips, resources, sessions, attendees, enrollments, progress, submissions, notes, coupons,
+    tips, resources, sessions, attendees, enrollments, progress, mySubmissions, notes, coupons,
     categoryPasses, pricingRows, notifications, teamMembers, books, siteRows, articleRows, paymentRows,
     announcementRows, faqRows, sitePageRows, courseRatingRows,
   ] = await Promise.all([
@@ -233,8 +240,12 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     forUser(() => sb.from("session_attendees").select("*")),
     forUser(() => sb.from("enrollments").select("*")),
     forUser(() => sb.from("video_progress").select("*")),
-    forUser(() => sb.from("submissions").select("*")),
-    forUser(() => sb.from("user_notes").select("*")),
+    // Own attempts in full (answers + feedback drive the credit and the topic report).
+    // Admins can read everyone's; theirs come below as summaries.
+    forUser(() => sb.from("submissions").select("*").eq("user_id", userId!)),
+    // Own private notes only. Admins could read every learner's notes and downloaded
+    // all of them, though no admin screen shows them.
+    forUser(() => sb.from("user_notes").select("*").eq("user_id", userId!)),
     // Global Discussion board was removed: community_posts, post_likes, post_comments
     // and comment_likes are no longer read.
     forUser(() => sb.from("coupons").select("*")),
@@ -269,11 +280,18 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
   // Others get the public fields; the signed-in user gets their own full row. An
   // admin's screens list people's contact details, so admins read full rows.
   let profileRows = profiles;
+  let submissions = mySubmissions;
   const own = me[0];
   if (own?.is_admin) {
-    const full = await sb.from("profiles").select("*");
+    // Admin screens: everyone's full profile, and everyone's attempts as summaries.
+    const [full, others] = await Promise.all([
+      sb.from("profiles").select("*"),
+      sb.from("submissions").select(SUBMISSION_SUMMARY_COLS).neq("user_id", userId!),
+    ]);
     if (!full.error) profileRows = (full.data ?? []) as Row[];
     else console.error("[supabase] profiles (admin, full rows)", full.error.message);
+    if (!others.error) submissions = [...mySubmissions, ...((others.data ?? []) as Row[])];
+    else console.error("[supabase] submissions (admin summaries)", others.error.message);
   }
   if (own) {
     // In place, so the list keeps the order the database returned.
@@ -294,7 +312,8 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     purchaseCount: c.purchase_count ?? 0, price: c.price ?? 0, trending: c.trending ?? false, published: c.published ?? false,
     accent: c.accent ?? 0,
     categories: c.categories ?? [c.category],
-    thumbnailUrl: c.thumbnail_url ?? null, workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
+    thumbnailUrl: c.thumbnail_url ?? null, videoThumbnailUrl: c.video_thumbnail_url ?? null,
+    workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
     accessDurationDays: c.access_duration_days ?? null,
     pendingApproval: c.pending_approval ?? false, submittedBy: c.submitted_by ?? null,
     createdAt: c.created_at,
@@ -394,6 +413,38 @@ export const completeVideo = (sb: SupabaseClient, p: { userId: string; videoId: 
     { user_id: p.userId, video_id: p.videoId, course_id: p.courseId, completed: true, watch_seconds: p.watchSeconds, completed_at: new Date().toISOString() },
     { onConflict: "user_id,video_id" },
   );
+
+// Whether video_progress has the resume columns (2026-11-04 migration). Learned from
+// the first write; after a refusal the app stops sending them for this page load and
+// resume falls back to the position this browser remembers.
+let resumeColumns: boolean | null = null;
+
+/**
+ * Where the learner left a video, and when. Sent without `completed`, so a finished
+ * video stays finished (an upsert only writes the columns it is given). Quiet: a
+ * resume point is a convenience, and the browser keeps its own copy anyway.
+ */
+export async function saveWatchPosition(
+  sb: SupabaseClient,
+  p: { userId: string; videoId: string; courseId: string; positionSeconds: number; at: string },
+): Promise<void> {
+  if (resumeColumns === false) return;
+  const { error } = await sb.from("video_progress").upsert(
+    { user_id: p.userId, video_id: p.videoId, course_id: p.courseId, position_seconds: Math.max(0, Math.floor(p.positionSeconds)), last_watched_at: p.at },
+    { onConflict: "user_id,video_id" },
+  );
+  if (!error) {
+    resumeColumns = true;
+    return;
+  }
+  // 42703 = undefined_column; PGRST204 = PostgREST does not know the column yet.
+  if (error.code === "42703" || error.code === "PGRST204" || /position_seconds|last_watched_at/.test(error.message)) {
+    resumeColumns = false;
+    console.error("[supabase] resume across devices needs the 2026-11-04 database update", error.message);
+  } else {
+    console.error("[supabase] saveWatchPosition", error.message);
+  }
+}
 
 export const insertSubmission = (sb: SupabaseClient, s: Submission) =>
   sb.from("submissions").insert({
@@ -502,7 +553,16 @@ async function must(step: string, q: PromiseLike<{ error: { message: string } | 
  * every step is an upsert or a targeted delete, so saving again is safe.
  */
 export async function saveCourse(sb: SupabaseClient, c: Course) {
-  await must("topic", sb.from("courses").upsert(courseRow(c)));
+  // video_thumbnail_url arrives with the 2026-11-04 migration. Before it has run the
+  // upsert is refused; save the rest of the topic then, unless the admin set a
+  // thumbnail, which must not vanish silently.
+  const topic = await sb.from("courses").upsert({ ...courseRow(c), video_thumbnail_url: c.videoThumbnailUrl ?? null });
+  if (topic.error) {
+    if (c.videoThumbnailUrl)
+      throw new Error(`topic: ${topic.error.message} (the video thumbnail needs the 2026-11-04 database update)`);
+    console.error("[supabase] courses: saving without video_thumbnail_url", topic.error.message);
+    await must("topic", sb.from("courses").upsert(courseRow(c)));
+  }
   // Sessions are upserted by id, never deleted and re-inserted: deleting a video row
   // cascades to every learner's progress, private notes and discussion on it, and
   // loses its stored notes file. One row per call, because a bulk upsert fills the
@@ -650,6 +710,7 @@ export const saveFaq = (sb: SupabaseClient, f: Faq) =>
     published: f.published, created_at: f.createdAt, updated_at: f.updatedAt,
   });
 export const deleteFaq = (sb: SupabaseClient, id: string) => sb.from("faqs").delete().eq("id", id);
+
 
 // ── privacy policy (site_pages singleton, id = 1) ──
 export const savePrivacyPolicy = (sb: SupabaseClient, text: string) =>

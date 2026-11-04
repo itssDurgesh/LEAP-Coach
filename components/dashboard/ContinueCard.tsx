@@ -7,13 +7,14 @@ import { Bar, LevelChip, v2Button } from "@/components/v2/ui";
 import { levelStyle } from "@/lib/levels";
 import type { ResumeTarget } from "@/lib/resume";
 import type { Course, LeadershipTrack, Video } from "@/lib/types";
+import { formatClock } from "@/lib/utils";
 
 export interface InProgressTopic {
   course: Course;
   completed: number;
   total: number;
   pct: number;
-  /** First video not yet completed; null when every video is done. */
+  /** The video Resume opens: the one the learner was last in, else the first not completed; null when all are done. */
   nextVideo: Video | null;
   /** Where the resume button leads: the next video, a pending checkpoint, or the topic page. */
   resume: ResumeTarget;
@@ -24,8 +25,17 @@ const RESUME_LABEL = { video: "Resume", checkpoint: "Checkpoint", topic: "Open" 
 const minutes = (seconds: number) => `${Math.max(1, Math.round(seconds / 60))} min`;
 
 /** The main "pick up where you stopped" card at the top of the dashboard. */
+/** "Resume Lesson 3 · from 12:34" when there is a saved place, else "Next: Lesson 3 · 5 min". */
+function nextLine(nextVideo: Video, resume: ResumeTarget) {
+  const at = resume.kind === "video" && resume.video?.id === nextVideo.id ? (resume.seconds ?? 0) : 0;
+  return at > 0
+    ? `Resume: ${nextVideo.title} · from ${formatClock(at)}`
+    : `Next: ${nextVideo.title} · ${minutes(nextVideo.durationSeconds)}`;
+}
+
 export function ContinueCard({ topic, tracks, animate }: { topic: InProgressTopic; tracks: LeadershipTrack[]; animate?: boolean }) {
   const { course, completed, total, pct, nextVideo, resume } = topic;
+  const started = completed > 0 || (resume.seconds ?? 0) > 0;
 
   return (
     <div className="relative flex h-full flex-col gap-6 overflow-hidden rounded-[24px] bg-v2-navy p-6 shadow-v2-card sm:flex-row sm:items-center sm:gap-7">
@@ -46,17 +56,13 @@ export function ContinueCard({ topic, tracks, animate }: { topic: InProgressTopi
         <div className="flex flex-wrap items-center gap-2.5">
           <LevelChip trackId={course.tracks[0]} tracks={tracks} />
           <span className="text-[13px] font-medium text-v2-on-navy-muted">
-            {completed > 0 ? "Continue where you stopped" : "Ready when you are"}
+            {started ? "Continue where you stopped" : "Ready when you are"}
           </span>
         </div>
         <h2 className="mt-3.5 font-heading text-[26px] font-bold leading-[1.2] tracking-[-0.015em] text-white">
           {course.title}
         </h2>
-        {nextVideo && (
-          <p className="mt-3.5 text-sm text-v2-on-navy-muted">
-            Next: {nextVideo.title} &nbsp;·&nbsp; {minutes(nextVideo.durationSeconds)}
-          </p>
-        )}
+        {nextVideo && <p className="mt-3.5 text-sm text-v2-on-navy-muted">{nextLine(nextVideo, resume)}</p>}
         <div className="mt-3.5 flex items-center gap-3">
           <Bar pct={pct} animate={animate} className="flex-1" trackClass="bg-v2-navy-raised" />
           <span className="shrink-0 text-[13px] font-semibold text-white">
@@ -71,7 +77,7 @@ export function ContinueCard({ topic, tracks, animate }: { topic: InProgressTopi
               ? "Take the checkpoint"
               : resume.kind === "topic"
                 ? "Open topic"
-                : completed > 0
+                : started
                   ? "Resume video"
                   : "Start topic"}
           </Link>
@@ -102,11 +108,7 @@ export function AlsoInProgress({ topic, tracks, animate }: { topic: InProgressTo
         <p className="truncate text-[15px] font-semibold text-heading">{course.title}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
           <LevelChip trackId={course.tracks[0]} tracks={tracks} />
-          {nextVideo && (
-            <span className="truncate text-xs font-medium text-muted">
-              Next: {nextVideo.title} · {minutes(nextVideo.durationSeconds)}
-            </span>
-          )}
+          {nextVideo && <span className="truncate text-xs font-medium text-muted">{nextLine(nextVideo, resume)}</span>}
         </div>
       </div>
       <div className="w-[170px] shrink-0">

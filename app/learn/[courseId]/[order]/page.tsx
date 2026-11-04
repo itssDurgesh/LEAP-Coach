@@ -106,6 +106,8 @@ function Player({ course, video }: { course: Course; video: Video }) {
     videoNotesUrl,
     isCourseComplete,
     myRatingFor,
+    recordWatch,
+    watchPosition,
   } = useApp();
 
   const [bottomTab, setBottomTab] = React.useState<BottomTab>("notes");
@@ -136,6 +138,13 @@ function Player({ course, video }: { course: Course; video: Video }) {
       ),
     [video.id],
   );
+  // Where the learner is: saved to the store and the database by the players.
+  const record = React.useRef(recordWatch);
+  record.current = recordWatch;
+  const onPosition = React.useCallback((seconds: number) => record.current(video.id, seconds), [video.id]);
+  // The place saved in the database (this or another device), as two numbers so the
+  // memoized players are not re-rendered by a fresh object on every page render.
+  const saved = watchPosition(video.id);
 
   // A reply / @mention notification links here with ?tab=discussion&c=<comment id>:
   // open the discussion and bring that comment into view, instead of landing on
@@ -279,8 +288,11 @@ function Player({ course, video }: { course: Course; video: Video }) {
               course={course}
               video={video}
               learnerId={currentUser?.id}
+              resumeSeconds={saved?.seconds}
+              resumeSavedAt={saved?.at}
               onEnded={onEnded}
               onDuration={onDuration}
+              onPosition={onPosition}
             />
           ) : video.muxPlaybackId && !video.muxPlaybackId.startsWith("mux_") ? (
             <MuxVideoPlayer
@@ -288,8 +300,11 @@ function Player({ course, video }: { course: Course; video: Video }) {
               course={course}
               video={video}
               learnerId={currentUser?.id}
+              resumeSeconds={saved?.seconds}
+              resumeSavedAt={saved?.at}
               onEnded={onEnded}
               onDuration={onDuration}
+              onPosition={onPosition}
             />
           ) : (
             <MockVideoPlayer

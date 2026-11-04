@@ -284,6 +284,7 @@ export interface Course {
   published: boolean;
   accent: number; // 0–5, picks a brand gradient for the thumbnail
   thumbnailUrl?: string | null; // uploaded cover image (overrides the gradient)
+  videoThumbnailUrl?: string | null; // one poster for every video of the topic (topic editor → Sessions)
   workbookName?: string | null; // final workbook file name (PDF/DOCX)
   workbookUrl?: string | null; // final workbook (data URL or storage URL)
   accessDurationDays?: number | null; // access expires this many days after a learner enrolls; null/0 = lifetime
@@ -366,6 +367,10 @@ export interface VideoProgress {
   completed: boolean;
   watchSeconds: number;
   completedAt?: string | null;
+  /** Where the learner last left the video, in seconds (resume point; 0 after finishing it). */
+  positionSeconds?: number | null;
+  /** When they last watched it: drives "continue where you stopped" across topics. */
+  lastWatchedAt?: string | null;
 }
 
 export interface QuestionFeedback {
