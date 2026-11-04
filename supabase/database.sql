@@ -33,14 +33,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 create extension if not exists "pgcrypto";
 
--- RLS helper: is the current user an admin? Declared STABLE so the planner can
--- cache it within a statement; policies below additionally wrap calls in
--- (select …) so it runs once per query.
-create or replace function public.is_admin()
-returns boolean language sql security definer set search_path = public stable as $$
-  select coalesce((select is_admin from public.profiles where id = (auth.jwt() ->> 'sub')), false);
-$$;
-
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2. IDENTITY
@@ -75,6 +67,16 @@ create table if not exists public.profiles (
 
 -- Case-insensitive unique @handles (multiple NULLs allowed).
 create unique index if not exists profiles_username_key on public.profiles (lower(username));
+
+-- RLS helper: is the current user an admin? Declared STABLE so the planner can
+-- cache it within a statement; policies below additionally wrap calls in
+-- (select …) so it runs once per query. It is defined here, after the table it
+-- reads, because a SQL function's body is checked when it is created: declared
+-- before `profiles` existed, it made this file fail on a brand-new database.
+create or replace function public.is_admin()
+returns boolean language sql security definer set search_path = public stable as $$
+  select coalesce((select is_admin from public.profiles where id = (auth.jwt() ->> 'sub')), false);
+$$;
 
 -- Authentication is handled by Clerk — there is no auth.users trigger. The app
 -- provisions a profile row (db.ensureProfile) on first sign-in, permitted by the
@@ -496,6 +498,25 @@ create table if not exists public.site_pages (
 );
 insert into public.site_pages (id, privacy_policy) values (1, null) on conflict (id) do nothing;
 
+-- Idea of the day. Admins (and sub-admins with the "content" permission) write
+-- several at once; the dashboard shows one a day: an idea pinned to today's date
+-- (India time) if there is one, otherwise the next idea of the rotation.
+create table if not exists public.daily_ideas (
+  id          text primary key,
+  title       text not null default '',
+  body        text not null default '',
+  track_id    text,                                  -- leadership level, shown as a chip
+  question    text not null default '',
+  options     jsonb not null default '[]',           -- [{ "text", "good", "feedback" }]
+  target_role text not null default 'all'
+              check (target_role in ('all', 'student', 'professional', 'entrepreneur')),
+  show_on     date,                                  -- pinned to this day; null = in the rotation
+  order_index int not null default 0,                -- position in the rotation
+  active      boolean not null default true,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
+);
+
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 8. INTEGRATIONS — Telegram bot linking + realtime
@@ -588,6 +609,12 @@ alter table public.live_sessions add column if not exists notified_user_ids json
 -- Refund audit trail (kept in sync by the refund route + refund.* webhook events).
 alter table public.payments      add column if not exists razorpay_refund_id text;
 alter table public.payments      add column if not exists refund_amount_inr int;
+-- Resume on any device: where the learner left each video, and when (the
+-- dashboard offers the most recently watched one). watch_seconds is unchanged.
+alter table public.video_progress add column if not exists position_seconds int;
+alter table public.video_progress add column if not exists last_watched_at timestamptz;
+-- One thumbnail for every video of a topic (the topic editor's Sessions step).
+alter table public.courses       add column if not exists video_thumbnail_url text;
 
 -- Backfill @usernames for profiles that don't have one yet (tagging on the
 -- discussion board resolves people by handle). Idempotent: only fills NULLs.
@@ -628,7 +655,7 @@ do $$ declare t text; begin
     'submissions','user_notes','session_attendees','community_posts','post_likes',
     'post_comments','comment_likes','video_comments','video_comment_likes',
     'notifications','site_content','team_members','books','articles','announcements',
-    'faqs','site_pages','telegram_link_tokens','telegram_links'
+    'faqs','site_pages','telegram_link_tokens','telegram_links','daily_ideas'
   ] loop
     execute format('alter table public.%I enable row level security;', t);
   end loop;
@@ -685,6 +712,14 @@ drop policy if exists "faqs admin write" on public.faqs;
 create policy "faqs read" on public.faqs
   for select using (published or (select public.is_admin()));
 create policy "faqs admin write" on public.faqs
+  for all using ((select public.is_admin())) with check ((select public.is_admin()));
+
+-- Idea of the day: learners read the active ideas; admins read + write all.
+drop policy if exists "daily_ideas read"        on public.daily_ideas;
+drop policy if exists "daily_ideas admin write" on public.daily_ideas;
+create policy "daily_ideas read" on public.daily_ideas
+  for select using (active or (select public.is_admin()));
+create policy "daily_ideas admin write" on public.daily_ideas
   for all using ((select public.is_admin())) with check ((select public.is_admin()));
 
 -- Site pages (privacy policy): public read; admin write.
@@ -846,7 +881,39 @@ create trigger protect_privileged_cols
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 12. PERFORMANCE INDEXES
+-- 12. LEADERBOARD
+--     The top learners of one track by banked credits, plus the caller's own
+--     row with their rank. SECURITY DEFINER so it keeps working if profile reads
+--     are tightened, and it returns only what a leaderboard shows: name, handle,
+--     avatar, credits. `rank` is competition ranking (ties share a rank);
+--     `total` is the number of learners in the track.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.leaderboard(p_role text, p_limit int default 5)
+returns table (user_id text, name text, username text, avatar_url text, credits int, rank bigint, total bigint)
+language sql stable security definer set search_path = public as $$
+  with board as (
+    select p.id, p.name, p.username, p.avatar_url,
+           coalesce(p.learning_credits, 0) as credits,
+           rank()       over (order by coalesce(p.learning_credits, 0) desc) as rank,
+           row_number() over (order by coalesce(p.learning_credits, 0) desc, p.created_at, p.id) as pos,
+           count(*)     over () as total
+      from public.profiles p
+     where p.role = p_role
+       and not coalesce(p.is_admin, false)
+       and not coalesce(p.banned, false)
+  )
+  select b.id, b.name, b.username, b.avatar_url, b.credits, b.rank, b.total
+    from board b
+   where b.pos <= least(greatest(coalesce(p_limit, 5), 1), 20)
+      or b.id = (select auth.jwt() ->> 'sub')
+   order by b.pos;
+$$;
+revoke execute on function public.leaderboard(text, int) from public, anon;
+grant  execute on function public.leaderboard(text, int) to authenticated;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 13. PERFORMANCE INDEXES
 --     Postgres does NOT auto-index foreign keys. Every per-user RLS query and
 --     join below scans without these. Pure speed-up — no behavior change.
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -899,13 +966,22 @@ create index if not exists idx_articles_published      on public.articles (publi
 create index if not exists idx_announcements_published on public.announcements (published, pinned, created_at desc);
 create index if not exists idx_faqs_published          on public.faqs (published, order_index);
 
+-- Leaderboard (learners of a track by credits), the bell (newest first), the
+-- profile page's comment count, and the dashboard's idea of the day.
+create index if not exists idx_profiles_leaderboard
+  on public.profiles (role, learning_credits desc)
+  where not coalesce(is_admin, false) and not coalesce(banned, false);
+create index if not exists idx_notifications_user_created on public.notifications (user_id, created_at desc);
+create index if not exists idx_video_comments_user        on public.video_comments (user_id);
+create index if not exists idx_daily_ideas_active         on public.daily_ideas (active, show_on);
+
 -- Telegram
 create index if not exists telegram_link_tokens_user_idx    on public.telegram_link_tokens (user_id);
 create index if not exists telegram_link_tokens_expires_idx on public.telegram_link_tokens (expires_at);
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 13. AFTER SETUP (one-time bootstrap)
+-- 14. AFTER SETUP (one-time bootstrap)
 --     1) Sign up once with your admin email via Clerk — the app provisions your
 --        profile row keyed by your Clerk user id.
 --     2) Make that profile the owner. The protect_privileged_cols trigger pins
