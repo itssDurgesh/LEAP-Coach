@@ -15,10 +15,15 @@ export interface Stamp {
   target: number;
 }
 
-type Measure = "videos" | "topics" | "credits";
+type Measure = "videos" | "topics" | "credits" | "checkpoints" | "perfect";
 
+// In the order the grid shows them (three to a row): the first row can be earned in
+// a learner's first sessions, the next ones mark longer runs.
 const RULES: { id: string; label: string; target: number; measure: Measure }[] = [
   { id: "first_video", label: "First video", target: 1, measure: "videos" },
+  { id: "first_checkpoint", label: "First checkpoint", target: 1, measure: "checkpoints" },
+  { id: "perfect_score", label: "Perfect score", target: 1, measure: "perfect" },
+  { id: "checkpoints_5", label: "5 checkpoints", target: 5, measure: "checkpoints" },
   { id: "first_topic", label: "First topic", target: 1, measure: "topics" },
   { id: "topics_5", label: "5 topics", target: 5, measure: "topics" },
   { id: "tier_learner", label: "Learner tier", target: 501, measure: "credits" },
@@ -32,10 +37,14 @@ export function computeStamps(
   submissions: Submission[],
   progress: VideoProgress[],
 ): Stamp[] {
+  const mine = submissions.filter((s) => s.userId === user.id);
   const totals: Record<Measure, number> = {
     videos: progress.filter((p) => p.userId === user.id && p.completed).length,
     topics: courses.filter((c) => topicComplete(c, user.id, submissions, progress)).length,
     credits: user.learningCredits,
+    // Checkpoints passed (each counted once, however many attempts it took).
+    checkpoints: new Set(mine.filter((s) => s.passed).map((s) => s.assignmentId)).size,
+    perfect: mine.some((s) => s.score >= 100) ? 1 : 0,
   };
   return RULES.map((r) => {
     const current = Math.min(totals[r.measure], r.target);

@@ -11,10 +11,12 @@ import {
   Coupon,
   Course,
   CourseRating,
+  DailyIdea,
   DailyTip,
   Enrollment,
   Faq,
   Gender,
+  LeaderboardEntry,
   LeadershipTrack,
   LiveSession,
   Note,
@@ -197,6 +199,27 @@ const ms = (iso?: string | null) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * The leaderboard worked out from the profiles in the store: used in the local demo,
+ * and in real mode until the database's leaderboard() function exists. Same rules
+ * as that function: learners of the track, admins and suspended accounts left out,
+ * ranked by banked credits (equal credits share a rank), top `limit` plus `meId`.
+ */
+function localLeaderboard(users: User[], role: Role, meId: string | null | undefined, limit: number): LeaderboardEntry[] {
+  const board = users
+    .filter((u) => u.role === role && !u.isAdmin && !u.banned)
+    .sort((a, b) => (b.learningCredits ?? 0) - (a.learningCredits ?? 0) || ms(a.createdAt) - ms(b.createdAt) || (a.id < b.id ? -1 : 1));
+  const entries: LeaderboardEntry[] = [];
+  let rank = 0;
+  board.forEach((u, i) => {
+    const credits = u.learningCredits ?? 0;
+    if (i === 0 || credits !== (board[i - 1].learningCredits ?? 0)) rank = i + 1;
+    if (i < limit || u.id === meId)
+      entries.push({ userId: u.id, name: u.name, username: u.username, avatarUrl: u.avatarUrl ?? null, credits, rank, total: board.length });
+  });
+  return entries;
+}
+
 interface AppState {
   users: User[];
   courses: Course[];
@@ -213,6 +236,7 @@ interface AppState {
   articles: Article[];
   announcements: Announcement[];
   faqs: Faq[];
+  ideas: DailyIdea[];
   privacyPolicy: string;
   siteContent: SiteContent;
   enrollments: Enrollment[];
@@ -243,6 +267,7 @@ function seedState(): AppState {
     articles: seedArticles,
     announcements: seedAnnouncements,
     faqs: seedFaqs,
+    ideas: [],
     privacyPolicy: DEFAULT_PRIVACY_POLICY,
     siteContent: DEFAULT_SITE_CONTENT,
     enrollments: seedEnrollments,
@@ -261,7 +286,7 @@ function emptyState(): AppState {
   return {
     users: [], courses: [], tracks: DEFAULT_TRACKS, tips: [], sessions: [], resources: [],
     community: [], comments: [], videoComments: [], notifications: [], teamMembers: [], books: [], articles: [],
-    announcements: [], faqs: [], privacyPolicy: DEFAULT_PRIVACY_POLICY,
+    announcements: [], faqs: [], ideas: [], privacyPolicy: DEFAULT_PRIVACY_POLICY,
     siteContent: DEFAULT_SITE_CONTENT, enrollments: [], progress: [], submissions: [], notes: [], courseRatings: [], coupons: [],
     payments: [], pricing: DEFAULT_PRICING, currentUserId: null,
   };
@@ -359,6 +384,8 @@ interface AppContextValue extends AppState {
   lastActivityAt(courseId: string, userId?: string): number;
   /** The video of this topic the learner watched most recently, if any. */
   lastWatchedVideo(courseId: string, userId?: string): { videoId: string; seconds: number; at: number } | null;
+  /** Top learners of a track plus the signed-in learner's own row (ranked by banked credits). */
+  fetchLeaderboard(role: Role): Promise<LeaderboardEntry[]>;
   isVideoUnlocked(courseId: string, order: number, userId?: string): boolean;
   courseProgress(courseId: string, userId?: string): { completed: number; total: number; pct: number };
   // assignments
@@ -463,6 +490,9 @@ interface AppContextValue extends AppState {
   markAnnouncementNotified(id: string, notifiedAt: string | null, notifiedUserIds: string[]): void;
   // admin — FAQ + privacy
   saveFaq(f: Faq): void;
+  // admin — Idea of the day (gated under "content", like the daily tips)
+  saveIdea(idea: DailyIdea): void;
+  deleteIdea(id: string): void;
   deleteFaq(id: string): void;
   savePrivacyPolicy(text: string): void;
   deleteBook(id: string): void;
@@ -1202,6 +1232,13 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           return { ...s, progress };
         });
         if (sb) void db.saveWatchPosition(sb, { userId, videoId, courseId, positionSeconds: seconds, at });
+      },
+      async fetchLeaderboard(role) {
+        if (sb) {
+          const rows = await db.fetchLeaderboard(sb, role, 5);
+          if (rows) return rows;
+        }
+        return localLeaderboard(state.users, role, state.currentUserId, 5);
       },
       markVideoComplete(videoId) {
         if (!currentUser) return;
@@ -2111,6 +2148,19 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
 
       // ── admin: FAQ + privacy (gated under the "homepage" site-content permission) ──
+      saveIdea(idea) {
+        if (!hasPermission(currentUser, "content")) return;
+        setState((s) => ({
+          ...s,
+          ideas: s.ideas.some((x) => x.id === idea.id) ? s.ideas.map((x) => (x.id === idea.id ? idea : x)) : [...s.ideas, idea],
+        }));
+        if (sb) fire(db.saveIdea(sb, idea));
+      },
+      deleteIdea(id) {
+        if (!hasPermission(currentUser, "content")) return;
+        setState((s) => ({ ...s, ideas: s.ideas.filter((x) => x.id !== id) }));
+        if (sb) fire(db.deleteIdea(sb, id));
+      },
       saveFaq(f) {
         if (!hasPermission(currentUser, "homepage")) return;
         setState((s) => ({

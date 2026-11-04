@@ -1,9 +1,12 @@
-import { Flag, Layers, Lock, Play, Trophy, type LucideIcon } from "lucide-react";
+import { ClipboardCheck, Flag, Layers, Lock, Play, Sparkles, Trophy, type LucideIcon } from "lucide-react";
 import type { Stamp } from "@/lib/stamps";
 import { cn } from "@/lib/utils";
 
 const STAMP_ICONS: Record<string, LucideIcon> = {
   first_video: Play,
+  first_checkpoint: ClipboardCheck,
+  checkpoints_5: ClipboardCheck,
+  perfect_score: Sparkles,
   first_topic: Flag,
   topics_5: Layers,
   tier_learner: Trophy,

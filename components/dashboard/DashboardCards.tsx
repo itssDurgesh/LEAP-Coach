@@ -5,12 +5,14 @@ import Link from "next/link";
 import { ArrowRight, Check, Flag, Megaphone, Quote, Trophy, Video } from "lucide-react";
 import { daysUntil, hostInitials } from "@/components/SessionCard";
 import { StampGrid } from "@/components/v2/StampGrid";
+import { Avatar } from "@/components/ui/Avatar";
 import { Bar, SegTabs, V2Card, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
 import { levelStyle, shortLevelLabel } from "@/lib/levels";
 import { computeStamps } from "@/lib/stamps";
+import { creditOutlook, topicComplete } from "@/lib/credits";
 import { CREDIT_TIERS, tierForCredits, courseCategories } from "@/lib/types";
-import type { Announcement, DailyTip, LiveSession } from "@/lib/types";
+import type { Announcement, DailyTip, LeaderboardEntry, LiveSession, Role } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 
 /** One slim line for the latest announcement. */
@@ -175,23 +177,113 @@ export function LeadershipMap() {
 
 type StandingTab = "credits" | "stamps" | "leaderboard";
 
-/**
- * PLACEHOLDER CONTENT. The leaderboard is not built yet: nothing ranks learners
- * against each other on the server. These four invented entries stand in for
- * other learners so the tab matches the design; only the signed-in learner's row
- * is real. Replace with real data when the feature is built, and remove the
- * "Sample" tag.
- */
-const SAMPLE_BOARD = [
-  { name: "Ananya Rao", initials: "AR", credits: 910, tint: "bg-lv-peers-tint", text: "text-lv-peers-dark" },
-  { name: "Kabir Mehta", initials: "KM", credits: 780, tint: "bg-lv-people-tint", text: "text-lv-people-dark" },
-  { name: "Meera Iyer", initials: "MI", credits: 615, tint: "bg-lv-upwards-tint", text: "text-lv-upwards-dark" },
-  { name: "Aarav Shah", initials: "AS", credits: 560, tint: "bg-lv-self-tint", text: "text-lv-self-dark" },
+// Initials circles, one tint per learner (stable: picked from their id).
+const BOARD_TINTS = [
+  "bg-lv-peers-tint text-lv-peers-dark",
+  "bg-lv-people-tint text-lv-people-dark",
+  "bg-lv-upwards-tint text-lv-upwards-dark",
+  "bg-lv-self-tint text-lv-self-dark",
 ];
+const tintFor = (id: string) => BOARD_TINTS[[...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % BOARD_TINTS.length];
+
+/**
+ * The real leaderboard: learners of the signed-in learner's track ranked by banked
+ * credits (all time), the top five and their own row. Ranked in the database when
+ * its leaderboard() function exists, otherwise from the profiles the store holds.
+ * Fetched when the tab opens, and again when the learner's own credits change.
+ */
+function Leaderboard({ role, meId, myCredits }: { role: Role; meId: string; myCredits: number }) {
+  const { fetchLeaderboard } = useApp();
+  const fetchRef = React.useRef(fetchLeaderboard);
+  fetchRef.current = fetchLeaderboard;
+  const [rows, setRows] = React.useState<LeaderboardEntry[] | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    fetchRef.current(role).then(
+      (r) => live && setRows(r),
+      () => live && setRows([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [role, myCredits]);
+
+  if (!rows) {
+    return (
+      <div className="space-y-2" aria-busy="true" aria-label="Loading the leaderboard">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-8 animate-pulse rounded-xl bg-surface" />
+        ))}
+      </div>
+    );
+  }
+
+  const total = rows[0]?.total ?? 0;
+  // Learners who have banked something; a board of zeros ranks nobody.
+  const top = rows.filter((r) => r.credits > 0 && r.userId !== meId);
+  const me = rows.find((r) => r.userId === meId);
+  const meRanked = !!me && me.credits > 0;
+  // Among equal ranks the learner comes first, so a tie for fifth keeps them in the list.
+  const shown = [...top, ...(meRanked && me ? [me] : [])]
+    .sort((a, b) => a.rank - b.rank || (a.userId === meId ? -1 : b.userId === meId ? 1 : 0))
+    .slice(0, 5);
+  const meShown = shown.some((r) => r.userId === meId);
+
+  const row = (r: LeaderboardEntry, isMe: boolean) => (
+    <li key={r.userId} className={cn("flex items-center gap-2.5 rounded-xl px-2.5 py-1", isMe && "bg-v2-gold-soft")}>
+      <span className="w-5 shrink-0 text-right text-[13px] font-semibold tabular-nums text-muted">{r.rank}</span>
+      {r.avatarUrl ? (
+        <Avatar src={r.avatarUrl} name={r.name} size={28} ring={false} />
+      ) : (
+        <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10.5px] font-bold", isMe ? "bg-v2-strong text-v2-on-strong" : tintFor(r.userId))}>
+          {r.name
+            .split(/\s+/)
+            .map((w) => w[0])
+            .slice(0, 2)
+            .join("")
+            .toUpperCase() || "?"}
+        </span>
+      )}
+      <span className={cn("min-w-0 flex-1 truncate text-sm text-heading", isMe ? "font-semibold" : "font-medium")}>
+        {r.name || (r.username ? `@${r.username}` : "Learner")}
+        {isMe && " (you)"}
+      </span>
+      <span className="shrink-0 text-[13px] font-bold tabular-nums text-heading">{r.credits.toLocaleString("en-IN")}</span>
+    </li>
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-medium capitalize text-muted">All time · {role} track</p>
+        {total > 0 && (
+          <span className="text-xs font-semibold text-muted">
+            {total.toLocaleString("en-IN")} learner{total === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+      {shown.length === 0 ? (
+        <p className="rounded-xl bg-surface px-3 py-3 text-sm text-v2-body">
+          No one in the <span className="capitalize">{role}</span> track has banked credits yet. Finish a topic to top the board.
+        </p>
+      ) : (
+        <ol className="space-y-1">{shown.map((r) => row(r, r.userId === meId))}</ol>
+      )}
+      {/* Their own place, when it is outside the top five or they have nothing banked yet. */}
+      {me && !meShown && (
+        <div className="space-y-1">
+          {shown.length > 0 && <p className="px-2.5 text-xs font-medium text-faint">…</p>}
+          <ol>{row(me, true)}</ol>
+          {me.credits === 0 && <p className="px-2.5 text-xs font-medium text-muted">Credits are banked when you finish a topic.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Credits, stamps and the leaderboard in one card, behind tabs. */
 export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; href: string } | null; animate?: boolean }) {
-  const { currentUser, courses, submissions, progress } = useApp();
+  const { currentUser, courses, submissions, progress, isEnrolled } = useApp();
   const [tab, setTab] = React.useState<StandingTab>("credits");
   if (!currentUser) return null;
 
@@ -200,6 +292,15 @@ export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; hr
   const tierIndex = CREDIT_TIERS.findIndex((t) => t.label === tier.label);
   const nextTier = CREDIT_TIERS[tierIndex + 1];
   const stamps = computeStamps(currentUser, courses, submissions, progress);
+
+  // Credits on their way: topics with checkpoints answered but not finished yet, so
+  // nothing is banked for them. What the answers so far are on track for.
+  const onTheWay = courses
+    .filter((c) => isEnrolled(c.id) && c.assignments.length > 0 && !topicComplete(c, currentUser.id, submissions, progress))
+    .map((c) => ({ course: c, ...creditOutlook(c, currentUser.id, submissions) }))
+    .filter((o) => o.checkpointsDone > 0 && o.projected !== null)
+    .sort((a, b) => b.checkpointsDone / b.checkpoints - a.checkpointsDone / a.checkpoints)
+    .slice(0, 2);
 
   return (
     <V2Card className="flex h-full flex-col gap-[18px] p-6">
@@ -221,47 +322,14 @@ export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; hr
       />
 
       {tab === "leaderboard" ? (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs font-medium capitalize text-muted">This month · {currentUser.role} track</p>
-            <span className="rounded-full border border-v2-line-strong px-2.5 py-0.5 text-xs font-semibold text-muted">Sample</span>
-          </div>
-          <ol className="space-y-1">
-            {[
-              ...SAMPLE_BOARD.map((r) => ({ ...r, me: false })),
-              {
-                name: currentUser.name,
-                initials: currentUser.name
-                  .split(/\s+/)
-                  .map((w) => w[0])
-                  .slice(0, 2)
-                  .join("")
-                  .toUpperCase(),
-                credits,
-                tint: "bg-v2-strong",
-                text: "text-v2-on-strong",
-                me: true,
-              },
-            ]
-              .sort((a, b) => b.credits - a.credits)
-              .map((r, i) => (
-                <li key={r.name} className={cn("flex items-center gap-2.5 rounded-xl px-2.5 py-1", r.me && "bg-v2-gold-soft")}>
-                  <span className="w-3.5 shrink-0 text-[13px] font-semibold text-muted">{i + 1}</span>
-                  <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10.5px] font-bold", r.tint, r.text)}>{r.initials}</span>
-                  <span className={cn("min-w-0 flex-1 truncate text-sm text-heading", r.me ? "font-semibold" : "font-medium")}>
-                    {r.name}
-                    {r.me && " (you)"}
-                  </span>
-                  <span className="shrink-0 text-[13px] font-bold text-heading">{r.credits}</span>
-                </li>
-              ))}
-          </ol>
-        </div>
+        currentUser.role ? (
+          <Leaderboard role={currentUser.role} meId={currentUser.id} myCredits={credits} />
+        ) : null
       ) : tab === "credits" ? (
         <div className="space-y-4">
           <p className="flex items-baseline gap-2">
             <span className="font-heading text-[44px] font-bold leading-[48px] tracking-[-0.015em] text-heading">{credits}</span>
-            <span className="text-[15px] text-muted">credits</span>
+            <span className="text-[15px] text-muted">credits banked</span>
           </p>
           <div className="flex gap-1.5">
             {CREDIT_TIERS.map((t, i) => {
@@ -278,6 +346,25 @@ export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; hr
           <p className="text-sm font-medium text-v2-body">
             {nextTier ? `${nextTier.min - credits} credits to reach ${nextTier.label}` : "You have reached the top tier."}
           </p>
+          {onTheWay.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted">On the way · banked when you finish the topic</p>
+              {onTheWay.map((o) => (
+                <div key={o.course.id} className="flex items-center gap-3 rounded-2xl bg-surface px-3 py-2.5">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-semibold text-heading">{o.course.title}</span>
+                    <span className="block text-xs font-medium text-muted">
+                      {o.checkpointsDone} of {o.checkpoints} checkpoint{o.checkpoints === 1 ? "" : "s"} done
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block font-heading text-base font-bold leading-5 text-heading">{o.projected}</span>
+                    <span className="block text-[11px] font-medium text-muted">on track</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           {nextUp && (
             <Link href={nextUp.href} className="group flex items-center gap-3 rounded-2xl bg-surface p-3 transition-colors duration-200 hover:bg-surface-2">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-lv-self text-white">

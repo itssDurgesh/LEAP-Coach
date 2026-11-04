@@ -13,6 +13,7 @@ import { IdeaOfTheDay } from "@/components/dashboard/IdeaOfTheDay";
 import { UpgradeBand } from "@/components/dashboard/UpgradeBand";
 import { isUpcoming } from "@/components/SessionCard";
 import { IntroContext, Rise, v2Button } from "@/components/v2/ui";
+import { ideaForDay, msUntilNextIndiaDay } from "@/lib/ideas";
 import { resumeTarget } from "@/lib/resume";
 import { useApp } from "@/lib/store/AppProvider";
 import { courseCategories, isProfileComplete, missingProfileFields } from "@/lib/types";
@@ -54,6 +55,7 @@ function DashboardContent() {
     resources,
     articles,
     announcements,
+    ideas,
     submissions,
     isEnrolled,
     isVideoCompleted,
@@ -61,6 +63,13 @@ function DashboardContent() {
     lastActivityAt,
   } = app;
   const reduceMotion = useReducedMotion();
+  // Today, in India time. The Idea of the day changes at midnight there, so a
+  // dashboard left open overnight moves on to the new idea by itself.
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const t = setTimeout(() => setNow(Date.now()), msUntilNextIndiaDay(now) + 1000);
+    return () => clearTimeout(t);
+  }, [now]);
   const [intro] = React.useState(decideIntro);
   React.useEffect(() => {
     // Once the entrance has had time to finish, stop it replaying when the learner
@@ -121,6 +130,8 @@ function DashboardContent() {
   const latestAnnouncement = announcements
     .filter((a) => a.published && (a.targetRole === "all" || a.targetRole === role))
     .sort((a, b) => (a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : a.createdAt < b.createdAt ? 1 : -1))[0];
+
+  const idea = ideaForDay(ideas, role, now);
 
   const profileMissing = missingProfileFields(currentUser);
 
@@ -242,10 +253,11 @@ function DashboardContent() {
           <LeadershipMap />
         </Rise>
 
-        {/* ── Today: idea of the day (sample content for now) beside the learner's standing ── */}
+        {/* ── Today: the idea of the day (Admin → Idea of the Day) beside the learner's
+            standing. With no idea scheduled, the standing card sits on its own. ── */}
         <Rise delay={0.9}>
-          <div className={TWO_COL}>
-            <IdeaOfTheDay tracks={tracks} />
+          <div className={idea ? TWO_COL : "grid gap-6 lg:grid-cols-2"}>
+            {idea && <IdeaOfTheDay key={idea.id} idea={idea} tracks={tracks} learnerId={currentUser.id} />}
             <StandingCard
               animate={intro}
               nextUp={main ? { title: main.course.title.split(":")[0], href: `/courses/${main.course.slug}` } : null}

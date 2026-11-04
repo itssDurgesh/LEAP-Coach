@@ -69,6 +69,49 @@ export function topicCredit(course: Course, userId: string, submissions: Submiss
   return { totalQuestions, weightedPercent, credit: creditForPercent(weightedPercent, hasQuestions) };
 }
 
+export interface CreditOutlook {
+  /** Checkpoints the learner has attempted / the topic has. */
+  checkpointsDone: number;
+  checkpoints: number;
+  /** What the topic would bank if the remaining checkpoints go as the attempted ones did; null before any. */
+  projected: number | null;
+}
+
+/**
+ * Where an unfinished topic's credit stands. Credits are banked only when a topic is
+ * finished (topicCredit, above), so a learner who has passed checkpoints still has
+ * 0 banked for it; this shows them what their answers so far are on track for. Same
+ * weighting and ladder as the real credit, counted over the attempted checkpoints
+ * only (the real one counts the rest as unanswered).
+ */
+export function creditOutlook(course: Course, userId: string, submissions: Submission[]): CreditOutlook {
+  const latestByAssignment = new Map<string, Submission>();
+  for (const s of submissions) {
+    if (s.userId !== userId || s.courseId !== course.id) continue;
+    const cur = latestByAssignment.get(s.assignmentId);
+    if (!cur || cur.attemptNumber < s.attemptNumber) latestByAssignment.set(s.assignmentId, s);
+  }
+  let done = 0;
+  let questions = 0;
+  let weightSum = 0;
+  for (const a of course.assignments) {
+    const latest = latestByAssignment.get(a.id);
+    if (!latest) continue;
+    done += 1;
+    const byId = new Map(latest.feedback.map((f) => [f.questionId, f]));
+    for (const q of a.questions) {
+      questions += 1;
+      const f = byId.get(q.id);
+      if (f) weightSum += questionWeight(f);
+    }
+  }
+  return {
+    checkpointsDone: done,
+    checkpoints: course.assignments.length,
+    projected: questions ? creditForPercent((weightSum / questions) * 100, true) : null,
+  };
+}
+
 /**
  * A topic is finalized for credit once the learner has finished it: every video
  * completed AND every checkpoint attempted (has a submission). Pass/fail doesn't

@@ -325,6 +325,44 @@ export interface DailyTip {
   active: boolean;
 }
 
+/** One answer to an Idea of the day's question, with the response a learner sees on picking it. */
+export interface IdeaOption {
+  text: string;
+  good: boolean;
+  feedback: string;
+}
+
+/**
+ * The dashboard's Idea of the day. Admins write several; one shows each day (see
+ * lib/ideas.ts): an idea pinned to today's date if there is one, otherwise the next
+ * idea of the rotation.
+ */
+export interface DailyIdea {
+  id: string;
+  title: string;
+  body: string;
+  trackId: string | null; // leadership level, shown as a chip
+  question: string;
+  options: IdeaOption[];
+  targetRole: Role | "all";
+  showOn: string | null; // "YYYY-MM-DD" (India time) — pinned to that day; null = in the rotation
+  order: number; // position in the rotation
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One row of the dashboard leaderboard (a learner's public fields and rank in their track). */
+export interface LeaderboardEntry {
+  userId: string;
+  name: string;
+  username?: string;
+  avatarUrl?: string | null;
+  credits: number;
+  rank: number; // competition ranking: equal credits share a rank
+  total: number; // learners in the track
+}
+
 export interface LiveSession {
   id: string;
   title: string;

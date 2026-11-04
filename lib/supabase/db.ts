@@ -8,9 +8,11 @@ import {
   Coupon,
   Course,
   CourseRating,
+  DailyIdea,
   DailyTip,
   Enrollment,
   Faq,
+  LeaderboardEntry,
   LeadershipTrack,
   LiveSession,
   Note,
@@ -85,6 +87,11 @@ const mapFaq = (r: Row): Faq => ({
   id: r.id, question: r.question ?? "", answer: r.answer ?? "", order: r.order_index ?? 0,
   published: r.published ?? true, createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at,
 });
+const mapIdea = (r: Row): DailyIdea => ({
+  id: r.id, title: r.title ?? "", body: r.body ?? "", trackId: r.track_id ?? null, question: r.question ?? "",
+  options: Array.isArray(r.options) ? r.options : [], targetRole: r.target_role ?? "all", showOn: r.show_on ?? null,
+  order: r.order_index ?? 0, active: r.active ?? true, createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at,
+});
 const mapBook = (r: Row): Book => ({
   id: r.id, title: r.title ?? "", author: r.author ?? "", coverUrl: r.cover_url ?? null,
   blurb: r.blurb ?? "", link: r.link ?? null, order: r.order_index ?? 0, active: r.active ?? true,
@@ -146,6 +153,7 @@ export interface LoadedData {
   articles: Article[];
   announcements: Announcement[];
   faqs: Faq[];
+  ideas: DailyIdea[];
   privacyPolicy: string | null;
   enrollments: Enrollment[];
   progress: VideoProgress[];
@@ -219,7 +227,7 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     profiles, me, purchases, tracks, courses,
     tips, resources, sessions, attendees, enrollments, progress, mySubmissions, notes, coupons,
     categoryPasses, pricingRows, notifications, teamMembers, books, siteRows, articleRows, paymentRows,
-    announcementRows, faqRows, sitePageRows, courseRatingRows,
+    announcementRows, faqRows, sitePageRows, courseRatingRows, ideaRows,
   ] = await Promise.all([
     signedIn ? publicProfiles(sb) : SKIP,
     // The signed-in user's own full row (the public read above leaves out e.g. email).
@@ -275,6 +283,9 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     // Only this learner's own ratings: the store needs them to show "your rating".
     // The average shown on each topic is kept on the course row by a trigger.
     forUser(() => sb.from("course_ratings").select("*").eq("user_id", userId!)),
+    // Idea of the day (learners read the active ones; admins all). Missing table
+    // (migration not run yet) → [] → the dashboard card stays hidden.
+    forUser(() => sb.from("daily_ideas").select("*")),
   ]);
 
   // Others get the public fields; the signed-in user gets their own full row. An
@@ -345,6 +356,7 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     articles: articleRows.map(mapArticle).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     announcements: announcementRows.map(mapAnnouncement).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     faqs: faqRows.map(mapFaq).sort((a, b) => (a.order !== b.order ? a.order - b.order : a.createdAt < b.createdAt ? -1 : 1)),
+    ideas: ideaRows.map(mapIdea),
     privacyPolicy: (sitePageRows[0]?.privacy_policy as string) ?? null,
     enrollments: enrollments.map(mapEnrollment),
     progress: progress.map(mapProgress),
@@ -711,6 +723,38 @@ export const saveFaq = (sb: SupabaseClient, f: Faq) =>
   });
 export const deleteFaq = (sb: SupabaseClient, id: string) => sb.from("faqs").delete().eq("id", id);
 
+// ── idea of the day ──
+export const saveIdea = (sb: SupabaseClient, i: DailyIdea) =>
+  sb.from("daily_ideas").upsert({
+    id: i.id, title: i.title, body: i.body, track_id: i.trackId, question: i.question, options: i.options,
+    target_role: i.targetRole, show_on: i.showOn, order_index: i.order, active: i.active,
+    created_at: i.createdAt, updated_at: i.updatedAt,
+  });
+export const deleteIdea = (sb: SupabaseClient, id: string) => sb.from("daily_ideas").delete().eq("id", id);
+
+/** False when the ideas table does not exist yet (the 2026-11-04 migration has not run). */
+export async function ideasTableReady(sb: SupabaseClient): Promise<boolean> {
+  const { error } = await sb.from("daily_ideas").select("id", { head: true, count: "exact" }).limit(1);
+  return !error || !(error.code === "42P01" || error.code === "PGRST205" || /daily_ideas/.test(error.message));
+}
+
+// ── leaderboard ──
+/**
+ * The top learners of one track plus the caller's own row, ranked in the database
+ * (public.leaderboard). null when the function is not there yet; the store then
+ * ranks the profiles it already holds.
+ */
+export async function fetchLeaderboard(sb: SupabaseClient, role: Role, limit = 5): Promise<LeaderboardEntry[] | null> {
+  const { data, error } = await sb.rpc("leaderboard", { p_role: role, p_limit: limit });
+  if (error) {
+    console.error("[supabase] leaderboard", error.message);
+    return null;
+  }
+  return ((data ?? []) as Row[]).map((r) => ({
+    userId: r.user_id, name: r.name ?? "", username: r.username ?? undefined, avatarUrl: r.avatar_url ?? null,
+    credits: Number(r.credits ?? 0), rank: Number(r.rank ?? 0), total: Number(r.total ?? 0),
+  }));
+}
 
 // ── privacy policy (site_pages singleton, id = 1) ──
 export const savePrivacyPolicy = (sb: SupabaseClient, text: string) =>
