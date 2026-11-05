@@ -1,4 +1,10 @@
 import type { Question } from "@/lib/types";
+import { isClerkConfigured } from "@/lib/clerk/config";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+
+// With the real services on, the hint route reads the question from the database by
+// id; only the local demo (topics in this browser only) sends its own copy.
+const live = isClerkConfigured && isSupabaseConfigured;
 
 /** Remove the literal correct answer from a string so a fallback hint never leaks it. */
 function stripAnswer(text: string, answer: string): string {
@@ -34,13 +40,18 @@ export async function fetchHint(req: HintRequest): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        courseTitle: req.courseTitle,
-        video: req.video,
-        question: { prompt: req.question.prompt, options: req.question.options, type: req.question.type },
+        questionId: req.question.id,
         wrongAnswer: req.wrongAnswer,
-        correctAnswer: req.question.correctAnswer,
-        explanation: req.question.explanation,
         attempt: req.attempt,
+        ...(live
+          ? {}
+          : {
+              courseTitle: req.courseTitle,
+              video: req.video,
+              question: { prompt: req.question.prompt, options: req.question.options, type: req.question.type },
+              correctAnswer: req.question.correctAnswer,
+              explanation: req.question.explanation,
+            }),
       }),
     });
     const data = await res.json();

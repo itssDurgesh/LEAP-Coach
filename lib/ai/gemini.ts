@@ -29,7 +29,10 @@ const THINKING_BUDGET = 128;
  */
 const DEADLINE_MS = 25_000;
 
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const BASE = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}`;
+const ENDPOINT = `${BASE}:generateContent`;
+// Server-sent events: one JSON object per `data:` line, each carrying the next piece.
+const STREAM_ENDPOINT = `${BASE}:streamGenerateContent?alt=sse`;
 
 export interface GeminiRequest {
   key: string;
@@ -61,8 +64,8 @@ function buildBody(req: GeminiRequest, withThinkingConfig: boolean): string {
 }
 
 /**
- * Call Gemini and return the reply, or `null` when it could not be produced — callers
- * treat null as "use the local fallback". Never throws.
+ * Send one request with the retries below and return the final response, or null
+ * when it never got an answer (network failure, deadline). Never throws.
  *
  * Retries cover the two ways this call fails in practice:
  *   • 500/503 — rolling aliases intermittently report "high demand"; one retry clears most.
@@ -70,17 +73,16 @@ function buildBody(req: GeminiRequest, withThinkingConfig: boolean): string {
  *               thinkingConfig so a future incompatibility degrades to a working (if
  *               chattier) tutor instead of silently serving mock replies again.
  */
-export async function generateContent(req: GeminiRequest): Promise<GeminiReply | null> {
+async function request(endpoint: string, req: GeminiRequest, signal: AbortSignal): Promise<Response | null> {
   const headers = { "Content-Type": "application/json", "x-goog-api-key": req.key };
-
-  const signal = AbortSignal.timeout(DEADLINE_MS); // one clock for the call and its retries
   const send = (withThinkingConfig: boolean) =>
-    fetch(ENDPOINT, { method: "POST", headers, body: buildBody(req, withThinkingConfig), signal });
+    fetch(endpoint, { method: "POST", headers, body: buildBody(req, withThinkingConfig), signal });
 
   try {
     let res = await send(true);
 
     if (res.status === 503 || res.status === 500) {
+      await res.body?.cancel().catch(() => {});
       await new Promise((r) => setTimeout(r, 700));
       res = await send(true);
     }
@@ -95,15 +97,88 @@ export async function generateContent(req: GeminiRequest): Promise<GeminiReply |
       console.error(`[${req.scope}] HTTP`, res.status, (await res.text().catch(() => "")).slice(0, 300));
       return null;
     }
-
-    const data = await res.json();
-    const candidate = data?.candidates?.[0];
-    const text: string =
-      candidate?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("").trim() ?? "";
-
-    return { text, finishReason: candidate?.finishReason };
+    return res;
   } catch (e) {
     console.error(`[${req.scope}] request failed:`, e instanceof Error ? e.message : e);
     return null;
   }
+}
+
+/** The text and finish reason of one response (or one streamed piece). */
+function readCandidate(data: unknown): GeminiReply {
+  const candidate = (data as { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[] })
+    ?.candidates?.[0];
+  const text = candidate?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  return { text, finishReason: candidate?.finishReason };
+}
+
+/**
+ * Call Gemini and return the reply, or `null` when it could not be produced — callers
+ * treat null as "use the local fallback". Never throws.
+ */
+export async function generateContent(req: GeminiRequest): Promise<GeminiReply | null> {
+  const signal = AbortSignal.timeout(DEADLINE_MS); // one clock for the call and its retries
+  const res = await request(ENDPOINT, req, signal);
+  if (!res) return null;
+  try {
+    const reply = readCandidate(await res.json());
+    return { text: reply.text.trim(), finishReason: reply.finishReason };
+  } catch (e) {
+    console.error(`[${req.scope}] unreadable reply:`, e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/**
+ * Like generateContent, but the reply arrives piece by piece as it is generated, so
+ * a learner reads the start of an answer instead of waiting for all of it.
+ *
+ * The same retries apply; they all happen before the first piece. Resolves to null
+ * when the call could not start (the caller answers as it would to a failed
+ * generateContent). The pieces are yielded as they arrive; the iteration never
+ * throws: a connection that drops part-way, or `signal` (the learner went away),
+ * just ends it, and the last piece then carries finishReason "ERROR". The deadline
+ * covers the whole reply.
+ */
+export async function streamContent(
+  req: GeminiRequest,
+  signal?: AbortSignal,
+): Promise<AsyncGenerator<GeminiReply, void, undefined> | null> {
+  const deadline = AbortSignal.timeout(DEADLINE_MS);
+  const res = await request(STREAM_ENDPOINT, req, signal ? AbortSignal.any([deadline, signal]) : deadline);
+  if (!res?.body) return null;
+  const body = res.body;
+
+  return (async function* pieces() {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          let piece: GeminiReply;
+          try {
+            piece = readCandidate(JSON.parse(payload));
+          } catch {
+            continue; // a line that is not JSON: skip it rather than end the reply
+          }
+          if (piece.text || piece.finishReason) yield piece;
+        }
+      }
+    } catch (e) {
+      if (!signal?.aborted) console.error(`[${req.scope}] stream cut off:`, e instanceof Error ? e.message : e);
+      yield { text: "", finishReason: "ERROR" };
+    } finally {
+      reader.cancel().catch(() => {});
+    }
+  })();
 }
