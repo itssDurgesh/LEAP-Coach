@@ -203,12 +203,67 @@ const SUBMISSION_SUMMARY_COLS = "id,user_id,assignment_id,course_id,score,passed
  * a database that has not run it yet the first select errors, so read without them
  * rather than leave every page with no topics.
  */
-async function courseRows(sb: SupabaseClient): Promise<Row[]> {
-  const select = (cols: string) => sb.from("courses").select(`*, videos(${cols}), assignments(*, questions(*))`);
+async function courseRows(sb: SupabaseClient, id?: string): Promise<Row[]> {
+  const select = (cols: string) => {
+    const q = sb.from("courses").select(`*, videos(${cols}), assignments(*, questions(*))`);
+    return id ? q.eq("id", id) : q;
+  };
   const full = await select(`${VIDEO_COLS},audio_url,audio_name`);
   if (!full.error) return (full.data ?? []) as Row[];
   console.error("[supabase] courses: reading without audio columns (run the audio-sessions migration)", full.error.message);
   return rows(select(VIDEO_COLS));
+}
+
+/** One `courses` row, with its embedded sessions and checkpoints, as a Course. */
+function mapCourse(c: Row): Course {
+  return {
+    id: c.id, slug: c.slug, title: c.title, description: c.description ?? "", category: c.category,
+    instructorName: c.instructor_name ?? "", instructorTitle: c.instructor_title ?? "", instructorBio: c.instructor_bio ?? "",
+    instructorInitials: c.instructor_initials ?? "", hashtags: c.hashtags ?? [], tracks: c.tracks ?? [], level: c.level ?? "Beginner",
+    rating: Number(c.rating ?? 0), ratingCount: c.rating_count ?? 0, enrolledCount: c.enrolled_count ?? 0,
+    purchaseCount: c.purchase_count ?? 0, price: c.price ?? 0, trending: c.trending ?? false, published: c.published ?? false,
+    accent: c.accent ?? 0,
+    categories: c.categories ?? [c.category],
+    thumbnailUrl: c.thumbnail_url ?? null, videoThumbnailUrl: c.video_thumbnail_url ?? null,
+    workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
+    accessDurationDays: c.access_duration_days ?? null,
+    pendingApproval: c.pending_approval ?? false, submittedBy: c.submitted_by ?? null,
+    createdAt: c.created_at,
+    videos: ((c.videos ?? []) as Row[]).map(mapVideo).sort((a, b) => a.order - b.order),
+    assignments: ((c.assignments ?? []) as Row[]).map((a) => ({
+      id: a.id, courseId: a.course_id, afterVideoOrder: a.after_video_order, title: a.title,
+      questions: ((a.questions ?? []) as Row[]).map(mapQuestion),
+    })).sort((a, b) => a.afterVideoOrder - b.afterVideoOrder),
+  };
+}
+
+/**
+ * One topic's whole tree, re-read for a live update: a topic was published, or
+ * added, while this page was open. null when it no longer exists.
+ */
+export async function fetchCourse(sb: SupabaseClient, id: string): Promise<Course | null> {
+  const [row] = await courseRows(sb, id);
+  return row ? mapCourse(row) : null;
+}
+
+/**
+ * The fields a realtime change on `courses` is allowed to update directly: what
+ * other people change while a page is open (publishing, approval, featuring,
+ * price, ratings, learner counts). Only the columns present in the change are
+ * read. Long text columns are left to fetchCourse, because a change record can
+ * leave out a long value that did not change.
+ */
+export function liveCourseFields(row: Row): Partial<Course> {
+  const out: Partial<Course> = {};
+  if ("published" in row) out.published = !!row.published;
+  if ("pending_approval" in row) out.pendingApproval = !!row.pending_approval;
+  if ("trending" in row) out.trending = !!row.trending;
+  if ("price" in row && row.price != null) out.price = Number(row.price);
+  if ("rating" in row && row.rating != null) out.rating = Number(row.rating);
+  if ("rating_count" in row && row.rating_count != null) out.ratingCount = Number(row.rating_count);
+  if ("enrolled_count" in row && row.enrolled_count != null) out.enrolledCount = Number(row.enrolled_count);
+  if ("purchase_count" in row && row.purchase_count != null) out.purchaseCount = Number(row.purchase_count);
+  return out;
 }
 
 /**
@@ -315,25 +370,7 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
   const passesByUser = group(categoryPasses, (p) => p.user_id);
   const attendeesBySession = group(attendees, (a) => a.session_id);
 
-  const assembledCourses: Course[] = courses.map((c) => ({
-    id: c.id, slug: c.slug, title: c.title, description: c.description ?? "", category: c.category,
-    instructorName: c.instructor_name ?? "", instructorTitle: c.instructor_title ?? "", instructorBio: c.instructor_bio ?? "",
-    instructorInitials: c.instructor_initials ?? "", hashtags: c.hashtags ?? [], tracks: c.tracks ?? [], level: c.level ?? "Beginner",
-    rating: Number(c.rating ?? 0), ratingCount: c.rating_count ?? 0, enrolledCount: c.enrolled_count ?? 0,
-    purchaseCount: c.purchase_count ?? 0, price: c.price ?? 0, trending: c.trending ?? false, published: c.published ?? false,
-    accent: c.accent ?? 0,
-    categories: c.categories ?? [c.category],
-    thumbnailUrl: c.thumbnail_url ?? null, videoThumbnailUrl: c.video_thumbnail_url ?? null,
-    workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
-    accessDurationDays: c.access_duration_days ?? null,
-    pendingApproval: c.pending_approval ?? false, submittedBy: c.submitted_by ?? null,
-    createdAt: c.created_at,
-    videos: ((c.videos ?? []) as Row[]).map(mapVideo).sort((a, b) => a.order - b.order),
-    assignments: ((c.assignments ?? []) as Row[]).map((a) => ({
-      id: a.id, courseId: a.course_id, afterVideoOrder: a.after_video_order, title: a.title,
-      questions: ((a.questions ?? []) as Row[]).map(mapQuestion),
-    })).sort((a, b) => a.afterVideoOrder - b.afterVideoOrder),
-  }));
+  const assembledCourses: Course[] = courses.map(mapCourse);
 
   return {
     users: profileRows.map((p) =>
@@ -616,7 +653,6 @@ export async function saveCourse(sb: SupabaseClient, c: Course) {
   }
 }
 export const deleteCourse = (sb: SupabaseClient, id: string) => sb.from("courses").delete().eq("id", id);
-export const updateCourse = (sb: SupabaseClient, id: string, patch: Row) => sb.from("courses").update(patch).eq("id", id);
 
 export const saveTip = (sb: SupabaseClient, t: DailyTip) =>
   sb.from("daily_tips").upsert({ id: t.id, text: t.text, author: t.author, target_role: t.targetRole, active: t.active });

@@ -68,6 +68,7 @@ import { topicCredit, topicComplete } from "@/lib/credits";
 import { baseUsername, uniqueUsername } from "@/lib/username";
 import { clearPaintCaches, paintCacheKey } from "@/lib/store/paint-cache";
 import type { AuthBridge } from "@/lib/auth/types";
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 
 const STORAGE_KEY = "leap-coach-state-v1";
 // Per-user stale-while-revalidate cache for Supabase mode (paint-cache.ts): paint
@@ -758,10 +759,93 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     };
   }, [hydrated, state.currentUserId]);
 
+  // ── Live topic updates (real mode, signed in) ──
+  // Pages read topics from this store, which is loaded once per visit, so a topic
+  // the owner publishes did not reach a learner's open tab until they reloaded.
+  // `courses` is in the supabase_realtime publication. A change to a topic this tab
+  // has applies the row's live fields (published, approval, featured, price,
+  // ratings, counts) in place, with no read: the rating trigger updates a topic's
+  // row on every rating, and re-reading the catalogue each time would make every
+  // open tab download all of it whenever anyone rated anything. Only a topic this
+  // tab has never seen is read, on its own. Visitors are not subscribed: the public
+  // pages do not need it, and each subscription holds a Realtime connection.
+  const liveRef = React.useRef<{ courses: Course[]; admin: boolean }>({ courses: [], admin: false });
+  React.useEffect(() => {
+    if (!hydrated || !realMode || !state.currentUserId) return;
+    const sb = getSupabase();
+    if (!sb) return;
+    let active = true;
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    // A new topic is saved row by row (the topic, then its sessions and checkpoints),
+    // so read it once the writes have settled, and add it only if this tab still
+    // has not got it (an admin's own save adds it first). Admin tabs never take a
+    // tree from here: the topic editor saves the tree it holds, and a tree read
+    // halfway through someone's save would be missing questions.
+    const readNew = (id: string) => {
+      clearTimeout(timers.get(id));
+      timers.set(
+        id,
+        setTimeout(() => {
+          timers.delete(id);
+          db.fetchCourse(sb, id).then(
+            (course) => {
+              if (!active || !course) return;
+              setState((s) => (s.courses.some((c) => c.id === id) ? s : { ...s, courses: [course, ...s.courses] }));
+            },
+            (e) => console.error("[supabase] live topic", e),
+          );
+        }, 3000),
+      );
+    };
+
+    const onChange = (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
+      if (payload.eventType === "DELETE") {
+        const id = payload.old?.id;
+        if (typeof id !== "string") return;
+        clearTimeout(timers.get(id));
+        setState((s) => (s.courses.some((c) => c.id === id) ? { ...s, courses: s.courses.filter((c) => c.id !== id) } : s));
+        return;
+      }
+      const row = payload.new ?? {};
+      const id = row.id;
+      if (typeof id !== "string") return;
+      if (!liveRef.current.courses.some((c) => c.id === id)) {
+        if (!liveRef.current.admin) readNew(id);
+        return;
+      }
+      const live = db.liveCourseFields(row);
+      const keys = Object.keys(live) as (keyof typeof live)[];
+      setState((s) => {
+        let changed = false;
+        const courses = s.courses.map((c) => {
+          if (c.id !== id || keys.every((k) => c[k] === live[k])) return c;
+          changed = true;
+          return { ...c, ...live };
+        });
+        return changed ? { ...s, courses } : s;
+      });
+    };
+
+    const channel = sb
+      .channel("courses-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, onChange)
+      .subscribe();
+    return () => {
+      active = false;
+      timers.forEach(clearTimeout);
+      void sb.removeChannel(channel);
+    };
+  }, [hydrated, state.currentUserId]);
+
   // Lookup indexes (see the note above `pair`). Separate memos, so a change to one
   // list (a new notification, a like) does not rebuild the indexes of the others.
   const courseIdx = React.useMemo(() => indexCourses(state.courses), [state.courses]);
   const userById = React.useMemo(() => firstBy(state.users, (u) => u.id), [state.users]);
+  liveRef.current = {
+    courses: state.courses,
+    admin: !!(state.currentUserId && userById.get(state.currentUserId)?.isAdmin),
+  };
   const completedVideos = React.useMemo(() => {
     const done = new Set<string>();
     for (const p of state.progress) if (p.completed) done.add(pair(p.userId, p.videoId));
@@ -947,6 +1031,42 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       } catch {
         return { ok: false, error: "Network error — the change couldn't be saved." };
       }
+    };
+
+    // The owner's publish, approval and featuring switches go through a service-role
+    // route (app/api/admin/courses). A browser write that RLS filters out matches no
+    // rows and still reports success, so the switch flipped, nothing was saved, and
+    // learners kept the old state. Shown on screen first; if the server refuses, the
+    // topic is put back (unless it has been switched again since) and the reason shown.
+    type CourseFlags = Pick<Course, "published" | "pendingApproval" | "trending">;
+    const adminCourseAction = (
+      course: Course,
+      action: "approve" | "reject" | "publish" | "unpublish" | "feature" | "unfeature",
+      after: Partial<CourseFlags>,
+    ) => {
+      const before: CourseFlags = { published: course.published, pendingApproval: course.pendingApproval, trending: course.trending };
+      void (async () => {
+        let error = "The change couldn't be saved.";
+        try {
+          const res = await fetch("/api/admin/courses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, courseId: course.id }),
+          });
+          if (res.ok) return;
+          const data = await res.json().catch(() => ({}));
+          if (typeof data.error === "string" && data.error) error = data.error;
+        } catch {
+          error = "Network error: the change couldn't be saved.";
+        }
+        console.error("[admin/courses]", action, error);
+        const still = (x: Course) => (Object.keys(after) as (keyof CourseFlags)[]).every((k) => x[k] === after[k]);
+        setState((s) => ({
+          ...s,
+          courses: s.courses.map((x) => (x.id === course.id && still(x) ? { ...x, ...before } : x)),
+        }));
+        setSaveError(`${error} “${course.title}” is back as it was.`);
+      })();
     };
 
     return {
@@ -1810,36 +1930,32 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       togglePublish(courseId) {
         if (!isOwner(currentUser)) return; // publishing is owner-only (sub-admins go via approval)
         const c = getCourse(courseId);
-        setState((s) => ({
-          ...s,
-          courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: !x.published } : x)),
-        }));
-        if (sb && c) fire(db.updateCourse(sb, courseId, { published: !c.published }));
+        if (!c) return;
+        const after = { published: !c.published };
+        setState((s) => ({ ...s, courses: s.courses.map((x) => (x.id === courseId ? { ...x, ...after } : x)) }));
+        if (sb) adminCourseAction(c, c.published ? "unpublish" : "publish", after);
       },
       toggleTrending(courseId) {
         if (!isOwner(currentUser)) return;
         const c = getCourse(courseId);
-        setState((s) => ({
-          ...s,
-          courses: s.courses.map((x) => (x.id === courseId ? { ...x, trending: !x.trending } : x)),
-        }));
-        if (sb && c) fire(db.updateCourse(sb, courseId, { trending: !c.trending }));
+        if (!c) return;
+        const after = { trending: !c.trending };
+        setState((s) => ({ ...s, courses: s.courses.map((x) => (x.id === courseId ? { ...x, ...after } : x)) }));
+        if (sb) adminCourseAction(c, c.trending ? "unfeature" : "feature", after);
       },
       approveCourse(courseId) {
-        if (!isOwner(currentUser) || !getCourse(courseId)) return;
-        setState((s) => ({
-          ...s,
-          courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: true, pendingApproval: false } : x)),
-        }));
-        if (sb) fire(db.updateCourse(sb, courseId, { published: true, pending_approval: false }));
+        const c = getCourse(courseId);
+        if (!isOwner(currentUser) || !c) return;
+        const after = { published: true, pendingApproval: false };
+        setState((s) => ({ ...s, courses: s.courses.map((x) => (x.id === courseId ? { ...x, ...after } : x)) }));
+        if (sb) adminCourseAction(c, "approve", after);
       },
       rejectCourse(courseId) {
-        if (!isOwner(currentUser) || !getCourse(courseId)) return;
-        setState((s) => ({
-          ...s,
-          courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: false, pendingApproval: false } : x)),
-        }));
-        if (sb) fire(db.updateCourse(sb, courseId, { published: false, pending_approval: false }));
+        const c = getCourse(courseId);
+        if (!isOwner(currentUser) || !c) return;
+        const after = { published: false, pendingApproval: false };
+        setState((s) => ({ ...s, courses: s.courses.map((x) => (x.id === courseId ? { ...x, ...after } : x)) }));
+        if (sb) adminCourseAction(c, "reject", after);
       },
       saveQuestion(courseId, assignmentId, question) {
         if (!hasPermission(currentUser, "content")) return;
