@@ -1,9 +1,11 @@
 # Auth (Clerk) + Database (Supabase) setup
 
 Authentication is handled by **Clerk** (sign-in/up, Google/LinkedIn, sessions).
-Data lives in **Supabase** Postgres. The app runs on built-in **mock data** until
-the Clerk + Supabase env vars are present, then automatically switches to the real
-services. Follow these steps to go live.
+Data lives in **Supabase** Postgres, uploaded files in Supabase Storage. Until the
+Clerk + Supabase env vars are present the app runs in **local demo mode** (data in
+the browser only, nothing sent to Supabase), then it switches to the real services
+automatically. Follow these steps to go live. How the pieces fit together is in
+[`ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## 1. Create a Supabase project
 Create a project at [supabase.com](https://supabase.com) and wait for it to provision.
@@ -11,12 +13,22 @@ Create a project at [supabase.com](https://supabase.com) and wait for it to prov
 ## 2. Run the database script
 Open **SQL Editor** → paste the contents of [`database.sql`](./database.sql) → **Run**.
 
-This single file is the complete schema: every table (including FAQ/privacy and the
-Telegram linking tables), all row-level-security policies (final hardened state,
-keyed to the Clerk user id), the payment-protection trigger, and every performance
-index. It is **idempotent** (safe to re-run after every update) and **seed-free** —
-no demo content; the only inserted rows are two structural singletons
-(`pricing_tiers` id=1, `site_pages` id=1) that never overwrite your edits.
+This file is the main schema: every core table (including FAQ/privacy and the
+Telegram linking tables), the row-level-security policies (keyed to the Clerk user
+id), the privilege-protection trigger, and the performance indexes. It is
+**idempotent** (safe to re-run after updates) and **seed-free** — no demo content;
+the only inserted rows are two structural singletons (`pricing_tiers` id=1,
+`site_pages` id=1) that never overwrite your edits.
+
+Then run the migrations in [`migrations/`](./migrations) that are not part of
+`database.sql` yet, in this order (each is idempotent):
+
+| File | What it adds | Run it? |
+| --- | --- | --- |
+| `2026-08-19-media-storage.sql` | The public Storage bucket `media` and its upload rules (all file uploads go here) | Yes, once |
+| `2026-08-19-course-ratings.sql` | Topic ratings: table, rules and the trigger that keeps each topic's average | Yes, once, after `database.sql` |
+| `2026-10-09-audio-sessions.sql` | `audio_url` / `audio_name` on sessions (audio sessions) | Already included in `database.sql`; harmless to run |
+| `draft-2026-10-10-sub-admin-limits-enrolment-counts.sql` | Database rules for sub-admin limits, self-enrolment for pass-holders, and learner / purchase counts kept by the database | **Draft.** Read its header first. Once it has been run, do not re-run `database.sql` until the two are merged, or the old rules come back |
 
 > ⚠️ **Migrating an existing Supabase-Auth database?** Profile/user ids change from
 > `uuid` to `text` (the Clerk user id), which `create table if not exists` cannot
@@ -81,12 +93,20 @@ browser never reaches the verify step (closed tab, network drop):
    (for local testing, expose your dev server with a tunnel, e.g. ngrok/cloudflared).
 3. Active events: **`payment.captured`**, **`refund.created`**, **`refund.processed`**,
    **`refund.failed`** (and optionally `order.paid`) — the refund events keep receipts
-   in sync with refunds made from the Razorpay dashboard (see `docs/PAYMENTS.md`).
+   in sync with refunds made from the Razorpay dashboard (payment flow:
+   [`ARCHITECTURE.md`](../ARCHITECTURE.md), section 7).
 4. Set a **secret**, and paste the same value into `RAZORPAY_WEBHOOK_SECRET` in `.env.local`.
 
 If a payment is captured but access can't be granted, it's **flagged** on the Admin →
-Payments page: **Retry grant** fulfils it; the **owner** can **Refund** it (full refund
+Payments page and the owner is emailed: **Retry grant** fulfils it (owner, or a
+sub-admin with the Payments permission); the **owner** can **Refund** it (full refund
 via Razorpay). Receipts are private — RLS lets each learner see only their own.
+
+Optional: schedule the reconcile sweep, which records any captured payment the app
+missed. Set `PAYMENTS_RECONCILE_SECRET` (or Vercel's `CRON_SECRET`) and call
+`GET /api/payments/razorpay/reconcile` with `Authorization: Bearer <secret>`, for
+example from a Vercel cron. The owner, or a sub-admin with the Payments permission, can
+also press **Reconcile** on Admin → Payments.
 
 ## 9. Scaling for many concurrent users
 - `database.sql` creates **indexes** on every foreign-key / filter column — run it (or
@@ -103,9 +123,10 @@ via Razorpay). Receipts are private — RLS lets each learner see only their own
 - **Per-page data loading.** The app currently loads all shared data on sign-in. As
   content grows, move to on-demand fetching + pagination for the unbounded tables
   (discussion posts/comments, profiles). This is the main latency lever at large scale.
-- **Durable background writes.** Non-payment writes (notes, posts, progress, likes) are
-  optimistic + fire-and-forget; a transient failure self-heals on the next load but isn't
-  retried/surfaced. Add retry + a "couldn't save" indicator. (Payments are already
+- **Retrying failed writes.** Non-payment writes (notes, progress, comments, likes,
+  admin edits) are optimistic. A write the database refuses is now logged and shown
+  to the person ("could not be saved", with Reload), and saving a topic waits for the
+  database, but nothing is retried automatically yet. (Payments are already
   server-authoritative and durable.)
 - **Distributed rate limiting.** The API routes already rate-limit per user/IP
   (`lib/api/rate-limit.ts`), but the counters are in-memory per instance. If the app
