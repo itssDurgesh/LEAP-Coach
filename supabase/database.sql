@@ -312,6 +312,24 @@ create table if not exists public.submissions (
   submitted_at   timestamptz default now()
 );
 
+-- Server-graded checkpoints: one row per learner, question and checkpoint attempt
+-- (tries, wrong answers, solved / answer shown). Written only by the server
+-- (app/api/leap/checkpoint), which builds each submission from these rows.
+create table if not exists public.checkpoint_progress (
+  user_id        text not null references public.profiles (id) on delete cascade,
+  question_id    text not null references public.questions (id) on delete cascade,
+  assignment_id  text not null references public.assignments (id) on delete cascade,
+  attempt_number int  not null,
+  tries          int  not null default 0,
+  wrong          jsonb not null default '[]',
+  solved         boolean not null default false,
+  revealed       boolean not null default false,
+  updated_at     timestamptz not null default now(),
+  primary key (user_id, question_id, attempt_number)
+);
+create index if not exists idx_checkpoint_progress_attempt
+  on public.checkpoint_progress (user_id, assignment_id, attempt_number);
+
 create table if not exists public.user_notes (
   id         text primary key,
   user_id    text references public.profiles (id) on delete cascade,
@@ -655,20 +673,74 @@ do $$ declare t text; begin
     'submissions','user_notes','session_attendees','community_posts','post_likes',
     'post_comments','comment_likes','video_comments','video_comment_likes',
     'notifications','site_content','team_members','books','articles','announcements',
-    'faqs','site_pages','telegram_link_tokens','telegram_links','daily_ideas'
+    'faqs','site_pages','telegram_link_tokens','telegram_links','daily_ideas','checkpoint_progress'
   ] loop
     execute format('alter table public.%I enable row level security;', t);
   end loop;
 end $$;
 
--- Profiles: readable by all; users create + edit their own row; admins manage all.
+-- Who may open a topic (used by the policies below and by catalog(), section 14).
+-- Same rule as lib/access.ts (hasAccess): every purchase lasts one year from its
+-- own date (a topic's access_duration_days overrides that for an à-la-carte
+-- purchase), and the topic stays open while any one of them has time left.
+-- Undated entitlements never lapse. Banned accounts open nothing.
+create or replace function public.user_has_course_access(p_user_id text, p_course_id text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(p_user_id, '') <> ''
+    and not exists (select 1 from public.profiles b where b.id = p_user_id and coalesce(b.banned, false))
+    and exists (
+      select 1 from public.courses c
+      where c.id = p_course_id
+        and (
+          coalesce(c.price, 0) = 0
+          or exists (
+            select 1 from public.profiles p
+            where p.id = p_user_id
+              and (
+                coalesce(p.is_admin, false)
+                or (p.subscription_plan = 'all_access'
+                    and (p.subscription_valid_until is null or p.subscription_valid_until > now()))
+              )
+          )
+          or exists (
+            select 1 from public.category_passes cp
+            where cp.user_id = p_user_id
+              and cp.category = any (
+                case when coalesce(cardinality(c.categories), 0) > 0 then c.categories else array[c.category] end
+              )
+              and (cp.granted_at is null or cp.granted_at + interval '365 days' > now())
+          )
+          or exists (
+            select 1 from public.course_purchases pu
+            where pu.user_id = p_user_id and pu.course_id = c.id
+              and (pu.purchased_at is null
+                   or pu.purchased_at + make_interval(days => case when coalesce(c.access_duration_days, 0) > 0
+                                                                   then c.access_duration_days else 365 end) > now())
+          )
+        )
+    );
+$$;
+
+-- The same question for whoever is calling (RLS policies and the functions below).
+create or replace function public.has_course_access(p_course_id text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.user_has_course_access(auth.jwt() ->> 'sub', p_course_id);
+$$;
+
+-- user_has_course_access answers for ANY user id: only the server may ask that.
+revoke execute on function public.user_has_course_access(text, text) from public, anon, authenticated;
+grant  execute on function public.user_has_course_access(text, text) to service_role;
+grant  execute on function public.has_course_access(text) to anon, authenticated, service_role;
+
+-- Profiles: signed-in members read (the private columns are hidden, section 14);
+-- users create + edit their own row; admins manage all.
 -- "insert self" is how the app provisions the row (db.ensureProfile) on first
 -- Clerk sign-in. Privileged columns are pinned by the trigger in section 11.
 drop policy if exists "profiles read"        on public.profiles;
 drop policy if exists "profiles insert self" on public.profiles;
 drop policy if exists "profiles update self" on public.profiles;
 drop policy if exists "profiles admin all"   on public.profiles;
-create policy "profiles read"        on public.profiles for select using (true);
+create policy "profiles read"        on public.profiles for select using ((select auth.jwt() ->> 'sub') is not null);
 create policy "profiles insert self" on public.profiles for insert with check ((select auth.jwt() ->> 'sub') = id);
 create policy "profiles update self" on public.profiles for update
   using ((select auth.jwt() ->> 'sub') = id or (select public.is_admin()))
@@ -689,6 +761,19 @@ do $$ declare t text; begin
     execute format('create policy "%1$s admin write" on public.%1$I for all using ((select public.is_admin())) with check ((select public.is_admin()));', t);
   end loop;
 end $$;
+
+-- Checkpoint questions: only people who may open the topic (and admins); their
+-- answers are hidden from everyone but admins (section 14).
+drop policy if exists "questions read" on public.questions;
+create policy "questions read" on public.questions for select using (
+  (select public.is_admin())
+  or public.has_course_access((select a.course_id from public.assignments a where a.id = questions.assignment_id))
+);
+
+-- Live sessions carry the join link: signed-in members only (as in the app).
+drop policy if exists "live_sessions read" on public.live_sessions;
+create policy "live_sessions read" on public.live_sessions
+  for select using ((select auth.jwt() ->> 'sub') is not null);
 
 -- Articles: learners read only PUBLISHED, non-archived ones; admins read + write all.
 drop policy if exists "articles read"        on public.articles;
@@ -779,13 +864,26 @@ create policy "enrollments delete own" on public.enrollments
 
 -- Private per-user tables: owner CRUD; admins read all.
 do $$ declare t text; begin
-  foreach t in array array['video_progress','submissions','user_notes'] loop
+  foreach t in array array['video_progress','user_notes'] loop
     execute format('drop policy if exists "%1$s owner" on public.%1$I;', t);
     execute format('drop policy if exists "%1$s admin read" on public.%1$I;', t);
     execute format('create policy "%1$s owner" on public.%1$I for all using ((select auth.jwt() ->> ''sub'') = user_id) with check ((select auth.jwt() ->> ''sub'') = user_id);', t);
     execute format('create policy "%1$s admin read" on public.%1$I for select using ((select public.is_admin()));', t);
   end loop;
 end $$;
+
+-- Submissions and checkpoint progress: learners read their own (admins all); only
+-- the server writes them, after grading (app/api/leap/checkpoint).
+drop policy if exists "submissions owner"      on public.submissions;
+drop policy if exists "submissions read own"   on public.submissions;
+drop policy if exists "submissions admin read" on public.submissions;
+create policy "submissions read own" on public.submissions
+  for select using ((select auth.jwt() ->> 'sub') = user_id);
+create policy "submissions admin read" on public.submissions
+  for select using ((select public.is_admin()));
+drop policy if exists "checkpoint_progress read own" on public.checkpoint_progress;
+create policy "checkpoint_progress read own" on public.checkpoint_progress
+  for select using ((select auth.jwt() ->> 'sub') = user_id or (select public.is_admin()));
 
 -- Likes & attendees: counts are public; only the owner writes their own row.
 do $$ declare t text; begin
@@ -843,7 +941,8 @@ drop policy if exists "telegram_links service"       on public.telegram_links;  
 -- 11. PRIVILEGE HARDENING
 --     A user may create/edit their OWN profile row (RLS above), but must never
 --     grant themselves admin, sub-admin permissions, a paid subscription, or
---     un-ban themselves. This trigger pins those columns for everyone except the
+--     un-ban themselves, or set their own learning credits (the server banks those
+--     after grading). This trigger pins those columns for everyone except the
 --     service role (payment/grant server) and existing admins — on INSERT *and*
 --     UPDATE. INSERT matters because "profiles insert self" would otherwise let a
 --     brand-new user insert is_admin=true or subscription_plan='all_access'.
@@ -860,12 +959,16 @@ begin
     new.subscription_plan        := 'none';
     new.subscription_valid_until := null;
     new.banned                   := false;
+    new.learning_credits         := 0;
+    new.topic_credits            := '{}'::jsonb;
   else
     new.is_admin                 := old.is_admin;
     new.permissions              := old.permissions;
     new.subscription_plan        := old.subscription_plan;
     new.subscription_valid_until := old.subscription_valid_until;
     new.banned                   := old.banned;
+    new.learning_credits         := old.learning_credits;
+    new.topic_credits            := old.topic_credits;
   end if;
   return new;
 end;
@@ -981,7 +1084,145 @@ create index if not exists telegram_link_tokens_expires_idx on public.telegram_l
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 14. AFTER SETUP (one-time bootstrap)
+-- 14. PAID CONTENT, ANSWERS AND PRIVATE FIELDS
+--     The browser's key reads the topic tree through catalog(): session media,
+--     workbooks and questions only for topics the caller may open, answers only
+--     for admins. Transcripts, notes files and full profile rows come from small
+--     functions with the same check. The tables themselves no longer hand those
+--     columns to anon / authenticated (apply_column_privileges, below). After
+--     adding a column to courses, videos, questions or profiles, re-run this file
+--     or `select public.apply_column_privileges();`.
+-- ─────────────────────────────────────────────────────────────────────────────
+-- The topic tree, shaped like the embedded select it replaces
+-- (courses + videos + assignments + questions), so the app maps it the same way.
+-- Media, the workbook and the questions only for topics the caller may open;
+-- answers and explanations only for admins. p_course_id = one topic, or all.
+create or replace function public.catalog(p_course_id text default null)
+returns jsonb language sql stable security definer set search_path = public as $$
+  with me as (
+    select auth.jwt() ->> 'sub' as uid, public.is_admin() as admin
+  ),
+  cs as (
+    select c, public.user_has_course_access((select uid from me), c.id) as entitled
+    from public.courses c
+    where p_course_id is null or c.id = p_course_id
+  )
+  select coalesce(jsonb_agg(
+    (to_jsonb(cs.c) - 'workbook_url')
+    || jsonb_build_object(
+      'workbook_url', case when cs.entitled then (cs.c).workbook_url end,
+      'videos', (
+        select coalesce(jsonb_agg(jsonb_build_object(
+          'id', v.id, 'course_id', v.course_id, 'title', v.title, 'order_index', v.order_index,
+          'duration_seconds', v.duration_seconds, 'summary', v.summary,
+          'notes_pdf_url', v.notes_pdf_url, 'audio_name', v.audio_name,
+          'mux_playback_id', case when cs.entitled then v.mux_playback_id end,
+          'audio_url', case when cs.entitled then v.audio_url end,
+          'resources', case when cs.entitled then coalesce(v.resources, '[]'::jsonb) else '[]'::jsonb end
+        ) order by v.order_index), '[]'::jsonb)
+        from public.videos v where v.course_id = (cs.c).id
+      ),
+      'assignments', (
+        select coalesce(jsonb_agg(jsonb_build_object(
+          'id', a.id, 'course_id', a.course_id, 'after_video_order', a.after_video_order, 'title', a.title,
+          'questions', case when cs.entitled then (
+            select coalesce(jsonb_agg(
+              jsonb_build_object('id', q.id, 'assignment_id', q.assignment_id, 'type', q.type,
+                                 'prompt', q.prompt, 'options', coalesce(q.options, '[]'::jsonb))
+              || case when (select admin from me)
+                   then jsonb_build_object('correct_answer', q.correct_answer, 'explanation', q.explanation)
+                   else '{}'::jsonb end
+              order by q.ctid), '[]'::jsonb)
+            from public.questions q where q.assignment_id = a.id
+          ) else '[]'::jsonb end
+        ) order by a.after_video_order), '[]'::jsonb)
+        from public.assignments a where a.course_id = (cs.c).id
+      )
+    )
+  ), '[]'::jsonb)
+  from cs;
+$$;
+
+-- One session's transcript (lesson page, class-notes PDF); null without access.
+create or replace function public.lesson_transcript(p_video_id text)
+returns text language sql stable security definer set search_path = public as $$
+  select v.transcript from public.videos v
+  where v.id = p_video_id and public.has_course_access(v.course_id);
+$$;
+
+-- Every transcript of one topic, for the topic editor.
+create or replace function public.course_transcripts(p_course_id text)
+returns table (id text, transcript text) language sql stable security definer set search_path = public as $$
+  select v.id, v.transcript from public.videos v
+  where v.course_id = p_course_id and public.has_course_access(p_course_id);
+$$;
+
+-- One session's uploaded class-notes file; null without access.
+create or replace function public.lesson_notes_file(p_video_id text)
+returns text language sql stable security definer set search_path = public as $$
+  select v.notes_file_url from public.videos v
+  where v.id = p_video_id and public.has_course_access(v.course_id);
+$$;
+
+-- The caller's own full profile row (email, phone, plan…), which the table no
+-- longer shows to anon / authenticated.
+create or replace function public.my_profile()
+returns setof public.profiles language sql stable security definer set search_path = public as $$
+  select * from public.profiles where id = (auth.jwt() ->> 'sub');
+$$;
+
+-- Every full profile row, for admins only (Users & Access, analytics, exports).
+create or replace function public.admin_profiles()
+returns setof public.profiles language sql stable security definer set search_path = public as $$
+  select * from public.profiles where public.is_admin();
+$$;
+
+grant execute on function public.catalog(text)            to anon, authenticated, service_role;
+grant execute on function public.lesson_transcript(text)  to anon, authenticated, service_role;
+grant execute on function public.course_transcripts(text) to anon, authenticated, service_role;
+grant execute on function public.lesson_notes_file(text)  to anon, authenticated, service_role;
+-- Functions are executable by PUBLIC by default; these two are for signed-in callers.
+revoke execute on function public.my_profile()            from public, anon;
+revoke execute on function public.admin_profiles()        from public, anon;
+grant  execute on function public.my_profile()            to authenticated, service_role;
+grant  execute on function public.admin_profiles()        to authenticated, service_role;
+
+-- Column privileges.
+-- anon / authenticated may SELECT every column of these tables except the private
+-- ones listed here. The service role (server routes, the Telegram bot) is not
+-- affected. Re-run after adding a column to one of these tables.
+create or replace function public.apply_column_privileges()
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  spec constant jsonb := jsonb_build_object(
+    'videos',    jsonb_build_array('mux_playback_id', 'transcript', 'notes_file_url', 'audio_url', 'resources'),
+    'questions', jsonb_build_array('correct_answer', 'explanation'),
+    'courses',   jsonb_build_array('workbook_url'),
+    'profiles',  jsonb_build_array('email', 'phone', 'phone_verified', 'age', 'gender', 'subscription_plan',
+                                   'subscription_valid_until', 'email_opt_out', 'permissions', 'last_active_at')
+  );
+  t text;
+  hidden text[];
+  cols text;
+begin
+  for t in select jsonb_object_keys(spec) loop
+    select array_agg(x) into hidden from jsonb_array_elements_text(spec -> t) as x;
+    select string_agg(quote_ident(column_name::text), ', ' order by ordinal_position) into cols
+      from information_schema.columns
+     where table_schema = 'public' and table_name = t and column_name::text <> all (hidden);
+    -- A table-level REVOKE also clears earlier column grants, so this re-applies cleanly.
+    execute format('revoke select on public.%I from anon, authenticated', t);
+    execute format('grant select (%s) on public.%I to anon, authenticated', cols, t);
+  end loop;
+end $$;
+revoke execute on function public.apply_column_privileges() from public, anon, authenticated;
+select public.apply_column_privileges();
+
+notify pgrst, 'reload schema';
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 15. AFTER SETUP (one-time bootstrap)
 --     1) Sign up once with your admin email via Clerk — the app provisions your
 --        profile row keyed by your Clerk user id.
 --     2) Make that profile the owner. The protect_privileged_cols trigger pins

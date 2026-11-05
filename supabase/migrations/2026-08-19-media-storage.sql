@@ -21,14 +21,17 @@ on conflict (id) do update set public = true;
 
 -- ── Policies on storage.objects, scoped to this bucket ───────────────────────
 drop policy if exists "media public read"    on storage.objects;
+drop policy if exists "media admin read"     on storage.objects;
 drop policy if exists "media authed insert"  on storage.objects;
 drop policy if exists "media admin update"   on storage.objects;
 drop policy if exists "media admin delete"   on storage.objects;
 
--- Anyone can read: these are course covers, notes and avatars shown on public
--- and in-app pages alike.
-create policy "media public read" on storage.objects
-  for select using (bucket_id = 'media');
+-- The bucket is public, so every file's own link works for anyone: covers, notes
+-- and avatars shown on public and in-app pages alike. LISTING the bucket is a
+-- different matter. A select policy open to everyone (as this file once had) let
+-- anyone list every object, and so find every paid file; only admins may list.
+create policy "media admin read" on storage.objects
+  for select using (bucket_id = 'media' and (select public.is_admin()));
 
 -- Any signed-in account may upload. Learners need this for their own avatar;
 -- admins for course and article media. Writes are further constrained by the

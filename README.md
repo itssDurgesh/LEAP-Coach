@@ -28,6 +28,9 @@ team, live sessions, prices, coupons and payments.
   Razorpay; every purchase lasts one year; coupons and pay-the-difference upgrades.
 - **Community:** session discussions with @mentions and notifications, live
   sessions, articles and announcements, ratings, public profiles.
+- **Paid content stays paid:** session media, transcripts, workbooks and
+  checkpoint answers reach only learners who may open the topic, checkpoints are
+  graded on the server, and members' contact details stay private.
 - **Admin panel** with owner and sub-admin roles, a 7-step topic editor,
   approvals for sub-admin topics, analytics, email broadcasts and a payments
   dashboard with retry and refund.
@@ -97,8 +100,9 @@ SQL editor:
 2. The files in [`supabase/migrations/`](supabase/migrations/) that are not yet
    part of `database.sql`: the media bucket and the ratings table (see the table
    in `supabase/README.md`). A database set up before November 2026 also needs
-   `2026-11-04-ideas-resume-thumbnails-leaderboard.sql`. Files starting with
-   `draft-` are not ready to run.
+   `2026-11-04-ideas-resume-thumbnails-leaderboard.sql` and
+   `2026-11-05-lock-paid-content.sql` (deploy the app first, then run the
+   latter). Files starting with `draft-` are not ready to run.
 
 ## Deploying
 

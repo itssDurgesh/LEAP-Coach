@@ -28,7 +28,9 @@ Last reviewed: November 2026 (branch `main`).
 - **Clerk** owns sign-in (email, Google, LinkedIn) and sessions.
 - **Supabase** holds the data. The browser talks to it directly with the user's
   Clerk token; Postgres row-level security (RLS) decides what each person may
-  read or write. Uploaded files live in the public Storage bucket `media`.
+  read or write, and column privileges keep paid content, answers and private
+  profile fields out of the browser's reach entirely (section 9). Uploaded
+  files live in the public Storage bucket `media`, which only admins may list.
 - **Server routes** handle everything that needs a secret or must not be
   trusted to the browser: the AI tutor, payments, owner user-management, the
   owner's publish and approval switches, email broadcasts, Telegram linking and
@@ -109,17 +111,21 @@ All shared state lives in one React context, `AppProvider`
    public content (topics, team, FAQ, prices, homepage). A signed-in learner
    also gets the learner area's content (articles, announcements, live sessions,
    tips, ideas), their own rows (enrolments, progress, submissions, notes,
-   notifications) and other people's public profile fields. An admin also gets
-   full profiles and a summary of everyone's checkpoint attempts. Topics arrive
-   with their sessions, checkpoints and questions in one embedded query, without
-   transcripts. RLS still decides what each request may read.
+   notifications) and other people's public profile fields; their own full row
+   comes from `my_profile()`. An admin also gets full profiles
+   (`admin_profiles()`) and a summary of everyone's checkpoint attempts. Topics
+   come from `catalog()`, one call for the whole tree: session media, the
+   workbook link and the questions only for topics the caller may open, and
+   answers only for admins. (On a database without the 2026-11-05 migration the
+   app reads the tables directly, as before.)
 3. **`hydrated` vs `fresh`.** `hydrated` turns true as soon as something is on
    screen (possibly the cache). `fresh` turns true only once the full load has
    arrived. Screens that write a whole record back, such as the topic editor,
    wait for `fresh`; otherwise they could save the cache's gaps over real data.
 4. **Later reads.** Notifications are re-read every 60 seconds and when the tab
    regains focus. Heavy fields are fetched only when needed: a session's
-   transcript (`lib/transcripts.ts`), its discussion, its notes file, team photos,
+   transcript (`lesson_transcript()`, `lib/transcripts.ts`), its discussion, its
+   notes file (`lesson_notes_file()`), team photos,
    the leaderboard (the `leaderboard()` database function) and the admin payments
    list.
 5. **Live topic changes.** Signed-in tabs subscribe to Realtime changes on
@@ -153,6 +159,19 @@ for the database:
   means "leave the stored file alone", `null` means "remove it".
 - If any step is refused, the editor stays open, shows the database's message
   and keeps the draft.
+
+**Checkpoints and credits are written only by the server.** Every try is graded
+by `/api/leap/checkpoint` and recorded in `checkpoint_progress`; the submission
+is built from those records, and the topic's credit is banked from stored data
+(`lib/learning/server.ts`, which uses the same `lib/credits.ts` rules). Finishing
+a topic's last video asks `/api/leap/credits` to bank it. Learners can read
+their own rows but cannot write submissions, and the privilege trigger keeps
+them from changing their credits.
+
+**The topic editor** writes the columns the browser cannot read (session media
+and transcripts, the workbook link) with a plain UPDATE after upserting the
+rest: an upsert that sets a column also reads it, which those columns refuse
+even to admins. A topic whose answers were not loaded is never saved.
 
 **The owner's publish switches** (publish, unpublish, approve, reject, feature)
 go through `POST /api/admin/courses` with the service role. Through the browser
@@ -199,8 +218,12 @@ inline data.
    question the same way. In the local demo the browser sends its own copy.
    Quick actions: Summarize, Quiz me, Explain deeper.
 6. **Checkpoints.** A checkpoint after a session must be passed (60%), or tried
-   the maximum number of times, before the next session opens. Questions are MCQ or fill-in-the-blank, with AI hints
-   from `app/api/leap/hint`.
+   the maximum number of times, before the next session opens. Questions are MCQ
+   or fill-in-the-blank, with AI hints from `app/api/leap/hint`. The browser
+   never has the answers: each try is graded by `app/api/leap/checkpoint`
+   (4 tries per question, then the answer is shown), which also keeps the tries
+   across a reload. In the local demo the browser grades, as its topics exist
+   only there.
 7. **Credits.** Each topic is worth up to 100 credits, scored from how early
    each checkpoint question was solved and finalised when the topic is complete
    (`lib/credits.ts`); a topic in progress shows what its answers so far are on
@@ -254,6 +277,8 @@ Razorpay test keys or no keys.
 | `/api/pricing` | Current prices for server-rendered pages | Public |
 | `/api/admin/users` | Grant or revoke sub-admin, ban, delete | Owner, service role |
 | `/api/admin/courses` | Publish, unpublish, approve, reject, feature a topic | Owner, service role |
+| `/api/leap/checkpoint` | Grade a checkpoint try, restore an attempt, submit it (writes the submission and credits) | Signed in, not banned, may open the topic |
+| `/api/leap/credits` | Bank a completed topic's credit from stored data | Signed in, not banned |
 | `/api/admin/email/broadcast` | Email an announcement or session invite | Matching permission |
 | `/api/telegram/link`, `unlink`, `status` | Link an account to the Telegram bot | Signed in |
 | `/api/unsubscribe` | One-click email opt-out | Signed token |
@@ -301,7 +326,22 @@ Rules worth knowing:
   are writable only by their owner. Purchases, passes and receipts are written
   only by the server.
 - The `protect_privileged_cols` trigger stops anyone but the server (and
-  admins) from changing admin flags, permissions, bans and subscriptions.
+  admins) from changing admin flags, permissions, bans, subscriptions and
+  learning credits.
+- **What the browser's key cannot read** (2026-11-05 migration, mirrored in
+  `database.sql` section 14). Column privileges hide, from anon and signed-in
+  members alike: a session's Mux playback id, audio file, notes file,
+  resources and transcript; a topic's workbook link; a question's answer and
+  explanation; and a profile's email, phone, age, gender, plan, permissions and
+  activity. These reach the app only through functions that check access:
+  `catalog()`, `lesson_transcript()`, `course_transcripts()`,
+  `lesson_notes_file()`, `my_profile()` and `admin_profiles()`.
+  `user_has_course_access()` is the one access rule (free topics for anyone
+  signed in; otherwise an all-access plan, a category pass or a purchase whose
+  window is open; admins; never a banned account), the same as `lib/access.ts`.
+  Question rows themselves are readable only by people who may open the topic,
+  profiles and live sessions only by signed-in members. After adding a column
+  to one of these tables, run `select public.apply_column_privileges();`.
 - `leaderboard(role, limit)` is a security-definer function that returns names,
   credits and ranks only, so the ranking needs no access to other profiles.
 - `courses`, `announcements` and `notifications` are in the `supabase_realtime`
@@ -335,6 +375,10 @@ Rules worth knowing:
   (the `RateStore` interface in `lib/api/rate-limit.ts`) when traffic grows.
 - Each visit still reads every topic, and for learners everyone's public
   profile fields, at once; per-page loading will be needed as content grows.
+- File links (notes, audio, resources, workbooks) and Mux playback ids are
+  bearer links: they reach only learners who may open the topic, but one such
+  learner could pass them on. Closing that needs signed, expiring links (Mux
+  signed playback, Storage signed URLs).
 - Each signed-in tab holds one Realtime connection, and Supabase plans cap
   concurrent connections. Past the cap, new tabs miss live topic changes (pages
   still work and catch up on reload).
@@ -365,6 +409,8 @@ lib/
   email/                 Sending, templates, unsubscribe tokens
   api/                   Route helpers: validation, errors, rate limits, banned check
   access.ts, credits.ts  Access windows and the credit score
+  learning/server.ts     Server side of learning: access check, grading, credits
+  checkpoint.ts          The browser's calls to the checkpoint and credits routes
   ideas.ts, stamps.ts    Which Idea of the day shows; the dashboard stamps
   resume.ts              Where a learner resumes (watch-position.ts: the saved place)
   download.ts            File downloads that keep the learner on the page
