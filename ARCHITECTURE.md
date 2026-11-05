@@ -5,7 +5,7 @@ moves between the browser, the server and the database, and where each piece of
 logic lives. Setup steps are in the [README](README.md) and
 [supabase/README.md](supabase/README.md).
 
-Last reviewed: October 2026 (branch `redesign-v2`).
+Last reviewed: November 2026 (branch `main`).
 
 ---
 
@@ -21,7 +21,7 @@ Last reviewed: October 2026 (branch `redesign-v2`).
    │                └──────────────────────────────────────────────────────────────────┘
    │  reads + most writes, carrying the Clerk session token
    ▼
- Supabase: Postgres with row-level security · Storage bucket `media`
+ Supabase: Postgres with row-level security · Storage bucket `media` · Realtime
  Mux: video streaming (playback ids only)        Clerk: sign-in and sessions
 ```
 
@@ -30,8 +30,9 @@ Last reviewed: October 2026 (branch `redesign-v2`).
   Clerk token; Postgres row-level security (RLS) decides what each person may
   read or write. Uploaded files live in the public Storage bucket `media`.
 - **Server routes** handle everything that needs a secret or must not be
-  trusted to the browser: the AI tutor, payments, owner user-management, email
-  broadcasts, Telegram linking and unsubscribe. They use the Supabase
+  trusted to the browser: the AI tutor, payments, owner user-management, the
+  owner's publish and approval switches, email broadcasts, Telegram linking and
+  unsubscribe. They use the Supabase
   service-role key where they must write past RLS.
 - **Mux** streams lesson videos; the app only stores playback ids.
 
@@ -80,7 +81,7 @@ learner page goes to `/admin`, and a learner without a role goes to
 
 | Route | What it is |
 |---|---|
-| `/dashboard` | Continue card, standing (credits, stamps, leaderboard), explore tabs, announcements |
+| `/dashboard` | Continue card (the last session watched, at its place), Idea of the day, standing (credits, stamps, leaderboard), explore tabs, announcements |
 | `/my-topics` | Topics the learner owns, with progress and the next step |
 | `/courses`, `/courses/[slug]` | Catalog (filter by leadership level via `?track=`) and topic page: description with Read more, roadmap, instructor, final workbook, rating |
 | `/learn/[courseId]/[order]` | Lesson: player, Class notes / Transcript / Resources / Discussion tabs, and a side panel with LEAP AI, private notes and Up next |
@@ -89,7 +90,7 @@ learner page goes to `/admin`, and a learner without a role goes to
 | `/account`, `/u/[id]` | Profile, avatar, receipts, Telegram link; public profile by id or @username |
 
 **Admin panel** (`/admin`, inside `AdminShell`): Overview, Homepage, Team,
-Content Studio (topics, daily tips, leadership tracks), Articles,
+Content Studio (topics, daily tips, leadership tracks), Idea of the Day, Articles,
 Announcements, FAQ, Privacy Policy, Approvals, Analytics, Users & Access, Live
 Sessions, Plans & Coupons and Payments. Topics are created and edited in the
 7-step editor (`components/admin/CourseWizard.tsx`).
@@ -102,19 +103,30 @@ All shared state lives in one React context, `AppProvider`
 (`lib/store/AppProvider.tsx`).
 
 1. **First paint.** In real mode the store first paints from a per-user cache in
-   `localStorage` (`leap-sb-cache-v1:<userId>`). The cache leaves transcripts
-   out to stay small.
-2. **Full load.** `loadAll()` in `lib/supabase/db.ts` runs about 27 reads in
-   parallel (courses with their sessions, checkpoints and questions in one
-   embedded query, plus profiles, enrolments, progress, articles and so on) and
-   replaces the store. RLS trims what each person gets back.
+   `localStorage` (`leap-sb-cache-v2:<userId>`, see `lib/store/paint-cache.ts`).
+2. **Full load.** `loadAll()` in `lib/supabase/db.ts` reads, in parallel, only
+   what this visitor's pages use, and replaces the store. A visitor gets the
+   public content (topics, team, FAQ, prices, homepage). A signed-in learner
+   also gets the learner area's content (articles, announcements, live sessions,
+   tips, ideas), their own rows (enrolments, progress, submissions, notes,
+   notifications) and other people's public profile fields. An admin also gets
+   full profiles and a summary of everyone's checkpoint attempts. Topics arrive
+   with their sessions, checkpoints and questions in one embedded query, without
+   transcripts. RLS still decides what each request may read.
 3. **`hydrated` vs `fresh`.** `hydrated` turns true as soon as something is on
    screen (possibly the cache). `fresh` turns true only once the full load has
    arrived. Screens that write a whole record back, such as the topic editor,
    wait for `fresh`; otherwise they could save the cache's gaps over real data.
 4. **Later reads.** Notifications are re-read every 60 seconds and when the tab
-   regains focus. Heavy fields are fetched only when needed: a session's notes
-   file, team photos and the admin payments list.
+   regains focus. Heavy fields are fetched only when needed: a session's
+   transcript (`lib/transcripts.ts`), its discussion, its notes file, team photos,
+   the leaderboard (the `leaderboard()` database function) and the admin payments
+   list.
+5. **Live topic changes.** Signed-in tabs subscribe to Realtime changes on
+   `courses`. A change to a topic the tab has applies its live fields (published,
+   approval, featured, price, rating, learner counts) in place, without a read;
+   a topic the tab has never seen is read on its own. Admin tabs never take a
+   topic's sessions from Realtime, because the topic editor saves what it holds.
 
 ---
 
@@ -142,6 +154,12 @@ for the database:
 - If any step is refused, the editor stays open, shows the database's message
   and keeps the draft.
 
+**The owner's publish switches** (publish, unpublish, approve, reject, feature)
+go through `POST /api/admin/courses` with the service role. Through the browser
+they depended on `is_admin()` resolving the caller, and when it did not, the
+update matched no rows and still reported success. The switch shows at once and
+is put back, with the server's reason, if the server refuses.
+
 Announcements are saved before an "email on publish" goes out, because the email
 is built from the saved row.
 
@@ -162,23 +180,37 @@ inline data.
    All-Access. Every purchase lasts **one year from its own date**; a topic stays
    open until the latest of the learner's windows ends (`lib/access.ts`).
 3. **Watch or listen.** Each session is either a Mux video or an uploaded audio
-   recording. Both players remember where the learner stopped (this browser
-   only) and mark the session complete at the end. Sessions with no media show a
+   recording; a topic can set one thumbnail for all its session players. Both
+   players remember where the learner stopped, in this browser and in
+   `video_progress` (so another device resumes there too; the newer place wins),
+   and mark the session complete at the end. The dashboard's Continue card and
+   the topic page resume the last session watched, across topics
+   (`lib/resume.ts`, `lib/watch-position.ts`). Sessions with no media show a
    placeholder player.
 4. **Lesson material.** Class notes (the uploaded file, or a PDF made from the
    summary and transcript), the transcript, per-session resource files (PDF and
-   Word) and the discussion.
-5. **LEAP AI tutor.** Answers only from the session's transcript, in plain text,
-   and says so when the transcript is missing or it cannot answer
-   (`app/api/leap/chat`). Quick actions: Summarize, Quiz me, Explain deeper.
+   Word) and the discussion. Notes and the final workbook are saved under their
+   own names without leaving the page (`lib/download.ts`): Storage is another
+   origin, where a plain download link would only open the file.
+5. **LEAP AI tutor.** The route reads the session's transcript from the database
+   by its id, never from the request, answers only from it, in plain text, and
+   streams the reply as it is written. It says so when the transcript is missing
+   or it cannot answer (`app/api/leap/chat`). Checkpoint hints read their
+   question the same way. In the local demo the browser sends its own copy.
+   Quick actions: Summarize, Quiz me, Explain deeper.
 6. **Checkpoints.** A checkpoint after a session must be passed (60%), or tried
    the maximum number of times, before the next session opens. Questions are MCQ or fill-in-the-blank, with AI hints
    from `app/api/leap/hint`.
 7. **Credits.** Each topic is worth up to 100 credits, scored from how early
    each checkpoint question was solved and finalised when the topic is complete
-   (`lib/credits.ts`). Stamps on the dashboard are calculated from progress and
-   never stored.
-8. **Finish.** The learner is asked to rate the topic once (`course_ratings`, kept
+   (`lib/credits.ts`); a topic in progress shows what its answers so far are on
+   track for. Stamps are calculated from progress and never stored
+   (`lib/stamps.ts`). The leaderboard ranks learners of the same role by
+   credits.
+8. **Idea of the day.** Admins write several ideas at once (Admin → Idea of the
+   Day). The dashboard shows the one pinned to today, or else the next in the
+   rotation, and moves on at midnight India time (`lib/ideas.ts`).
+9. **Finish.** The learner is asked to rate the topic once (`course_ratings`, kept
    in sync with the topic's average by a database trigger) and can download the
    final workbook and a topic report.
 
@@ -217,10 +249,11 @@ Razorpay test keys or no keys.
 
 | Route | Purpose | Guard |
 |---|---|---|
-| `/api/leap/chat`, `/api/leap/hint` | Gemini tutor and checkpoint hints | Signed in, not banned, 20 per minute |
+| `/api/leap/chat`, `/api/leap/hint` | Gemini tutor (streamed) and checkpoint hints, grounded on the database | Signed in, not banned, 20 per minute |
 | `/api/payments/...` | See section 7 | Session, signature or secret; rate limited |
 | `/api/pricing` | Current prices for server-rendered pages | Public |
 | `/api/admin/users` | Grant or revoke sub-admin, ban, delete | Owner, service role |
+| `/api/admin/courses` | Publish, unpublish, approve, reject, feature a topic | Owner, service role |
 | `/api/admin/email/broadcast` | Email an announcement or session invite | Matching permission |
 | `/api/telegram/link`, `unlink`, `status` | Link an account to the Telegram bot | Signed in |
 | `/api/unsubscribe` | One-click email opt-out | Signed token |
@@ -233,7 +266,8 @@ and the banned check (`banned.ts`). Secret-reading modules start with
 **AI calls** go through one helper, `lib/ai/gemini.ts`: model alias
 `gemini-flash-lite-latest` (override with `GEMINI_MODEL`), a small thinking
 budget, one retry on 500/503, one retry without the thinking setting on 400,
-and a 25-second limit for the whole call. With no key the tutor uses the local
+and a 25-second limit for the whole call. `streamContent()` is the streamed
+form the tutor uses, with the same retries before the first piece. With no key the tutor uses the local
 mock replies in `lib/mock/leapAI.ts`.
 
 **Email** (`lib/email/`) sends through Resend first and falls back to Gmail
@@ -255,9 +289,9 @@ The main groups of tables:
 | Group | Tables |
 |---|---|
 | People | `profiles` (keyed by the Clerk user id), `telegram_links`, `telegram_link_tokens` |
-| Content | `courses`, `videos` (sessions: Mux id or audio file, transcript, notes file, resources), `assignments`, `questions`, `leadership_tracks`, `daily_tips` |
+| Content | `courses`, `videos` (sessions: Mux id or audio file, transcript, notes file, resources), `assignments`, `questions`, `leadership_tracks`, `daily_tips`, `daily_ideas` |
 | Commerce | `course_purchases`, `category_passes`, `payments`, `coupons`, `pricing_tiers` |
-| Learning | `enrollments`, `video_progress`, `submissions`, `user_notes`, `course_ratings` |
+| Learning | `enrollments`, `video_progress` (with the place to resume), `submissions`, `user_notes`, `course_ratings` |
 | Community | `video_comments`, `video_comment_likes`, `notifications`, `live_sessions`, `session_attendees` |
 | Site CMS | `site_content`, `site_pages`, `team_members`, `books`, `articles`, `announcements`, `faqs` |
 
@@ -268,6 +302,10 @@ Rules worth knowing:
   only by the server.
 - The `protect_privileged_cols` trigger stops anyone but the server (and
   admins) from changing admin flags, permissions, bans and subscriptions.
+- `leaderboard(role, limit)` is a security-definer function that returns names,
+  credits and ranks only, so the ranking needs no access to other profiles.
+- `courses`, `announcements` and `notifications` are in the `supabase_realtime`
+  publication; the app subscribes to `courses`.
 - Sub-admin limits are enforced by the admin screens. Database rules for them,
   together with self-enrolment for pass-holders and kept-up-to-date learner
   counts, are drafted in
@@ -293,12 +331,13 @@ Rules worth knowing:
 
 ## 11. Known gaps
 
-- The dashboard's **Idea of the day** and **leaderboard** show sample content
-  (marked "Sample") until those features are built.
 - Rate limits are counted per server instance; move them to a shared store
   (the `RateStore` interface in `lib/api/rate-limit.ts`) when traffic grows.
-- Every page load reads all shared tables at once; per-page loading will be
-  needed as content grows.
+- Each visit still reads every topic, and for learners everyone's public
+  profile fields, at once; per-page loading will be needed as content grows.
+- Each signed-in tab holds one Realtime connection, and Supabase plans cap
+  concurrent connections. Past the cap, new tabs miss live topic changes (pages
+  still work and catch up on reload).
 - There is no automated test suite. Check changes with `npx tsc --noEmit -p .`
   and `npm run build`.
 
@@ -326,6 +365,9 @@ lib/
   email/                 Sending, templates, unsubscribe tokens
   api/                   Route helpers: validation, errors, rate limits, banned check
   access.ts, credits.ts  Access windows and the credit score
+  ideas.ts, stamps.ts    Which Idea of the day shows; the dashboard stamps
+  resume.ts              Where a learner resumes (watch-position.ts: the saved place)
+  download.ts            File downloads that keep the learner on the page
   types.ts               Shared types, roles, permissions
 supabase/                database.sql and migrations
 proxy.ts                 Attaches the Clerk session to requests (no route blocking)

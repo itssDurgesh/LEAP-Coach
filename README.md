@@ -18,9 +18,12 @@ team, live sessions, prices, coupons and payments.
   and six leadership levels. Each session is a Mux video or an uploaded audio
   recording, with a transcript, class notes and downloadable resource files.
 - **LEAP AI tutor** on every session, answering only from that session's
-  transcript (Google Gemini, server-side).
+  transcript, which the server reads itself, with replies streamed as they are
+  written (Google Gemini, server-side).
 - **Checkpoints** after sessions (MCQ and fill-in-the-blank with AI hints) that
   unlock the next sessions, and a **credit score** of up to 100 per topic.
+- **Dashboard:** resume the last session watched at its place (on any device),
+  an Idea of the day that admins schedule, credits, stamps and a leaderboard.
 - **Access and payments:** buy a topic, a category pass or All-Access through
   Razorpay; every purchase lasts one year; coupons and pay-the-difference upgrades.
 - **Community:** session discussions with @mentions and notifications, live
@@ -93,14 +96,17 @@ SQL editor:
    row-level security, triggers, indexes). Idempotent and seed-free.
 2. The files in [`supabase/migrations/`](supabase/migrations/) that are not yet
    part of `database.sql`: the media bucket and the ratings table (see the table
-   in `supabase/README.md`). Files starting with `draft-` are not ready to run.
+   in `supabase/README.md`). A database set up before November 2026 also needs
+   `2026-11-04-ideas-resume-thumbnails-leaderboard.sql`. Files starting with
+   `draft-` are not ready to run.
 
 ## Deploying
 
 The site runs on Vercel, which detects Next.js and needs no `vercel.json`.
 
 1. Import the GitHub repository in Vercel. Production deploys from the branch set
-   in the Vercel project (currently `redesign-v2`); every push to it goes live.
+   in the Vercel project (**Settings → Git → Production Branch**); every push to
+   it goes live. All work is merged into `main`, so that is the branch to deploy.
 2. Add every value from `.env.local` under **Project → Settings → Environment
    Variables**, with `NEXT_PUBLIC_SITE_URL` set to the production domain.
 3. In Razorpay, point a webhook at

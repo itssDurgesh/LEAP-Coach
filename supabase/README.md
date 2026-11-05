@@ -28,6 +28,7 @@ Then run the migrations in [`migrations/`](./migrations) that are not part of
 | `2026-08-19-media-storage.sql` | The public Storage bucket `media` and its upload rules (all file uploads go here) | Yes, once |
 | `2026-08-19-course-ratings.sql` | Topic ratings: table, rules and the trigger that keeps each topic's average | Yes, once, after `database.sql` |
 | `2026-10-09-audio-sessions.sql` | `audio_url` / `audio_name` on sessions (audio sessions) | Already included in `database.sql`; harmless to run |
+| `2026-11-04-ideas-resume-thumbnails-leaderboard.sql` | Idea of the day (`daily_ideas`), the resume place on `video_progress`, a topic's video thumbnail, the `leaderboard()` function, and indexes for them | Already included in `database.sql`. On a database set up before it, run this file once; until then the site works without those features (its header lists how) |
 | `draft-2026-10-10-sub-admin-limits-enrolment-counts.sql` | Database rules for sub-admin limits, self-enrolment for pass-holders, and learner / purchase counts kept by the database | **Draft.** Read its header first. Once it has been run, do not re-run `database.sql` until the two are merged, or the old rules come back |
 
 > ⚠️ **Migrating an existing Supabase-Auth database?** Profile/user ids change from
@@ -120,9 +121,11 @@ also press **Reconcile** on Admin → Payments.
   simultaneous users / webhook retries can't double-grant, double-charge, or lose counts.
 
 **Recommended before go-live (documented, not yet done):**
-- **Per-page data loading.** The app currently loads all shared data on sign-in. As
-  content grows, move to on-demand fetching + pagination for the unbounded tables
-  (discussion posts/comments, profiles). This is the main latency lever at large scale.
+- **Per-page data loading.** Visitors now load only public content, and transcripts,
+  session discussions and the leaderboard load on demand, but every topic and (for
+  learners) everyone's public profile fields still load on sign-in. As content grows,
+  move those to on-demand fetching + pagination. This is the main latency lever at
+  large scale.
 - **Retrying failed writes.** Non-payment writes (notes, progress, comments, likes,
   admin edits) are optimistic. A write the database refuses is now logged and shown
   to the person ("could not be saved", with Reload), and saving a topic waits for the
