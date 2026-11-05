@@ -16,6 +16,7 @@ import { SegTabs, V2Card, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
 import { cn, formatClock, timeAgo } from "@/lib/utils";
 import { downloadNotesPdf, downloadLessonNotesPdf } from "@/lib/pdf";
+import { downloadUrl } from "@/lib/download";
 import { loadTranscript, useTranscript } from "@/lib/transcripts";
 import { Course, Video } from "@/lib/types";
 
@@ -115,6 +116,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
   // The player's own reading of the clip length; the stored one is what the admin typed in.
   const [realDuration, setRealDuration] = React.useState<{ videoId: string; seconds: number } | null>(null);
   const [rateOpen, setRateOpen] = React.useState(false);
+  const [notesBusy, setNotesBusy] = React.useState(false);
   const promptedRef = React.useRef(false);
   const transcript = useTranscript(video);
 
@@ -204,33 +206,39 @@ function Player({ course, video }: { course: Course; video: Video }) {
    * Class-notes download.
    *
    * Prefers the file the admin actually uploaded for this lesson (PDF/DOCX/etc,
-   * served with its real name and extension). Only when no file exists do we
-   * generate a PDF from the summary + transcript. The previous version ignored the
-   * upload entirely and always produced a text/plain blob renamed to .txt.
+   * saved under its real name and extension). Only when no file exists do we
+   * generate a PDF from the summary + transcript. The uploaded file is in Storage,
+   * another origin, where <a download> is ignored: the click used to open the file
+   * in this tab instead, taking the learner out of the lesson. downloadUrl saves it.
    */
   async function downloadNotes() {
-    // The URL is no longer part of the bulk store load, so resolve it for this one
-    // video first (returns immediately if it is already known).
-    const fileUrl = await videoNotesUrl(video.id);
-    if (fileUrl) {
-      const a = document.createElement("a");
-      a.href = fileUrl;
-      a.download = video.notesPdfName ?? `${course.slug}-session-${video.order}-notes`;
-      a.rel = "noopener";
-      a.click();
-      return;
+    if (notesBusy) return;
+    setNotesBusy(true);
+    try {
+      // The URL is no longer part of the bulk store load, so resolve it for this one
+      // video first (returns immediately if it is already known).
+      const fileUrl = await videoNotesUrl(video.id);
+      if (fileUrl) {
+        await downloadUrl(fileUrl, video.notesPdfName?.trim() || `${course.slug}-session-${video.order}-notes`);
+        return;
+      }
+      // The PDF is made from the summary and the transcript; without a transcript
+      // (it could not be read) it still has the summary.
+      const text = await loadTranscript(video).catch(() => "");
+      await downloadLessonNotesPdf(
+        course.title,
+        video.order,
+        video.title,
+        video.summary,
+        text,
+        video.notesPdfName ?? `${course.slug}-session-${video.order}-notes`,
+      );
+    } catch (e) {
+      console.error("[notes] download failed", e);
+      window.alert("The class notes could not be downloaded. Please try again.");
+    } finally {
+      setNotesBusy(false);
     }
-    // The PDF is made from the summary and the transcript; without a transcript
-    // (it could not be read) it still has the summary.
-    const text = await loadTranscript(video).catch(() => "");
-    await downloadLessonNotesPdf(
-      course.title,
-      video.order,
-      video.title,
-      video.summary,
-      text,
-      video.notesPdfName ?? `${course.slug}-session-${video.order}-notes`,
-    );
   }
 
   const bottomTabs: { id: BottomTab; label: string }[] = [
@@ -398,8 +406,15 @@ function Player({ course, video }: { course: Course; video: Video }) {
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="font-heading text-xl font-semibold leading-[25px] tracking-[-0.015em] text-heading">{video.title}</h2>
-                  <button type="button" onClick={downloadNotes} className={v2Button("outline", "sm")}>
-                    <Download className="h-3.5 w-3.5" /> Download notes
+                  <button
+                    type="button"
+                    onClick={() => void downloadNotes()}
+                    disabled={notesBusy}
+                    aria-busy={notesBusy}
+                    className={v2Button("outline", "sm")}
+                  >
+                    {notesBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                    {notesBusy ? "Preparing…" : "Download notes"}
                   </button>
                 </div>
                 {video.summary && <p className="mt-4 text-[15px] leading-6 text-v2-body">{video.summary}</p>}

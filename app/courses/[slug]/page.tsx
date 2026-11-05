@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Award, Check, CheckCircle2, ChevronDown, ClipboardCheck, Clock, Download, FileText, Lock, Play, Star } from "lucide-react";
+import { ArrowLeft, ArrowRight, Award, Check, CheckCircle2, ChevronDown, ClipboardCheck, Clock, Download, FileText, Loader2, Lock, Play, Star } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { CourseThumb } from "@/components/CourseThumb";
 import { CheckoutModal } from "@/components/CheckoutModal";
@@ -17,6 +17,7 @@ import { courseCategories, ownsTopic } from "@/lib/types";
 import { buildTopicReport } from "@/lib/report";
 import { topicCredit, TOPIC_CREDIT_MAX } from "@/lib/credits";
 import { downloadNotesPdf } from "@/lib/pdf";
+import { downloadUrl } from "@/lib/download";
 import { cn, formatINR, formatDuration, formatClock } from "@/lib/utils";
 
 const ROW = "flex items-center gap-3.5 rounded-[14px] px-3 py-2.5";
@@ -68,6 +69,32 @@ function TopicDescription({ text }: { text: string }) {
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * The final workbook lives in Storage, another origin, where <a download> is
+ * ignored: the link used to open the file in this tab under its storage key.
+ * downloadUrl saves it under its own name and keeps the learner on the page.
+ */
+function WorkbookDownload({ url, name }: { url: string; name: string }) {
+  const [busy, setBusy] = React.useState(false);
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await downloadUrl(url, name);
+    } catch (e) {
+      console.error("[workbook] download failed", e);
+      window.alert("The workbook could not be downloaded. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button type="button" onClick={() => void save()} disabled={busy} aria-busy={busy} className={v2Button("outline", "sm")}>
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download
+    </button>
   );
 }
 
@@ -513,9 +540,7 @@ function CourseDetail() {
                 </p>
               </div>
               {access ? (
-                <a href={course.workbookUrl} download={course.workbookName ?? "workbook"} className={v2Button("outline", "sm")}>
-                  <Download className="h-3.5 w-3.5" /> Download
-                </a>
+                <WorkbookDownload url={course.workbookUrl} name={course.workbookName?.trim() || `${course.slug}-workbook`} />
               ) : (
                 <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted">
                   <Lock className="h-3 w-3" /> Locked
