@@ -5,7 +5,8 @@ import { MAX_TRANSCRIPT_CHARS } from "@/lib/ai/config";
 import { streamContent } from "@/lib/ai/gemini";
 import { isClerkConfigured } from "@/lib/clerk/config";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
-import { fetchLessonContextServer, type LessonContext } from "@/lib/supabase/server";
+import { getServiceClient } from "@/lib/supabase/admin";
+import { canOpenCourse, fetchLessonContext } from "@/lib/learning/server";
 import { parseJson } from "@/lib/api/validate";
 import { apiError } from "@/lib/api/errors";
 import { enforceRate } from "@/lib/api/rate-limit";
@@ -89,14 +90,23 @@ export async function POST(req: NextRequest) {
   const { videoId, messages, action } = parsed.data;
 
   // What the tutor teaches from. Read from the database, so a caller cannot supply
-  // their own "transcript" and steer the instructions below.
-  let lesson: LessonContext;
+  // their own "transcript" and steer the instructions below; and only for a session
+  // of a topic the learner may open, or the tutor would recite paid transcripts to
+  // anyone who asked.
+  let lesson: { courseTitle: string; title: string; transcript: string };
   if (GROUNDED_ON_SERVER) {
-    const read = await fetchLessonContextServer(videoId);
+    const sb = getServiceClient();
+    if (!sb) return NextResponse.json({ reply: UNAVAILABLE });
+    const read = await fetchLessonContext(sb, videoId);
     if (!read.ok) {
       return NextResponse.json({
         reply: read.reason === "missing" ? "I can't find this session any more. Please reload the page." : UNAVAILABLE,
       });
+    }
+    const open = await canOpenCourse(sb, userId!, read.value.courseId);
+    if (open === null) return NextResponse.json({ reply: UNAVAILABLE });
+    if (!open) {
+      return NextResponse.json({ reply: "This session is part of a topic you don't have access to, so I can't help with it." });
     }
     lesson = read.value;
   } else {

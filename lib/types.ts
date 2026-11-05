@@ -251,6 +251,12 @@ export interface Question {
   options: string[]; // choices / word bank
   correctAnswer: string;
   explanation: string;
+  /**
+   * This copy carries no answer or explanation (both are "" here). Learners' copies
+   * are like this since the database stopped handing answers to the browser; the
+   * checkpoint is then graded on the server (app/api/leap/checkpoint).
+   */
+  hidden?: boolean;
 }
 
 export interface Assignment {
@@ -415,6 +421,9 @@ export interface QuestionFeedback {
   questionId: string;
   correct: boolean;
   explanation: string;
+  /** The correct answer and the plain explanation, for the result screen of a server-graded attempt. */
+  answer?: string;
+  note?: string;
   // ── interactive checkpoint (hint-and-retry) metrics ──
   attempts?: number; // tries the learner used on this question (1 = solved first try)
   solved?: boolean; // got it right within the retry limit (vs. answer revealed after 4 tries)

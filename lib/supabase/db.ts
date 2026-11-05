@@ -34,14 +34,34 @@ import {
 type Row = Record<string, any>;
 const rows = async (q: any): Promise<Row[]> => ((await q).data ?? []) as Row[];
 
+/**
+ * The database function asked for is not there: this database has not run the
+ * migration that adds it yet (2026-11-05, which locks paid content). The caller then
+ * reads the tables the old way, which that migration is also what takes away.
+ */
+function missingFunction(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  return (
+    error.code === "PGRST202" ||
+    error.code === "42883" ||
+    /could not find the function|function .* does not exist/i.test(error.message ?? "")
+  );
+}
+
 // ─────────────────────────── mappers ───────────────────────────
 const mapTrack = (r: Row): LeadershipTrack => ({ id: r.id, label: r.label });
 const mapTip = (r: Row): DailyTip => ({ id: r.id, text: r.text, author: r.author, targetRole: r.target_role, active: r.active });
 const mapResource = (r: Row): RecommendedResource => ({ id: r.id, title: r.title, type: r.type, author: r.author, blurb: r.blurb, targetRole: r.target_role, accent: r.accent });
-const mapQuestion = (r: Row): Question => ({ id: r.id, type: r.type, prompt: r.prompt, options: r.options ?? [], correctAnswer: r.correct_answer, explanation: r.explanation });
+// A learner's copy has no answer or explanation (only admins get them, see catalog());
+// `hidden` marks it, and the checkpoint is then graded on the server.
+const mapQuestion = (r: Row): Question => ({
+  id: r.id, type: r.type, prompt: r.prompt, options: r.options ?? [],
+  correctAnswer: r.correct_answer ?? "", explanation: r.explanation ?? "",
+  ...("correct_answer" in r ? {} : { hidden: true }),
+});
 // transcript / notes_file_url: undefined = "not part of this read" (both are fetched
 // on demand), which tells saveCourse to leave the stored value alone.
-const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, audioUrl: r.audio_url ?? null, audioName: r.audio_name ?? null, transcript: r.transcript === undefined ? undefined : (r.transcript ?? ""), summary: r.summary ?? "", notesPdfName: r.notes_pdf_url || undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
+const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id ?? "", audioUrl: r.audio_url ?? null, audioName: r.audio_name ?? null, transcript: r.transcript === undefined ? undefined : (r.transcript ?? ""), summary: r.summary ?? "", notesPdfName: r.notes_pdf_url || undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
 const mapCourseRating = (r: Row): CourseRating => ({ id: r.id, userId: r.user_id, courseId: r.course_id, stars: r.stars, review: r.review ?? null, createdAt: r.created_at, updatedAt: r.updated_at ?? null });
 const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.course_id, enrolledAt: r.enrolled_at, completedAt: r.completed_at });
 const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at, positionSeconds: r.position_seconds ?? null, lastWatchedAt: r.last_watched_at ?? null });
@@ -181,6 +201,29 @@ const VIDEO_COLS = "id,course_id,title,order_index,duration_seconds,mux_playback
 const PUBLIC_PROFILE_COLS =
   "id,name,username,avatar_url,role,headline,bio,company,region,nationality,learning_credits,topic_credits,is_admin,banned,created_at";
 
+/**
+ * The signed-in user's own full row. Since the 2026-11-05 migration the table shows
+ * nobody's email, phone or plan to the browser, not even their own: my_profile()
+ * returns the caller's row.
+ */
+async function ownProfile(sb: SupabaseClient, userId: string): Promise<Row[]> {
+  const res = await sb.rpc("my_profile");
+  if (!res.error) return (res.data ?? []) as Row[];
+  if (!missingFunction(res.error)) {
+    console.error("[supabase] my_profile", res.error.message);
+    return [];
+  }
+  return rows(sb.from("profiles").select("*").eq("id", userId));
+}
+
+/** Everyone's full rows, for admin screens: admin_profiles() since the lockdown. */
+async function allProfiles(sb: SupabaseClient): Promise<{ data: Row[] | null; error: { message: string } | null }> {
+  const res = await sb.rpc("admin_profiles");
+  if (!res.error || !missingFunction(res.error)) return { data: (res.data ?? null) as Row[] | null, error: res.error };
+  const old = await sb.from("profiles").select("*");
+  return { data: (old.data ?? null) as Row[] | null, error: old.error };
+}
+
 /** Everyone's public profile fields; full rows if a column is missing on an older database. */
 async function publicProfiles(sb: SupabaseClient): Promise<Row[]> {
   const res = await sb.from("profiles").select(PUBLIC_PROFILE_COLS);
@@ -204,6 +247,15 @@ const SUBMISSION_SUMMARY_COLS = "id,user_id,assignment_id,course_id,score,passed
  * rather than leave every page with no topics.
  */
 async function courseRows(sb: SupabaseClient, id?: string): Promise<Row[]> {
+  // Since the 2026-11-05 migration the tree comes from catalog(): session media, the
+  // workbook and the questions only for topics the caller may open, and answers only
+  // for admins. The tables no longer hand those columns to the browser at all.
+  const cat = await sb.rpc("catalog", { p_course_id: id ?? null });
+  if (!cat.error) return (Array.isArray(cat.data) ? cat.data : []) as Row[];
+  if (!missingFunction(cat.error)) {
+    console.error("[supabase] catalog", cat.error.message);
+    return [];
+  }
   const select = (cols: string) => {
     const q = sb.from("courses").select(`*, videos(${cols}), assignments(*, questions(*))`);
     return id ? q.eq("id", id) : q;
@@ -286,7 +338,7 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
   ] = await Promise.all([
     signedIn ? publicProfiles(sb) : SKIP,
     // The signed-in user's own full row (the public read above leaves out e.g. email).
-    signedIn ? rows(sb.from("profiles").select("*").eq("id", userId!)) : SKIP,
+    signedIn ? ownProfile(sb, userId!) : SKIP,
     forUser(() => sb.from("course_purchases").select("*")),
     rows(sb.from("leadership_tracks").select("*")),
     // Whole course tree in ONE query via PostgREST embedding (was 4 separate fetches:
@@ -351,7 +403,7 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
   if (own?.is_admin) {
     // Admin screens: everyone's full profile, and everyone's attempts as summaries.
     const [full, others] = await Promise.all([
-      sb.from("profiles").select("*"),
+      allProfiles(sb),
       sb.from("submissions").select(SUBMISSION_SUMMARY_COLS).neq("user_id", userId!),
     ]);
     if (!full.error) profileRows = (full.data ?? []) as Row[];
@@ -424,8 +476,9 @@ function group<T extends Row>(arr: T[], key: (r: T) => string): Record<string, T
 }
 
 // ─────────────────────────── auth helpers ───────────────────────────
+/** The signed-in user (`id`), with their purchases and passes. */
 export async function fetchUser(sb: SupabaseClient, id: string): Promise<User | null> {
-  const { data } = await sb.from("profiles").select("*").eq("id", id).maybeSingle();
+  const data = (await ownProfile(sb, id)).find((r) => r.id === id);
   if (!data) return null;
   const [owned, passes] = await Promise.all([
     rows(sb.from("course_purchases").select("course_id, purchased_at").eq("user_id", id)),
@@ -508,12 +561,23 @@ export const insertSubmission = (sb: SupabaseClient, s: Submission) =>
  */
 /** The class-notes file URL for ONE video — kept out of loadAll (see the courses select). */
 export async function fetchVideoNotesUrl(sb: SupabaseClient, videoId: string): Promise<string | null> {
+  // lesson_notes_file() answers only for a topic the caller may open.
+  const res = await sb.rpc("lesson_notes_file", { p_video_id: videoId });
+  if (!res.error) return (res.data as string | null) ?? null;
+  if (!missingFunction(res.error)) {
+    console.error("[supabase] lesson_notes_file", res.error.message);
+    return null;
+  }
   const { data } = await sb.from("videos").select("notes_file_url").eq("id", videoId).maybeSingle();
   return (data?.notes_file_url as string | null) ?? null;
 }
 
 /** ONE session's transcript (kept out of loadAll). Throws when it could not be read. */
 export async function fetchVideoTranscript(sb: SupabaseClient, videoId: string): Promise<string> {
+  // lesson_transcript() answers only for a topic the caller may open.
+  const res = await sb.rpc("lesson_transcript", { p_video_id: videoId });
+  if (!res.error) return (res.data as string | null) ?? "";
+  if (!missingFunction(res.error)) throw new Error(res.error.message);
   const { data, error } = await sb.from("videos").select("transcript").eq("id", videoId).maybeSingle();
   if (error) throw new Error(error.message);
   return (data?.transcript as string | null) ?? "";
@@ -521,7 +585,9 @@ export async function fetchVideoTranscript(sb: SupabaseClient, videoId: string):
 
 /** Every session transcript of one topic, by video id — for the topic editor. Throws on failure. */
 export async function fetchCourseTranscripts(sb: SupabaseClient, courseId: string): Promise<Map<string, string>> {
-  const { data, error } = await sb.from("videos").select("id,transcript").eq("course_id", courseId);
+  const res = await sb.rpc("course_transcripts", { p_course_id: courseId });
+  const { data, error } =
+    res.error && missingFunction(res.error) ? await sb.from("videos").select("id,transcript").eq("course_id", courseId) : res;
   if (error) throw new Error(error.message);
   return new Map(((data ?? []) as Row[]).map((r) => [r.id as string, (r.transcript as string | null) ?? ""]));
 }
@@ -602,16 +668,25 @@ async function must(step: string, q: PromiseLike<{ error: { message: string } | 
  * every step is an upsert or a targeted delete, so saving again is safe.
  */
 export async function saveCourse(sb: SupabaseClient, c: Course) {
+  // The columns the 2026-11-05 lockdown hides (the workbook link; a session's media and
+  // transcript) are written with a plain UPDATE after the upsert. An upsert that sets
+  // a column reads it (ON CONFLICT … EXCLUDED), which the lockdown refuses even to
+  // admins, so it carries only the public columns.
+  // Questions are replaced as a batch below: a copy without its answers would erase them.
+  if (c.assignments.some((a) => a.questions.some((q) => q.hidden)))
+    throw new Error("checkpoint answers are not loaded on this page; reload it and try again");
+  const { workbook_url, ...topicRow } = courseRow(c);
   // video_thumbnail_url arrives with the 2026-11-04 migration. Before it has run the
   // upsert is refused; save the rest of the topic then, unless the admin set a
   // thumbnail, which must not vanish silently.
-  const topic = await sb.from("courses").upsert({ ...courseRow(c), video_thumbnail_url: c.videoThumbnailUrl ?? null });
+  const topic = await sb.from("courses").upsert({ ...topicRow, video_thumbnail_url: c.videoThumbnailUrl ?? null });
   if (topic.error) {
     if (c.videoThumbnailUrl)
       throw new Error(`topic: ${topic.error.message} (the video thumbnail needs the 2026-11-04 database update)`);
     console.error("[supabase] courses: saving without video_thumbnail_url", topic.error.message);
-    await must("topic", sb.from("courses").upsert(courseRow(c)));
+    await must("topic", sb.from("courses").upsert(topicRow));
   }
+  await must("workbook", sb.from("courses").update({ workbook_url }).eq("id", c.id));
   // Sessions are upserted by id, never deleted and re-inserted: deleting a video row
   // cascades to every learner's progress, private notes and discussion on it, and
   // loses its stored notes file. One row per call, because a bulk upsert fills the
@@ -619,21 +694,24 @@ export async function saveCourse(sb: SupabaseClient, c: Course) {
   for (const v of c.videos) {
     const row = {
       id: v.id, course_id: c.id, title: v.title, order_index: v.order, duration_seconds: v.durationSeconds,
-      mux_playback_id: v.muxPlaybackId, summary: v.summary,
-      notes_pdf_url: v.notesPdfName || null,
+      summary: v.summary, notes_pdf_url: v.notesPdfName || null,
+    };
+    const media = {
+      mux_playback_id: v.muxPlaybackId,
       // undefined = "not loaded, leave the stored value alone"; null = "clear it".
       // The bulk read populates neither notesPdfUrl nor transcript.
       ...(v.transcript === undefined ? {} : { transcript: v.transcript }),
       ...(v.notesPdfUrl === undefined ? {} : { notes_file_url: v.notesPdfUrl }),
       resources: v.resources,
     };
-    const { error } = await sb.from("videos").upsert({ ...row, audio_url: v.audioUrl ?? null, audio_name: v.audioName ?? null });
+    await must(`session ${v.order}`, sb.from("videos").upsert(row));
+    const { error } = await sb.from("videos").update({ ...media, audio_url: v.audioUrl ?? null, audio_name: v.audioName ?? null }).eq("id", v.id);
     if (error) {
       // An audio session must not be saved without its audio.
       if (v.audioUrl) throw new Error(`session ${v.order}: ${error.message}`);
       // Nothing to lose here: a database without the audio columns still takes the rest.
       console.error("[supabase] videos: saving without audio columns", error.message);
-      await must(`session ${v.order}`, sb.from("videos").upsert(row));
+      await must(`session ${v.order}`, sb.from("videos").update(media).eq("id", v.id));
     }
   }
   // Only sessions the admin removed go.
@@ -671,8 +749,12 @@ export const deleteSession = (sb: SupabaseClient, id: string) => sb.from("live_s
 export const setBanned = (sb: SupabaseClient, userId: string, banned: boolean) =>
   sb.from("profiles").update({ banned }).eq("id", userId);
 
-export const saveQuestion = (sb: SupabaseClient, assignmentId: string, q: Question) =>
-  sb.from("questions").upsert({ id: q.id, assignment_id: assignmentId, type: q.type, prompt: q.prompt, options: q.options, correct_answer: q.correctAnswer, explanation: q.explanation });
+/** One question: the public columns by upsert, the answer by UPDATE (see saveCourse). */
+export async function saveQuestion(sb: SupabaseClient, assignmentId: string, q: Question) {
+  const res = await sb.from("questions").upsert({ id: q.id, assignment_id: assignmentId, type: q.type, prompt: q.prompt, options: q.options });
+  if (res.error || q.hidden) return res; // hidden: this copy has no answer to write
+  return sb.from("questions").update({ correct_answer: q.correctAnswer, explanation: q.explanation }).eq("id", q.id);
+}
 export const deleteQuestion = (sb: SupabaseClient, id: string) => sb.from("questions").delete().eq("id", id);
 
 export const saveCoupon = (sb: SupabaseClient, c: Coupon) =>

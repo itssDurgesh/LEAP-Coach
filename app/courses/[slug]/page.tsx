@@ -525,7 +525,8 @@ function CourseDetail() {
             </p>
           </V2Card>
 
-          {course.workbookUrl && (
+          {/* The workbook's name is public; its link reaches only learners who may open the topic. */}
+          {(course.workbookUrl || course.workbookName) && (
             <V2Card className="flex items-center gap-4 p-5">
               <span className="flex h-[72px] w-[60px] shrink-0 flex-col items-center justify-center gap-1 rounded-[14px] bg-lv-people-tint text-lv-people-dark">
                 <FileText className="h-[22px] w-[22px]" />
@@ -539,7 +540,7 @@ function CourseDetail() {
                   {access ? "Complete it once you finish the videos." : "Enroll to unlock the final workbook."}
                 </p>
               </div>
-              {access ? (
+              {access && course.workbookUrl ? (
                 <WorkbookDownload url={course.workbookUrl} name={course.workbookName?.trim() || `${course.slug}-workbook`} />
               ) : (
                 <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted">

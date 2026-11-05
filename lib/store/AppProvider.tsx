@@ -67,6 +67,7 @@ import { normalizeCode } from "@/lib/coupons";
 import { topicCredit, topicComplete } from "@/lib/credits";
 import { baseUsername, uniqueUsername } from "@/lib/username";
 import { clearPaintCaches, paintCacheKey } from "@/lib/store/paint-cache";
+import { refreshCredits, submitCheckpoint, type Credits } from "@/lib/checkpoint";
 import type { AuthBridge } from "@/lib/auth/types";
 import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 
@@ -397,11 +398,18 @@ interface AppContextValue extends AppState {
   ): { attempts: number; passed: boolean; bestScore: number; last?: Submission };
   // attempts: tries-per-question from the interactive checkpoint (1 = first-try correct),
   // used for the topic performance rating. Optional for backward compatibility.
+  /**
+   * Record a finished checkpoint attempt. In real mode, when the questions came
+   * without their answers (the database no longer sends them), the server grades it
+   * from the tries it recorded and writes the submission; `answers` and `attempts`
+   * are then ignored. Otherwise (local demo, or a database without the 2026-11-05
+   * update) it is graded here as before.
+   */
   submitAssignment(
     assignmentId: string,
     answers: Record<string, string>,
     attempts?: Record<string, number>,
-  ): Submission;
+  ): Promise<{ ok: true; submission: Submission } | { ok: false; error: string }>;
   // notes
   notesFor(videoId: string, userId?: string): Note[];
   notesForCourse(courseId: string, userId?: string): Note[];
@@ -1033,6 +1041,17 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       }
     };
 
+    // Credits are banked by the server (learners may no longer write them): apply what
+    // it reports to this user's row, so the dashboard shows it straight away.
+    const applyCredits = (userId: string, credits: Credits | null) => {
+      if (!credits) return;
+      patchUser(userId, (u) =>
+        u.learningCredits === credits.learningCredits && JSON.stringify(u.topicCredits ?? {}) === JSON.stringify(credits.topicCredits)
+          ? u
+          : { ...u, learningCredits: credits.learningCredits, topicCredits: credits.topicCredits },
+      );
+    };
+
     // The owner's publish, approval and featuring switches go through a service-role
     // route (app/api/admin/courses). A browser write that RLS filters out matches no
     // rows and still reports success, so the switch flipped, nothing was saved, and
@@ -1389,23 +1408,41 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           return { ...s, progress, users };
         });
         if (sb) {
-          fire(db.completeVideo(sb, { userId: user.id, videoId, courseId, watchSeconds: dur }));
+          const done = db.completeVideo(sb, { userId: user.id, videoId, courseId, watchSeconds: dur });
+          fire(done);
           // Separate and best-effort: before the resume columns exist this is refused,
           // and that must never cost the completion itself.
           void db.saveWatchPosition(sb, { userId: user.id, videoId, courseId, positionSeconds: 0, at: now });
+          // The last video can finish the topic. The server banks its credit from what
+          // is stored, so ask once the completion has landed (only if it could matter).
           const { patch } = applyTopicCredit(state.users, state.courses, courseId, user.id, state.submissions, withVideoDone(state.progress));
-          if (patch) fire(db.updateProfile(sb, user.id, patch));
+          if (patch)
+            void Promise.resolve(done).then((r) => {
+              if (!(r as { error?: unknown } | null)?.error) void refreshCredits(courseId).then((c) => applyCredits(user.id, c));
+            });
         }
       },
 
       // ── assignments ──
       assignmentUnlocked,
       assignmentResult,
-      submitAssignment(assignmentId, answers, attempts) {
+      async submitAssignment(assignmentId, answers, attempts) {
         const found = courseIdx.assignment.get(assignmentId);
         const assignment: Assignment | undefined = found?.assignment;
         const courseId = found?.course.id ?? "";
         const userId = state.currentUserId ?? "";
+
+        // Graded on the server: this copy of the questions has no answers to grade with
+        // (only real mode hides them; the local demo always has its own answers).
+        if (assignment?.questions.some((q) => q.hidden)) {
+          const r = await submitCheckpoint(assignmentId);
+          if (!r.ok) return { ok: false, error: r.error };
+          const submission = r.value.submission;
+          setState((s) => ({ ...s, submissions: [...s.submissions.filter((x) => x.id !== submission.id), submission] }));
+          applyCredits(userId, r.value.credits);
+          return { ok: true, submission };
+        }
+
         const prior = assignmentResult(assignmentId);
         const feedback = (assignment?.questions ?? []).map((q) => {
           const given = (answers[q.id] ?? "").trim().toLowerCase();
@@ -1443,11 +1480,15 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           return { ...s, submissions: newSubs, users };
         });
         if (sb) {
-          fire(db.insertSubmission(sb, submission));
-          const { patch } = applyTopicCredit(state.users, state.courses, courseId, userId, [...state.submissions, submission], state.progress);
-          if (patch) fire(db.updateProfile(sb, userId, patch));
+          // A database without the 2026-11-05 update still takes the learner's own
+          // submission; the server then banks the credit from it.
+          const inserted = db.insertSubmission(sb, submission);
+          fire(inserted);
+          void Promise.resolve(inserted).then((r) => {
+            if (!(r as { error?: unknown } | null)?.error) void refreshCredits(courseId).then((c) => applyCredits(userId, c));
+          });
         }
-        return submission;
+        return { ok: true, submission };
       },
 
       // ── notes ──

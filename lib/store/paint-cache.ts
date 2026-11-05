@@ -8,7 +8,9 @@
  * data the current code no longer expects.
  */
 const PREFIX = "leap-sb-cache-";
-export const PAINT_CACHE_VERSION = "v2";
+// v3: snapshots saved before the 2026-11-05 lockdown hold every topic's session media
+// and checkpoint answers; dropping them keeps those out of this browser's storage.
+export const PAINT_CACHE_VERSION = "v3";
 
 export function paintCacheKey(userId: string): string {
   return `${PREFIX}${PAINT_CACHE_VERSION}:${userId}`;
