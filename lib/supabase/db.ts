@@ -8,15 +8,21 @@ import {
   Coupon,
   Course,
   CourseRating,
+  CreditEvent,
+  DailyIdea,
   DailyTip,
+  EarnedStamp,
   Enrollment,
   Faq,
+  IdeaResponse,
+  LeaderboardRow,
   LeadershipTrack,
   LiveSession,
   Note,
   Payment,
   PostComment,
   PricingTiers,
+  ProfileStats,
   Question,
   RecommendedResource,
   Role,
@@ -30,19 +36,35 @@ import {
 } from "@/lib/types";
 
 type Row = Record<string, any>;
-const rows = async (q: any): Promise<Row[]> => ((await q).data ?? []) as Row[];
+const rows = async (q: any): Promise<Row[]> => {
+  const { data, error } = await q;
+  // A table the database does not have yet (a migration not run) reads as empty
+  // instead of breaking the whole load; the console says which.
+  if (error) console.error("[supabase] read failed:", error.message);
+  return (data ?? []) as Row[];
+};
 
 // ─────────────────────────── mappers ───────────────────────────
 const mapTrack = (r: Row): LeadershipTrack => ({ id: r.id, label: r.label });
 const mapTip = (r: Row): DailyTip => ({ id: r.id, text: r.text, author: r.author, targetRole: r.target_role, active: r.active });
 const mapResource = (r: Row): RecommendedResource => ({ id: r.id, title: r.title, type: r.type, author: r.author, blurb: r.blurb, targetRole: r.target_role, accent: r.accent });
 const mapQuestion = (r: Row): Question => ({ id: r.id, type: r.type, prompt: r.prompt, options: r.options ?? [], correctAnswer: r.correct_answer, explanation: r.explanation });
-const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, audioUrl: r.audio_url ?? null, audioName: r.audio_name ?? null, transcript: r.transcript ?? "", summary: r.summary ?? "", notesPdfName: r.notes_pdf_url || undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
+// `transcript` is undefined when the read left it out (see VIDEO_COLS): "not loaded", not "empty".
+const mapVideo = (r: Row): Video => ({ id: r.id, courseId: r.course_id, title: r.title, order: r.order_index, durationSeconds: r.duration_seconds, muxPlaybackId: r.mux_playback_id, audioUrl: r.audio_url ?? null, audioName: r.audio_name ?? null, transcript: r.transcript === undefined ? undefined : (r.transcript ?? ""), summary: r.summary ?? "", notesPdfName: r.notes_pdf_url || undefined, notesPdfUrl: r.notes_file_url === undefined ? undefined : (r.notes_file_url ?? null), resources: r.resources ?? [] });
 const mapCourseRating = (r: Row): CourseRating => ({ id: r.id, userId: r.user_id, courseId: r.course_id, stars: r.stars, review: r.review ?? null, createdAt: r.created_at, updatedAt: r.updated_at ?? null });
 const mapEnrollment = (r: Row): Enrollment => ({ userId: r.user_id, courseId: r.course_id, enrolledAt: r.enrolled_at, completedAt: r.completed_at });
-const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: r.completed, watchSeconds: r.watch_seconds, completedAt: r.completed_at });
+const mapProgress = (r: Row): VideoProgress => ({ userId: r.user_id, videoId: r.video_id, courseId: r.course_id, completed: !!r.completed, watchSeconds: r.watch_seconds ?? 0, completedAt: r.completed_at ?? null, positionSeconds: r.position_seconds ?? 0, lastWatchedAt: r.last_watched_at ?? null });
 const mapNote = (r: Row): Note => ({ id: r.id, userId: r.user_id, videoId: r.video_id, text: r.text, createdAt: r.created_at });
 const mapSubmission = (r: Row): Submission => ({ id: r.id, userId: r.user_id, assignmentId: r.assignment_id, courseId: r.course_id, answers: r.answers ?? {}, score: Number(r.score), passed: r.passed, feedback: r.feedback ?? [], attemptNumber: r.attempt_number, submittedAt: r.submitted_at });
+const mapIdea = (r: Row): DailyIdea => ({
+  id: r.id, title: r.title ?? "", body: r.body ?? "", question: r.question ?? "",
+  options: Array.isArray(r.options) ? r.options.map((o: Row) => ({ text: o?.text ?? "", good: !!o?.good, feedback: o?.feedback ?? "" })) : [],
+  trackId: r.track_id ?? null, audience: r.audience ?? "all", showOn: r.show_on ?? null, active: r.active ?? true,
+  createdBy: r.created_by ?? null, createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at,
+});
+const mapIdeaResponse = (r: Row): IdeaResponse => ({ userId: r.user_id, ideaId: r.idea_id, optionIndex: r.option_index, createdAt: r.created_at });
+const mapCreditEvent = (r: Row): CreditEvent => ({ id: String(r.id), userId: r.user_id, courseId: r.course_id ?? null, amount: r.amount ?? 0, totalAfter: r.total_after ?? 0, createdAt: r.created_at });
+const mapStamp = (r: Row): EarnedStamp => ({ userId: r.user_id, stampId: r.stamp_id, earnedAt: r.earned_at });
 // à-la-carte purchase rows (course_purchases) + catalog-pass rows (category_passes)
 // carry their own timestamps; we keep both the ownership list AND the date map so
 // the 1-year-from-purchase expiry can be computed per entitlement (see lib/access).
@@ -103,7 +125,6 @@ const mapVideoComment = (r: Row, likedBy: string[]): VideoComment => ({
   createdAt: r.created_at, editedAt: r.edited_at ?? undefined, likedBy,
 });
 const mapSession = (r: Row, attendeeIds: string[]): LiveSession => ({ id: r.id, title: r.title, courseTitle: r.course_title ?? undefined, instructorName: r.instructor_name, startsAt: r.starts_at, durationMins: r.duration_mins, meetLink: r.meet_link, description: r.description ?? "", targetRole: r.target_role, attendeeIds, capacity: r.capacity, notifiedAt: r.notified_at ?? null, notifiedUserIds: r.notified_user_ids ?? [] });
-const mapPost = (r: Row, likedBy: string[]): CommunityPost => ({ id: r.id, userId: r.user_id, userName: r.user_name, userRole: r.user_role, text: r.text, createdAt: r.created_at, editedAt: r.edited_at ?? undefined, likedBy });
 const mapCoupon = (r: Row): Coupon => ({ code: r.code, discountPercent: r.discount_percent, category: r.category, active: r.active, maxRedemptions: r.max_redemptions ?? null, redemptions: r.redemptions ?? 0, expiresAt: r.expires_at ?? null, createdAt: r.created_at });
 const mapPayment = (r: Row): Payment => ({
   id: r.id, userId: r.user_id ?? "", razorpayOrderId: r.razorpay_order_id ?? null, razorpayPaymentId: r.razorpay_payment_id ?? null,
@@ -154,93 +175,43 @@ export interface LoadedData {
   payments: Payment[];
   pricing: PricingTiers | null;
   siteContent: SiteContent | null;
+  ideas: DailyIdea[];
+  ideaResponses: IdeaResponse[];
+  creditEvents: CreditEvent[];
+  stamps: EarnedStamp[];
 }
 
-const VIDEO_COLS = "id,course_id,title,order_index,duration_seconds,mux_playback_id,transcript,summary,notes_pdf_url,resources";
+// Everything a video row holds EXCEPT the two heavy columns:
+//  - transcript: the full text of every session of every topic was most of the
+//    courses payload; only the lesson page and the editor use it, so it is
+//    fetched for one video (fetchTranscript) or one topic (fetchCourseFull).
+//  - notes_file_url: the uploaded class-notes file, a base64 data URL on older
+//    rows; fetched for one video on demand (fetchVideoNotesUrl).
+const VIDEO_COLS = "id,course_id,title,order_index,duration_seconds,mux_playback_id,summary,notes_pdf_url,resources";
+
+/** What others may see of a profile: no email, phone, age, plan or permissions. */
+export const PUBLIC_PROFILE_COLS =
+  "id,name,username,avatar_url,role,headline,bio,company,region,nationality,learning_credits,is_admin,created_at,last_active_at";
 
 /**
- * The course tree. audio_url / audio_name arrive with the 2026-10-09 migration; on
- * a database that has not run it yet the first select errors, so read without them
- * rather than leave every page with no topics.
+ * The course tree in ONE query (PostgREST embedding). audio_url / audio_name
+ * arrive with the 2026-10-09 migration; on a database that has not run it yet the
+ * first select errors, so read without them rather than leave every page with no
+ * topics.
  */
-async function courseRows(sb: SupabaseClient): Promise<Row[]> {
-  const select = (cols: string) => sb.from("courses").select(`*, videos(${cols}), assignments(*, questions(*))`);
-  const full = await select(`${VIDEO_COLS},audio_url,audio_name`);
+async function courseRows(sb: SupabaseClient, videoCols = VIDEO_COLS, courseId?: string): Promise<Row[]> {
+  const select = (cols: string) => {
+    const q = sb.from("courses").select(`*, videos(${cols}), assignments(*, questions(*))`);
+    return courseId ? q.eq("id", courseId) : q;
+  };
+  const full = await select(`${videoCols},audio_url,audio_name`);
   if (!full.error) return (full.data ?? []) as Row[];
   console.error("[supabase] courses: reading without audio columns (run the audio-sessions migration)", full.error.message);
-  return rows(select(VIDEO_COLS));
+  return rows(select(videoCols));
 }
 
-/** Fetch + assemble the entire app state from Supabase (RLS scopes per-user rows). */
-export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
-  const [
-    // videos/assignments/questions are embedded in `courses` now → their slots are empty.
-    profiles, purchases, tracks, courses, , , ,
-    tips, resources, sessions, attendees, enrollments, progress, submissions, notes, posts, likes, coupons,
-    categoryPasses, pricingRows, comments, commentLikes, notifications, teamMembers, books, siteRows, articleRows, paymentRows,
-    videoCommentRows, videoCommentLikeRows, announcementRows, faqRows, sitePageRows, courseRatingRows,
-  ] = await Promise.all([
-    rows(sb.from("profiles").select("*")),
-    rows(sb.from("course_purchases").select("*")),
-    rows(sb.from("leadership_tracks").select("*")),
-    // Whole course tree in ONE query via PostgREST embedding (was 4 separate fetches:
-    // courses + videos + assignments + questions). videos/assignments/questions below
-    // are kept as empty placeholders so the positional destructure stays aligned.
-    // videos(...) is enumerated rather than videos(*) so notes_file_url stays out
-    // of the bulk read. It holds the uploaded class-notes file, which is a base64
-    // data URL on older rows — 572KB on this project, 99.7% of the whole courses
-    // payload, downloaded by every user on every page load. The player fetches it
-    // for one video on demand instead (fetchVideoNotesUrl).
-    courseRows(sb),
-    Promise.resolve([] as Row[]),
-    Promise.resolve([] as Row[]),
-    Promise.resolve([] as Row[]),
-    rows(sb.from("daily_tips").select("*")),
-    rows(sb.from("recommended_resources").select("*")),
-    rows(sb.from("live_sessions").select("*")),
-    rows(sb.from("session_attendees").select("*")),
-    rows(sb.from("enrollments").select("*")),
-    rows(sb.from("video_progress").select("*")),
-    rows(sb.from("submissions").select("*")),
-    rows(sb.from("user_notes").select("*")),
-    // Global Discussion board was removed — skip these reads (saves round-trips + payload).
-    Promise.resolve([] as Row[]),
-    Promise.resolve([] as Row[]),
-    rows(sb.from("coupons").select("*")),
-    rows(sb.from("category_passes").select("*")),
-    rows(sb.from("pricing_tiers").select("*")),
-    // Global Discussion board removed — skip post_comments + comment_likes reads too.
-    Promise.resolve([] as Row[]),
-    Promise.resolve([] as Row[]),
-    rows(sb.from("notifications").select("*")),
-    // photo_url excluded: on this project four base64 portraits total 2.4MB, and
-    // the bulk store load runs on EVERY authenticated page even though team photos
-    // only appear on /team and the landing mentors strip. Fetched there on demand.
-    rows(
-      sb
-        .from("team_members")
-        .select("id,name,title,member_group,bio,vision,links,featured,order_index,active,created_at"),
-    ),
-    rows(sb.from("books").select("*")),
-    rows(sb.from("site_content").select("*")),
-    rows(sb.from("articles").select("*")),
-    rows(sb.from("payments").select("*")),
-    rows(sb.from("video_comments").select("*")),
-    rows(sb.from("video_comment_likes").select("*")),
-    rows(sb.from("announcements").select("*")),
-    rows(sb.from("faqs").select("*")),
-    rows(sb.from("site_pages").select("*")),
-    rows(sb.from("course_ratings").select("*")),
-  ]);
-
-  const purchasesByUser = group(purchases, (p) => p.user_id);
-  const passesByUser = group(categoryPasses, (p) => p.user_id);
-  const attendeesBySession = group(attendees, (a) => a.session_id);
-  const likesByPost = group(likes, (l) => l.post_id);
-  const likesByComment = group(commentLikes, (l) => l.comment_id);
-  const likesByVideoComment = group(videoCommentLikeRows, (l) => l.comment_id);
-
-  const assembledCourses: Course[] = courses.map((c) => ({
+function assembleCourse(c: Row): Course {
+  return {
     id: c.id, slug: c.slug, title: c.title, description: c.description ?? "", category: c.category,
     instructorName: c.instructor_name ?? "", instructorTitle: c.instructor_title ?? "", instructorBio: c.instructor_bio ?? "",
     instructorInitials: c.instructor_initials ?? "", hashtags: c.hashtags ?? [], tracks: c.tracks ?? [], level: c.level ?? "Beginner",
@@ -248,7 +219,8 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
     purchaseCount: c.purchase_count ?? 0, price: c.price ?? 0, trending: c.trending ?? false, published: c.published ?? false,
     accent: c.accent ?? 0,
     categories: c.categories ?? [c.category],
-    thumbnailUrl: c.thumbnail_url ?? null, workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
+    thumbnailUrl: c.thumbnail_url ?? null, videoThumbnailUrl: c.video_thumbnail_url ?? null,
+    workbookName: c.workbook_name ?? null, workbookUrl: c.workbook_url ?? null,
     accessDurationDays: c.access_duration_days ?? null,
     pendingApproval: c.pending_approval ?? false, submittedBy: c.submitted_by ?? null,
     createdAt: c.created_at,
@@ -257,53 +229,6 @@ export async function loadAll(sb: SupabaseClient): Promise<LoadedData> {
       id: a.id, courseId: a.course_id, afterVideoOrder: a.after_video_order, title: a.title,
       questions: ((a.questions ?? []) as Row[]).map(mapQuestion),
     })).sort((a, b) => a.afterVideoOrder - b.afterVideoOrder),
-  }));
-
-  return {
-    users: profiles.map((p) =>
-      mapProfile(
-        p,
-        (purchasesByUser[p.id] ?? []) as PurchaseRow[],
-        (passesByUser[p.id] ?? []) as PassRow[],
-      ),
-    ),
-    courses: assembledCourses,
-    tracks: tracks.map(mapTrack),
-    tips: tips.map(mapTip),
-    resources: resources.map(mapResource),
-    sessions: sessions.map((s) => mapSession(s, (attendeesBySession[s.id] ?? []).map((x) => x.user_id))),
-    community: posts.map((p) => mapPost(p, (likesByPost[p.id] ?? []).map((x) => x.user_id)))
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    comments: comments
-      .map((c) => mapComment(c, (likesByComment[c.id] ?? []).map((x) => x.user_id)))
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
-    videoComments: videoCommentRows
-      .map((c) => mapVideoComment(c, (likesByVideoComment[c.id] ?? []).map((x) => x.user_id)))
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
-    notifications: notifications.map(mapNotification).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    teamMembers: teamMembers.map(mapTeamMember).sort((a, b) => a.order - b.order),
-    books: books.map(mapBook).sort((a, b) => a.order - b.order),
-    articles: articleRows.map(mapArticle).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    announcements: announcementRows.map(mapAnnouncement).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    faqs: faqRows.map(mapFaq).sort((a, b) => (a.order !== b.order ? a.order - b.order : a.createdAt < b.createdAt ? -1 : 1)),
-    privacyPolicy: (sitePageRows[0]?.privacy_policy as string) ?? null,
-    enrollments: enrollments.map(mapEnrollment),
-    progress: progress.map(mapProgress),
-    submissions: submissions.map(mapSubmission),
-    notes: notes.map(mapNote),
-    courseRatings: courseRatingRows.map(mapCourseRating),
-    coupons: coupons.map(mapCoupon),
-    payments: paymentRows.map(mapPayment).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
-    pricing: pricingRows[0]
-      ? {
-          cat1: pricingRows[0].cat1,
-          cat2: pricingRows[0].cat2,
-          cat3: pricingRows[0].cat3,
-          perTopicFrom: pricingRows[0].per_topic_from ?? 999,
-          showUpgradeInfo: pricingRows[0].show_upgrade_info ?? true,
-        }
-      : null,
-    siteContent: (siteRows[0]?.content as SiteContent) ?? null,
   };
 }
 
@@ -315,15 +240,315 @@ function group<T extends Row>(arr: T[], key: (r: T) => string): Record<string, T
   }, {});
 }
 
+function profilesWithOwnership(profiles: Row[], purchases: Row[], passes: Row[]): User[] {
+  const purchasesByUser = group(purchases, (p) => p.user_id);
+  const passesByUser = group(passes, (p) => p.user_id);
+  return profiles.map((p) =>
+    mapProfile(p, (purchasesByUser[p.id] ?? []) as PurchaseRow[], (passesByUser[p.id] ?? []) as PassRow[]),
+  );
+}
+
+// ─────────────────────────── page loads ───────────────────────────
+// What used to be one loadAll() of ~30 whole tables for everyone (every profile,
+// every comment, every learner's progress for an admin, every transcript) is now
+// split by who is looking:
+//   loadPublic  — the marketing pages' content; all a signed-out visitor loads.
+//   loadShared  — content every signed-in person sees, plus their own bell.
+//   loadOwn     — a learner's own rows (filtered by user id, which also lets
+//                 Postgres use the per-user indexes).
+//   loadAdmin   — what the admin screens need across all learners, with the
+//                 heavy columns (answers, feedback) left out.
+// Other people's profiles, a video's comments and transcripts are fetched on
+// demand by the screens that show them.
+
+export type PublicData = Pick<LoadedData, "courses" | "tracks" | "faqs" | "books" | "teamMembers" | "privacyPolicy" | "pricing" | "siteContent">;
+
+export async function loadPublic(sb: SupabaseClient): Promise<PublicData> {
+  const [courses, tracks, faqRows, books, teamMembers, siteRows, sitePageRows, pricingRows] = await Promise.all([
+    courseRows(sb),
+    rows(sb.from("leadership_tracks").select("id,label")),
+    rows(sb.from("faqs").select("*")),
+    rows(sb.from("books").select("*")),
+    // photo_url excluded: on this project four base64 portraits total 2.4MB, and
+    // team photos only appear on /team and the landing mentors strip. Fetched there on demand.
+    rows(sb.from("team_members").select("id,name,title,member_group,bio,vision,links,featured,order_index,active,created_at")),
+    rows(sb.from("site_content").select("content").eq("id", 1)),
+    rows(sb.from("site_pages").select("privacy_policy").eq("id", 1)),
+    rows(sb.from("pricing_tiers").select("*").eq("id", 1)),
+  ]);
+  return {
+    courses: courses.map(assembleCourse),
+    tracks: tracks.map(mapTrack),
+    faqs: faqRows.map(mapFaq).sort((a, b) => (a.order !== b.order ? a.order - b.order : a.createdAt < b.createdAt ? -1 : 1)),
+    books: books.map(mapBook).sort((a, b) => a.order - b.order),
+    teamMembers: teamMembers.map(mapTeamMember).sort((a, b) => a.order - b.order),
+    siteContent: (siteRows[0]?.content as SiteContent) ?? null,
+    privacyPolicy: (sitePageRows[0]?.privacy_policy as string) ?? null,
+    pricing: pricingRows[0]
+      ? {
+          cat1: pricingRows[0].cat1,
+          cat2: pricingRows[0].cat2,
+          cat3: pricingRows[0].cat3,
+          perTopicFrom: pricingRows[0].per_topic_from ?? 999,
+          showUpgradeInfo: pricingRows[0].show_upgrade_info ?? true,
+        }
+      : null,
+  };
+}
+
+export type SharedData = Pick<LoadedData, "tips" | "resources" | "sessions" | "announcements" | "articles" | "notifications">;
+
+export async function loadShared(sb: SupabaseClient, userId: string): Promise<SharedData> {
+  const [tips, resources, sessions, attendees, announcementRows, articleRows, notifications] = await Promise.all([
+    rows(sb.from("daily_tips").select("*")),
+    rows(sb.from("recommended_resources").select("*")),
+    rows(sb.from("live_sessions").select("*")),
+    rows(sb.from("session_attendees").select("session_id,user_id")),
+    rows(sb.from("announcements").select("*")),
+    rows(sb.from("articles").select("*")),
+    // Own notifications only. An admin's RLS allows reading everyone's, and the
+    // old load did exactly that.
+    rows(sb.from("notifications").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(100)),
+  ]);
+  const attendeesBySession = group(attendees, (a) => a.session_id);
+  return {
+    tips: tips.map(mapTip),
+    resources: resources.map(mapResource),
+    sessions: sessions.map((s) => mapSession(s, (attendeesBySession[s.id] ?? []).map((x) => x.user_id))),
+    announcements: announcementRows.map(mapAnnouncement).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    articles: articleRows.map(mapArticle).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    notifications: notifications.map(mapNotification),
+  };
+}
+
+export type OwnData = Pick<
+  LoadedData,
+  "enrollments" | "progress" | "submissions" | "notes" | "courseRatings" | "payments" | "creditEvents" | "stamps" | "ideaResponses"
+>;
+
+export async function loadOwn(sb: SupabaseClient, userId: string): Promise<OwnData> {
+  const [enrollments, progress, submissions, notes, ratings, paymentRows, creditRows, stampRows, responseRows] = await Promise.all([
+    rows(sb.from("enrollments").select("user_id,course_id,enrolled_at,completed_at").eq("user_id", userId)),
+    rows(sb.from("video_progress").select("*").eq("user_id", userId)),
+    rows(sb.from("submissions").select("*").eq("user_id", userId)),
+    rows(sb.from("user_notes").select("*").eq("user_id", userId)),
+    rows(sb.from("course_ratings").select("*").eq("user_id", userId)),
+    rows(sb.from("payments").select("*").eq("user_id", userId).order("created_at", { ascending: false })),
+    rows(sb.from("credit_events").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(30)),
+    rows(sb.from("user_stamps").select("*").eq("user_id", userId)),
+    rows(sb.from("idea_responses").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(120)),
+  ]);
+  return {
+    enrollments: enrollments.map(mapEnrollment),
+    progress: progress.map(mapProgress),
+    submissions: submissions.map(mapSubmission),
+    notes: notes.map(mapNote),
+    courseRatings: ratings.map(mapCourseRating),
+    payments: paymentRows.map(mapPayment),
+    creditEvents: creditRows.map(mapCreditEvent),
+    stamps: stampRows.map(mapStamp),
+    ideaResponses: responseRows.map(mapIdeaResponse),
+  };
+}
+
+export type AdminData = Pick<
+  LoadedData,
+  "users" | "enrollments" | "progress" | "submissions" | "payments" | "coupons" | "ideas"
+>;
+
+export async function loadAdmin(sb: SupabaseClient): Promise<AdminData> {
+  const [profiles, purchases, passes, enrollments, progress, submissions, paymentRows, coupons, ideaRows] = await Promise.all([
+    rows(sb.from("profiles").select("*")),
+    rows(sb.from("course_purchases").select("user_id,course_id,purchased_at")),
+    rows(sb.from("category_passes").select("user_id,category,granted_at")),
+    rows(sb.from("enrollments").select("user_id,course_id,enrolled_at,completed_at")),
+    // The admin screens count completions; they never need positions or watch time.
+    rows(sb.from("video_progress").select("user_id,video_id,course_id,completed,completed_at")),
+    // Scores only: every learner's answers and per-question feedback were the bulk
+    // of this table and no admin screen shows them.
+    rows(sb.from("submissions").select("id,user_id,assignment_id,course_id,score,passed,attempt_number,submitted_at")),
+    rows(sb.from("payments").select("*").order("created_at", { ascending: false })),
+    rows(sb.from("coupons").select("*")),
+    rows(sb.from("daily_ideas").select("*")),
+  ]);
+  return {
+    users: profilesWithOwnership(profiles, purchases, passes),
+    enrollments: enrollments.map(mapEnrollment),
+    progress: progress.map(mapProgress),
+    submissions: submissions.map(mapSubmission),
+    payments: paymentRows.map(mapPayment),
+    coupons: coupons.map(mapCoupon),
+    ideas: ideaRows.map(mapIdea),
+  };
+}
+
+// ─────────────────────────── on-demand reads ───────────────────────────
+/** One video's transcript (kept out of the bulk load). */
+export async function fetchTranscript(sb: SupabaseClient, videoId: string): Promise<string | null> {
+  const { data, error } = await sb.from("videos").select("transcript").eq("id", videoId).maybeSingle();
+  if (error) {
+    console.error("[supabase] transcript", error.message);
+    return null;
+  }
+  return (data?.transcript as string | null) ?? "";
+}
+
+/** One topic with every transcript, for the editor (which saves them back). */
+export async function fetchCourseFull(sb: SupabaseClient, courseId: string): Promise<Course | null> {
+  const found = await courseRows(sb, `${VIDEO_COLS},transcript`, courseId);
+  return found[0] ? assembleCourse(found[0]) : null;
+}
+
+/** The discussion under one video, with its likes. */
+export async function fetchVideoComments(sb: SupabaseClient, videoId: string): Promise<VideoComment[]> {
+  const comments = await rows(sb.from("video_comments").select("*").eq("video_id", videoId).order("created_at", { ascending: true }));
+  if (!comments.length) return [];
+  const likes = await rows(
+    sb.from("video_comment_likes").select("comment_id,user_id").in("comment_id", comments.map((c) => c.id)),
+  );
+  const likesBy = group(likes, (l) => l.comment_id);
+  return comments.map((c) => mapVideoComment(c, (likesBy[c.id] ?? []).map((x) => x.user_id)));
+}
+
+/** Public profiles by id (comment authors, people mentioned, article authors). */
+export async function fetchProfiles(sb: SupabaseClient, ids: string[]): Promise<User[]> {
+  if (!ids.length) return [];
+  const found = await rows(sb.from("profiles").select(PUBLIC_PROFILE_COLS).in("id", ids.slice(0, 200)));
+  return found.map((r) => mapProfile(r));
+}
+
+/** One public profile by id or @handle (the /u/[id] route accepts both). */
+export async function fetchProfileByHandle(sb: SupabaseClient, idOrHandle: string): Promise<User | null> {
+  const byId = await rows(sb.from("profiles").select(PUBLIC_PROFILE_COLS).eq("id", idOrHandle).limit(1));
+  if (byId[0]) return mapProfile(byId[0]);
+  const byHandle = await rows(sb.from("profiles").select(PUBLIC_PROFILE_COLS).ilike("username", idOrHandle.replace(/[%_\\]/g, (c) => `\\${c}`)).limit(1));
+  return byHandle[0] ? mapProfile(byHandle[0]) : null;
+}
+
+/** People to suggest after "@": by handle or name, at most `limit`. */
+export async function searchProfiles(sb: SupabaseClient, query: string, limit = 8): Promise<User[]> {
+  const q = query.trim().replace(/[%_\\,().*:"]/g, "");
+  let req = sb.from("profiles").select(PUBLIC_PROFILE_COLS).eq("banned", false).not("username", "is", null);
+  // `*` is PostgREST's wildcard inside an or() filter (it becomes % in SQL).
+  if (q) req = req.or(`username.ilike.${q}*,name.ilike.*${q}*`);
+  const found = await rows(req.order("username").limit(limit));
+  return found.map((r) => mapProfile(r));
+}
+
+/** Handles already taken that start with `base`: enough to make a new one unique. */
+export async function takenUsernames(sb: SupabaseClient, base: string): Promise<Set<string>> {
+  const b = base.replace(/[%_\\]/g, (c) => `\\${c}`);
+  const found = await rows(sb.from("profiles").select("username").ilike("username", `${b}%`).limit(1000));
+  return new Set(found.map((r) => String(r.username ?? "").toLowerCase()).filter(Boolean));
+}
+
+/** Whether someone other than `selfId` already has this handle. */
+export async function isUsernameTaken(sb: SupabaseClient, handle: string, selfId: string): Promise<boolean> {
+  const h = handle.replace(/[%_\\]/g, (c) => `\\${c}`);
+  const found = await rows(sb.from("profiles").select("id").ilike("username", h).neq("id", selfId).limit(1));
+  return found.length > 0;
+}
+
+/** Comment, video and topic counts and the current streak for a profile page. */
+export async function fetchProfileStats(sb: SupabaseClient, userId: string): Promise<ProfileStats | null> {
+  const { data, error } = await sb.rpc("public_profile_stats", { p_user: userId });
+  if (error) {
+    console.error("[supabase] public_profile_stats", error.message);
+    return null;
+  }
+  const r = (Array.isArray(data) ? data[0] : data) as Row | undefined;
+  if (!r) return null;
+  return { comments: r.comments ?? 0, videosCompleted: r.videos_completed ?? 0, topicsCompleted: r.topics_completed ?? 0, currentStreak: r.current_streak ?? 0 };
+}
+
+/** Stamps the database has awarded someone. */
+export async function fetchStamps(sb: SupabaseClient, userId: string): Promise<EarnedStamp[]> {
+  return (await rows(sb.from("user_stamps").select("*").eq("user_id", userId))).map(mapStamp);
+}
+
+/** The signed-in learner's recent credit history and earned stamps, after they finish something. */
+export async function fetchStanding(sb: SupabaseClient, userId: string): Promise<{ creditEvents: CreditEvent[]; stamps: EarnedStamp[]; credits: { learning: number; topics: Record<string, number> } | null }> {
+  const [events, stamps, me] = await Promise.all([
+    rows(sb.from("credit_events").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(30)),
+    rows(sb.from("user_stamps").select("*").eq("user_id", userId)),
+    rows(sb.from("profiles").select("learning_credits,topic_credits").eq("id", userId).limit(1)),
+  ]);
+  return {
+    creditEvents: events.map(mapCreditEvent),
+    stamps: stamps.map(mapStamp),
+    credits: me[0] ? { learning: me[0].learning_credits ?? 0, topics: me[0].topic_credits ?? {} } : null,
+  };
+}
+
+/** Learners ranked by credits (see public.leaderboard()). */
+export async function fetchLeaderboard(
+  sb: SupabaseClient,
+  period: "all" | "month",
+  role: Role | null,
+  limit = 10,
+): Promise<LeaderboardRow[] | null> {
+  const { data, error } = await sb.rpc("leaderboard", { p_period: period, p_role: role, p_limit: limit });
+  if (error) {
+    console.error("[supabase] leaderboard", error.message);
+    return null;
+  }
+  return ((data ?? []) as Row[]).map((r) => ({
+    rank: r.rank, userId: r.user_id, name: r.name ?? "", username: r.username ?? undefined, avatarUrl: r.avatar_url ?? null,
+    role: r.role ?? null, credits: r.credits ?? 0, isMe: !!r.is_me,
+  }));
+}
+
+/** The idea a learner sees on their calendar day (see public.idea_for_day()). */
+export async function fetchIdeaForDay(sb: SupabaseClient, role: Role | null, day: string): Promise<DailyIdea | null | undefined> {
+  const { data, error } = await sb.rpc("idea_for_day", { p_role: role, p_day: day });
+  if (error) {
+    console.error("[supabase] idea_for_day", error.message);
+    // A database without the 2026-11-08 migration has no ideas to show yet; that is
+    // not a failure the learner can do anything about.
+    if (error.code === "PGRST202" || /could not find the function|does not exist/i.test(error.message)) return null;
+    return undefined; // could not ask (network)
+  }
+  const r = (Array.isArray(data) ? data[0] : data) as Row | undefined;
+  return r ? mapIdea(r) : null;
+}
+
+/** Votes per option for one idea. */
+export async function fetchIdeaStats(sb: SupabaseClient, ideaId: string): Promise<number[] | null> {
+  const { data, error } = await sb.rpc("idea_stats", { p_idea: ideaId });
+  if (error) {
+    console.error("[supabase] idea_stats", error.message);
+    return null;
+  }
+  const counts: number[] = [];
+  for (const r of (data ?? []) as Row[]) counts[r.option_index] = r.votes ?? 0;
+  return counts;
+}
+
+/** Every idea, for the admin page. */
+export async function fetchIdeas(sb: SupabaseClient): Promise<DailyIdea[]> {
+  return (await rows(sb.from("daily_ideas").select("*"))).map(mapIdea);
+}
+
+/** How many learners answered each idea (admin page). Admins read every response. */
+export async function fetchIdeaResponseCounts(sb: SupabaseClient): Promise<Record<string, number[]>> {
+  const found = await rows(sb.from("idea_responses").select("idea_id,option_index"));
+  const out: Record<string, number[]> = {};
+  for (const r of found) {
+    const counts = (out[r.idea_id] ??= []);
+    counts[r.option_index] = (counts[r.option_index] ?? 0) + 1;
+  }
+  return out;
+}
+
 // ─────────────────────────── auth helpers ───────────────────────────
 export async function fetchUser(sb: SupabaseClient, id: string): Promise<User | null> {
-  const { data } = await sb.from("profiles").select("*").eq("id", id).maybeSingle();
-  if (!data) return null;
-  const [owned, passes] = await Promise.all([
+  const [found, owned, passes] = await Promise.all([
+    rows(sb.from("profiles").select("*").eq("id", id).limit(1)),
     rows(sb.from("course_purchases").select("course_id, purchased_at").eq("user_id", id)),
     rows(sb.from("category_passes").select("category, granted_at").eq("user_id", id)),
   ]);
-  return mapProfile(data, owned as PurchaseRow[], passes as PassRow[]);
+  if (!found[0]) return null;
+  return mapProfile(found[0], owned as PurchaseRow[], passes as PassRow[]);
 }
 
 // ─────────────────────────── writes ───────────────────────────
@@ -349,10 +574,52 @@ export const purchase = (sb: SupabaseClient, userId: string, courseId: string) =
     { onConflict: "user_id,course_id" },
   );
 
-export const completeVideo = (sb: SupabaseClient, p: { userId: string; videoId: string; courseId: string; watchSeconds: number }) =>
+/** A column the database does not have yet: a migration that has not been run. */
+const missingColumn = (error: { message?: string; code?: string } | null, column: string) =>
+  !!error && (error.code === "PGRST204" || error.code === "42703" || /column|schema cache/i.test(error.message ?? "")) &&
+  (error.message ?? "").includes(column);
+
+/**
+ * Marks a video finished. Its resume point goes back to the start, so a replay
+ * starts at 0:00 and "continue where you stopped" moves on to the next video.
+ * On a database without the resume columns it saves the completion alone.
+ */
+export async function completeVideo(sb: SupabaseClient, p: { userId: string; videoId: string; courseId: string; watchSeconds: number }) {
+  const now = new Date().toISOString();
+  const row = { user_id: p.userId, video_id: p.videoId, course_id: p.courseId, completed: true, watch_seconds: p.watchSeconds, completed_at: now };
+  const res = await sb.from("video_progress").upsert({ ...row, position_seconds: 0, last_watched_at: now }, { onConflict: "user_id,video_id" });
+  if (missingColumn(res.error, "position_seconds") || missingColumn(res.error, "last_watched_at"))
+    return sb.from("video_progress").upsert(row, { onConflict: "user_id,video_id" });
+  return res;
+}
+
+/**
+ * Remembers where the learner is in a video. Only the position columns are sent,
+ * so an upsert never touches `completed` (and fires none of the credit triggers).
+ */
+export const savePlayback = (
+  sb: SupabaseClient,
+  p: { userId: string; videoId: string; courseId: string; positionSeconds: number; at: string },
+) =>
   sb.from("video_progress").upsert(
-    { user_id: p.userId, video_id: p.videoId, course_id: p.courseId, completed: true, watch_seconds: p.watchSeconds, completed_at: new Date().toISOString() },
+    { user_id: p.userId, video_id: p.videoId, course_id: p.courseId, position_seconds: Math.max(0, Math.floor(p.positionSeconds)), last_watched_at: p.at },
     { onConflict: "user_id,video_id" },
+  );
+
+// ── idea of the day ──
+const ideaRow = (i: DailyIdea) => ({
+  id: i.id, title: i.title, body: i.body, question: i.question,
+  options: i.options.map((o) => ({ text: o.text, good: o.good, feedback: o.feedback })),
+  track_id: i.trackId, audience: i.audience, show_on: i.showOn, active: i.active,
+  created_by: i.createdBy ?? null, created_at: i.createdAt, updated_at: i.updatedAt,
+});
+export const saveIdeas = (sb: SupabaseClient, ideas: DailyIdea[]) => sb.from("daily_ideas").upsert(ideas.map(ideaRow));
+export const deleteIdea = (sb: SupabaseClient, id: string) => sb.from("daily_ideas").delete().eq("id", id);
+// ignoreDuplicates: a learner's first answer is the one that counts.
+export const answerIdea = (sb: SupabaseClient, r: IdeaResponse) =>
+  sb.from("idea_responses").upsert(
+    { user_id: r.userId, idea_id: r.ideaId, option_index: r.optionIndex, created_at: r.createdAt },
+    { onConflict: "user_id,idea_id", ignoreDuplicates: true },
   );
 
 export const insertSubmission = (sb: SupabaseClient, s: Submission) =>
@@ -419,7 +686,16 @@ async function must(step: string, q: PromiseLike<{ error: { message: string } | 
  * every step is an upsert or a targeted delete, so saving again is safe.
  */
 export async function saveCourse(sb: SupabaseClient, c: Course) {
-  await must("topic", sb.from("courses").upsert(courseRow(c)));
+  const topic = await sb.from("courses").upsert({ ...courseRow(c), video_thumbnail_url: c.videoThumbnailUrl ?? null });
+  if (missingColumn(topic.error, "video_thumbnail_url")) {
+    // The video-thumbnail migration has not run. Without a thumbnail there is
+    // nothing to lose; with one, say what to do rather than drop it silently.
+    if (c.videoThumbnailUrl)
+      throw new Error("the database has no place for the video thumbnail yet. Run supabase/migrations/2026-11-08-ideas-standing-resume.sql, then save again");
+    await must("topic", sb.from("courses").upsert(courseRow(c)));
+  } else if (topic.error) {
+    throw new Error(`topic: ${topic.error.message}`);
+  }
   // Sessions are upserted by id, never deleted and re-inserted: deleting a video row
   // cascades to every learner's progress, private notes and discussion on it, and
   // loses its stored notes file. One row per call, because a bulk upsert fills the
@@ -427,11 +703,12 @@ export async function saveCourse(sb: SupabaseClient, c: Course) {
   for (const v of c.videos) {
     const row = {
       id: v.id, course_id: c.id, title: v.title, order_index: v.order, duration_seconds: v.durationSeconds,
-      mux_playback_id: v.muxPlaybackId, transcript: v.transcript, summary: v.summary,
+      mux_playback_id: v.muxPlaybackId, summary: v.summary,
       notes_pdf_url: v.notesPdfName || null,
       // undefined = "not loaded, leave the stored value alone"; null = "clear it".
-      // The bulk read no longer populates notesPdfUrl.
+      // The bulk read populates neither the notes file nor the transcript.
       ...(v.notesPdfUrl === undefined ? {} : { notes_file_url: v.notesPdfUrl }),
+      ...(v.transcript === undefined ? {} : { transcript: v.transcript }),
       resources: v.resources,
     };
     const { error } = await sb.from("videos").upsert({ ...row, audio_url: v.audioUrl ?? null, audio_name: v.audioName ?? null });

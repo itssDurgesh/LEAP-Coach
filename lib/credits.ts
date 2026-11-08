@@ -70,6 +70,62 @@ export function topicCredit(course: Course, userId: string, submissions: Submiss
 }
 
 /**
+ * The credit a learner holds for a topic RIGHT NOW, earned as they go rather than
+ * all at once at the end. Mirrors public.topic_credit() in supabase/database.sql,
+ * which is what actually writes the number; this copy only lets the screen show
+ * it the moment something is done.
+ *
+ *   quality  = the ladder above, applied to the attempt-weighted score over the
+ *              questions of the checkpoints attempted so far (latest attempt each)
+ *   progress = (videos completed + checkpoints attempted) / (videos + checkpoints)
+ *   credit   = round(quality × progress)
+ *
+ * When everything is done, progress is 1 and this equals topicCredit().credit.
+ * A topic with no checkpoint questions earns nothing, as before.
+ */
+export function topicCreditNow(
+  course: Course,
+  userId: string,
+  submissions: Submission[],
+  progress: VideoProgress[],
+): number {
+  const latestByAssignment = new Map<string, Submission>();
+  for (const s of submissions) {
+    if (s.userId !== userId || s.courseId !== course.id) continue;
+    const cur = latestByAssignment.get(s.assignmentId);
+    if (!cur || cur.attemptNumber < s.attemptNumber || (cur.attemptNumber === s.attemptNumber && cur.submittedAt < s.submittedAt))
+      latestByAssignment.set(s.assignmentId, s);
+  }
+
+  let totalQuestions = 0;
+  let attemptedQuestions = 0;
+  let weightSum = 0;
+  for (const a of course.assignments) {
+    totalQuestions += a.questions.length;
+    const latest = latestByAssignment.get(a.id);
+    if (!latest) continue;
+    attemptedQuestions += a.questions.length;
+    const byId = new Map((Array.isArray(latest.feedback) ? latest.feedback : []).map((f) => [f.questionId, f]));
+    for (const q of a.questions) {
+      const f = byId.get(q.id);
+      if (f) weightSum += questionWeight(f);
+    }
+  }
+  if (totalQuestions === 0 || attemptedQuestions === 0) return 0;
+
+  const quality = creditForPercent((weightSum * 100) / attemptedQuestions, true);
+  const videoIds = new Set(course.videos.map((v) => v.id));
+  const doneVideos = new Set(
+    progress.filter((p) => p.userId === userId && p.completed && videoIds.has(p.videoId)).map((p) => p.videoId),
+  ).size;
+  const doneCheckpoints = course.assignments.filter((a) => latestByAssignment.has(a.id)).length;
+  const steps = course.videos.length + course.assignments.length;
+  const done = Math.min(doneVideos + doneCheckpoints, steps);
+  // Multiply before dividing, as the database does, so a result on .5 rounds the same way.
+  return Math.round((quality * done) / Math.max(1, steps));
+}
+
+/**
  * A topic is finalized for credit once the learner has finished it: every video
  * completed AND every checkpoint attempted (has a submission). Pass/fail doesn't
  * gate it — someone who exhausted their tries still earns the floor.

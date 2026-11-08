@@ -31,16 +31,26 @@ function RoleTag({ role }: { role: VideoComment["userRole"] }) {
 /** YouTube-style comments under a single topic video: threaded one reply level,
  *  @mentions (which notify the tagged person), likes, edit/delete (own + admin). */
 export function VideoComments({ course, video, hideHeader }: { course: Course; video: Video; hideHeader?: boolean }) {
-  const { currentUser, users, videoCommentsFor, addVideoComment } = useApp();
+  const { currentUser, users, videoCommentsFor, addVideoComment, searchProfiles } = useApp();
   const [text, setText] = React.useState("");
 
   const comments = videoCommentsFor(video.id);
   const topLevel = comments.filter((c) => c.parentId === null);
   const repliesOf = (id: string) => comments.filter((c) => c.parentId === id);
 
+  // People already on the page (comment authors, anyone looked up while typing);
+  // the composer searches for everyone else.
   const mentionUsers: MentionUser[] = users
     .filter((u) => u.id !== currentUser?.id && !u.banned)
     .map((u) => ({ id: u.id, name: u.name, username: u.username }));
+  const onSearch = React.useCallback(
+    async (q: string) =>
+      (await searchProfiles(q))
+        .filter((u) => u.id !== currentUser?.id)
+        .map((u) => ({ id: u.id, name: u.name, username: u.username })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentUser?.id],
+  );
 
   function submit() {
     if (!text.trim()) return;
@@ -68,6 +78,7 @@ export function VideoComments({ course, video, hideHeader }: { course: Course; v
               value={text}
               onChange={setText}
               users={mentionUsers}
+              onSearch={onSearch}
               placeholder="Ask a question or share a takeaway… use @ to tag someone"
               rows={2}
             />
@@ -96,6 +107,7 @@ export function VideoComments({ course, video, hideHeader }: { course: Course; v
             rootId={c.id}
             replies={repliesOf(c.id)}
             mentionUsers={mentionUsers}
+            onSearch={onSearch}
           />
         ))}
       </div>
@@ -110,6 +122,7 @@ function CommentItem({
   rootId,
   replies,
   mentionUsers,
+  onSearch,
 }: {
   course: Course;
   video: Video;
@@ -117,6 +130,7 @@ function CommentItem({
   rootId: string;
   replies?: VideoComment[];
   mentionUsers: MentionUser[];
+  onSearch?: (q: string) => Promise<MentionUser[]>;
 }) {
   const { currentUser, users, toggleVideoCommentLike, editVideoComment, deleteVideoComment, addVideoComment } = useApp();
   const [replying, setReplying] = React.useState(false);
@@ -167,7 +181,7 @@ function CommentItem({
           </div>
           {editing ? (
             <div className="mt-1.5">
-              <MentionInput value={draft} onChange={setDraft} users={mentionUsers} rows={2} />
+              <MentionInput value={draft} onChange={setDraft} users={mentionUsers} onSearch={onSearch} rows={2} />
               <div className="mt-2 flex gap-2">
                 <Button size="sm" onClick={() => { editVideoComment(comment.id, draft, mentionIdsFromText(draft, mentionUsers)); setEditing(false); }}>Save</Button>
                 <Button size="sm" variant="ghost" onClick={() => { setDraft(comment.text); setEditing(false); }}>Cancel</Button>
@@ -222,6 +236,7 @@ function CommentItem({
                 comment={r}
                 rootId={rootId}
                 mentionUsers={mentionUsers}
+                onSearch={onSearch}
               />
             ))}
           </div>
@@ -236,6 +251,7 @@ function CommentItem({
                 value={replyText}
                 onChange={setReplyText}
                 users={mentionUsers}
+                onSearch={onSearch}
                 placeholder="Write a reply… use @ to tag"
                 rows={2}
                 autoFocus

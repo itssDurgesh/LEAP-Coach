@@ -23,6 +23,7 @@ import {
   Menu,
   Loader2,
   Lock,
+  Lightbulb,
   LucideIcon,
 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
@@ -41,6 +42,7 @@ const nav: { label: string; href: string; icon: LucideIcon; requires?: Access }[
   { label: "Homepage", href: "/admin/homepage", icon: LayoutTemplate, requires: "homepage" },
   { label: "Team", href: "/admin/team", icon: Contact, requires: "team" },
   { label: "Content Studio", href: "/admin/courses", icon: BookOpen, requires: "content" },
+  { label: "Idea of the Day", href: "/admin/ideas", icon: Lightbulb, requires: "content" },
   { label: "Articles", href: "/admin/articles", icon: Newspaper, requires: "articles" },
   { label: "Announcements", href: "/admin/announcements", icon: Megaphone, requires: "announcements" },
   { label: "FAQ", href: "/admin/faq", icon: HelpCircle, requires: "homepage" },

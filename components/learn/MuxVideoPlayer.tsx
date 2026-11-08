@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import MuxPlayer, { type MuxPlayerRefAttributes } from "@mux/mux-player-react";
+import { usePlaybackResume } from "@/components/learn/usePlaybackResume";
 import { Course, Video } from "@/lib/types";
 
 interface MuxVideoPlayerProps {
@@ -14,44 +15,18 @@ interface MuxVideoPlayerProps {
   onDuration?: (seconds: number) => void;
 }
 
-function readPosition(key: string) {
-  try {
-    const seconds = Number(localStorage.getItem(key));
-    return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
-  } catch {
-    return 0; // storage blocked: start from the beginning
-  }
-}
-
 /**
  * Real Mux playback. Used when a video has a genuine Mux playback id
  * (the player page falls back to MockVideoPlayer for placeholder ids).
  *
- * Remembers where the learner stopped (in this browser) and starts there next
- * time, which is what "Resume video" promises. The page mounts one instance per
- * video (`key`), so the saved place is read once, on mount.
+ * Starts where the learner stopped, on this device or another one (see
+ * usePlaybackResume), which is what "Resume video" promises. The page mounts one
+ * instance per video (`key`). The topic's video thumbnail, when the admin set
+ * one, is the poster before playback starts.
  */
 export function MuxVideoPlayer({ course, video, learnerId, onEnded, onDuration }: MuxVideoPlayerProps) {
   const ref = React.useRef<MuxPlayerRefAttributes>(null);
-  const key = `leap-video-pos:${learnerId ?? "anon"}:${video.id}`;
-  const [startTime] = React.useState(() => readPosition(key));
-  const lastSaved = React.useRef(startTime);
-
-  function savePosition(force: boolean) {
-    const player = ref.current;
-    if (!player) return;
-    const time = player.currentTime;
-    if (!force && Math.abs(time - lastSaved.current) < 5) return;
-    lastSaved.current = time;
-    try {
-      // Nothing worth resuming in the opening seconds or the closing ones.
-      const nearEnd = Number.isFinite(player.duration) && time > player.duration - 5;
-      if (time < 5 || nearEnd) localStorage.removeItem(key);
-      else localStorage.setItem(key, String(Math.floor(time)));
-    } catch {
-      /* storage blocked or full: resuming is a convenience, not a requirement */
-    }
-  }
+  const { startAt, report, flush, ended } = usePlaybackResume(video.id, learnerId);
 
   return (
     <div className="overflow-hidden rounded-3xl bg-navy-950 shadow-lift ring-1 ring-white/10">
@@ -63,24 +38,24 @@ export function MuxVideoPlayer({ course, video, learnerId, onEnded, onDuration }
         streamType="on-demand"
         accentColor="#E0B43C"
         title={video.title}
-        startTime={startTime || undefined}
+        poster={course.videoThumbnailUrl || undefined}
+        startTime={startAt || undefined}
         metadata={{
           video_id: video.id,
           video_title: video.title,
           video_series: course.title,
         }}
-        onTimeUpdate={() => savePosition(false)}
-        onPause={() => savePosition(true)}
+        onTimeUpdate={() => {
+          const p = ref.current;
+          if (p) report(p.currentTime, p.duration);
+        }}
+        onPause={flush}
         onDurationChange={() => {
           const seconds = ref.current?.duration;
           if (seconds && Number.isFinite(seconds)) onDuration?.(seconds);
         }}
         onEnded={() => {
-          try {
-            localStorage.removeItem(key);
-          } catch {
-            /* see savePosition */
-          }
+          ended();
           onEnded?.();
         }}
         className="aspect-video w-full"

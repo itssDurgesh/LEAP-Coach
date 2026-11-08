@@ -11,10 +11,15 @@ import {
   Coupon,
   Course,
   CourseRating,
+  CreditEvent,
+  DailyIdea,
   DailyTip,
+  EarnedStamp,
   Enrollment,
   Faq,
   Gender,
+  IdeaResponse,
+  LeaderboardRow,
   LeadershipTrack,
   LiveSession,
   Note,
@@ -23,6 +28,7 @@ import {
   Permission,
   PostComment,
   PricingTiers,
+  ProfileStats,
   Question,
   RecommendedResource,
   Role,
@@ -62,15 +68,20 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isClerkConfigured } from "@/lib/clerk/config";
 import * as db from "@/lib/supabase/db";
 import { normalizeCode } from "@/lib/coupons";
-import { topicCredit, topicComplete } from "@/lib/credits";
-import { baseUsername, uniqueUsername } from "@/lib/username";
+import { topicCreditNow, topicComplete } from "@/lib/credits";
+import { ideaForDay } from "@/lib/ideas";
+import { computeStamps, learningStreaks } from "@/lib/stamps";
+import { baseUsername, isUsernameAvailable, normalizeUsername, uniqueUsername } from "@/lib/username";
 import type { AuthBridge } from "@/lib/auth/types";
 
 const STORAGE_KEY = "leap-coach-state-v1";
 // Per-user stale-while-revalidate cache for Supabase mode: paint instantly from the
 // last snapshot on reload, then refresh in the background. Keyed by user id so one
 // account never sees another's cached data.
-const SB_CACHE_PREFIX = "leap-sb-cache-v1:";
+// v2: a learner's snapshot no longer holds every other user's profile (the v1
+// snapshot kept everyone's email and phone in each browser), so v1 is removed.
+const SB_CACHE_PREFIX = "leap-sb-cache-v2:";
+const OLD_CACHE_PREFIXES = ["leap-sb-cache-v1:"];
 
 // Real backend = Clerk for auth + Supabase for data. Active only when both are
 // configured; otherwise the whole app runs on the localStorage mock. Clerk owns
@@ -81,10 +92,11 @@ const realMode = isClerkConfigured && isSupabaseConfigured;
 const PASS_MARK = 60;
 const MAX_ATTEMPTS = 10;
 
-// Learning credits are earned per TOPIC (max 100 each), finalized once the learner
-// completes the topic and keeping the best result. Total learningCredits = the sum
-// of every topic's best credit. Pure so the local state update and the Supabase
-// write both derive from the exact same computation.
+// Learning credits are earned per TOPIC (max 100 each) as the learner works through
+// it (topicCreditNow), keeping the best result. Total learningCredits = the sum of
+// every topic's credit. In real mode the database works the same number out itself
+// (sync_topic_credit) and is what counts; this copy shows it on screen at once and
+// keeps the local demo working. Pure so state and writes share one computation.
 function applyTopicCredit(
   users: User[],
   courses: Course[],
@@ -92,20 +104,64 @@ function applyTopicCredit(
   userId: string,
   submissions: Submission[],
   progress: VideoProgress[],
-): { users: User[]; patch: { learning_credits: number; topic_credits: Record<string, number> } | null } {
+): { users: User[]; patch: { learning_credits: number; topic_credits: Record<string, number> } | null; gained: number; total: number } {
   const course = courses.find((c) => c.id === courseId);
-  if (!course || !topicComplete(course, userId, submissions, progress)) return { users, patch: null };
   const user = users.find((u) => u.id === userId);
-  if (!user) return { users, patch: null };
+  if (!course || !user) return { users, patch: null, gained: 0, total: user?.learningCredits ?? 0 };
   const prev = user.topicCredits?.[courseId] ?? 0;
-  const credit = topicCredit(course, userId, submissions).credit;
-  if (credit <= prev) return { users, patch: null }; // no improvement (or a question-less topic) → nothing to record
+  const credit = topicCreditNow(course, userId, submissions, progress);
+  if (credit <= prev) return { users, patch: null, gained: 0, total: user.learningCredits }; // no improvement → nothing to record
   const topicCredits = { ...(user.topicCredits ?? {}), [courseId]: credit };
   const learningCredits = Object.values(topicCredits).reduce((sum, v) => sum + v, 0);
   const nextUsers = users.map((u) =>
     u.id === userId ? { ...u, topicCredits, learningCredits, lastActiveAt: new Date().toISOString() } : u,
   );
-  return { users: nextUsers, patch: { learning_credits: learningCredits, topic_credits: topicCredits } };
+  return {
+    users: nextUsers,
+    patch: { learning_credits: learningCredits, topic_credits: topicCredits },
+    gained: credit - prev,
+    total: learningCredits,
+  };
+}
+
+/**
+ * New progress / submissions for one learner, with the topic credit recalculated.
+ * In the local demo it also writes the credit history and awards stamps (the
+ * database does both in real mode).
+ */
+function withProgressCredit(
+  s: AppState,
+  userId: string,
+  courseId: string,
+  progress: VideoProgress[],
+  submissions: Submission[],
+  ideaResponses: IdeaResponse[],
+): AppState {
+  const { users, gained, total } = applyTopicCredit(s.users, s.courses, courseId, userId, submissions, progress);
+  const next: AppState = { ...s, progress, submissions, users };
+  if (realMode) return next;
+  const creditEvents = gained > 0
+    ? [{ id: uid("ce"), userId, courseId, amount: gained, totalAfter: total, createdAt: new Date().toISOString() }, ...s.creditEvents]
+    : s.creditEvents;
+  const me = users.find((u) => u.id === userId);
+  const stamps = me ? [...s.stamps, ...newlyEarnedStamps(me, s.courses, submissions, progress, ideaResponses, s.stamps)] : s.stamps;
+  return { ...next, creditEvents, stamps };
+}
+
+/** Stamps the learner now holds by the rules that are not in `held` yet (local demo awards). */
+function newlyEarnedStamps(
+  user: User,
+  courses: Course[],
+  submissions: Submission[],
+  progress: VideoProgress[],
+  ideaResponses: IdeaResponse[],
+  held: EarnedStamp[],
+): EarnedStamp[] {
+  const have = new Set(held.filter((s) => s.userId === user.id).map((s) => s.stampId));
+  const at = new Date().toISOString();
+  return computeStamps(user, courses, submissions, progress, ideaResponses)
+    .filter((s) => s.earned && !have.has(s.id))
+    .map((s) => ({ userId: user.id, stampId: s.id, earnedAt: at }));
 }
 
 interface AppState {
@@ -134,6 +190,16 @@ interface AppState {
   coupons: Coupon[];
   payments: Payment[];
   pricing: PricingTiers;
+  /** Ideas of the day: every idea for an admin (and the local demo); learners fetch theirs per day. */
+  ideas: DailyIdea[];
+  /** The signed-in learner's own answers to ideas of the day. */
+  ideaResponses: IdeaResponse[];
+  /** The signed-in learner's recent credit gains, newest first. */
+  creditEvents: CreditEvent[];
+  /** Stamps the signed-in learner holds (database-awarded in real mode). */
+  stamps: EarnedStamp[];
+  /** Transcripts fetched on demand, by video id (not part of the bulk load). */
+  transcripts: Record<string, string>;
   currentUserId: string | null;
 }
 
@@ -164,6 +230,11 @@ function seedState(): AppState {
     coupons: seedCoupons,
     payments: [],
     pricing: DEFAULT_PRICING,
+    ideas: [],
+    ideaResponses: [],
+    creditEvents: [],
+    stamps: [],
+    transcripts: {},
     currentUserId: null,
   };
 }
@@ -174,23 +245,31 @@ function emptyState(): AppState {
     community: [], comments: [], videoComments: [], notifications: [], teamMembers: [], books: [], articles: [],
     announcements: [], faqs: [], privacyPolicy: DEFAULT_PRIVACY_POLICY,
     siteContent: DEFAULT_SITE_CONTENT, enrollments: [], progress: [], submissions: [], notes: [], courseRatings: [], coupons: [],
-    payments: [], pricing: DEFAULT_PRICING, currentUserId: null,
+    payments: [], pricing: DEFAULT_PRICING, ideas: [], ideaResponses: [], creditEvents: [], stamps: [], transcripts: {},
+    currentUserId: null,
   };
 }
 
-// A lighter copy of the state for the localStorage paint-cache: drop heavy video
-// transcripts (they're refetched by loadAll) so JSON.stringify stays fast and we don't
-// blow the ~5MB localStorage quota. Used for the Supabase-mode snapshot only.
-function cacheSnapshot(state: AppState): AppState {
+// A lighter copy of the state for the localStorage paint-cache: transcripts and
+// video comments are fetched on demand anyway, so they stay out (JSON.stringify
+// stays fast and the ~5MB localStorage quota is not hit). Supabase mode only.
+function cacheSnapshot(state: AppState): Partial<AppState> {
+  const { transcripts: _t, videoComments: _c, ...rest } = state;
   return {
-    ...state,
+    ...rest,
     courses: state.courses.map((c) =>
-      c.videos.some((v) => v.transcript)
-        ? { ...c, videos: c.videos.map((v) => (v.transcript ? { ...v, transcript: "" } : v)) }
+      c.videos.some((v) => v.transcript !== undefined)
+        ? { ...c, videos: c.videos.map((v) => (v.transcript !== undefined ? { ...v, transcript: undefined } : v)) }
         : c,
     ),
   };
 }
+
+/** A learner's private rows are not part of another account's state. */
+const NO_PRIVATE_ROWS = {
+  enrollments: [], progress: [], submissions: [], notes: [], courseRatings: [], payments: [], coupons: [],
+  creditEvents: [], stamps: [], ideaResponses: [], notifications: [],
+} satisfies Partial<AppState>;
 
 export interface SignUpData {
   name: string;
@@ -257,6 +336,44 @@ interface AppContextValue extends AppState {
   markVideoComplete(videoId: string): void;
   isVideoUnlocked(courseId: string, order: number, userId?: string): boolean;
   courseProgress(courseId: string, userId?: string): { completed: number; total: number; pct: number };
+  /** The signed-in learner's progress row for a video (resume position, last watched). */
+  progressFor(videoId: string, userId?: string): VideoProgress | undefined;
+  /**
+   * Remembers where the learner is in a video. Saved to the database, so it follows
+   * them to another device and puts this video first on the dashboard.
+   */
+  savePlayback(videoId: string, positionSeconds: number): void;
+  // transcripts (fetched per video, not part of the bulk load)
+  /** The transcript when it is loaded; undefined while it is not. */
+  transcriptFor(videoId: string): string | undefined;
+  ensureTranscript(videoId: string): Promise<string>;
+  /** One topic with every transcript, for the editor (which saves them back). */
+  loadCourseForEdit(courseId: string): Promise<Course | null>;
+  // idea of the day
+  /** The idea for the signed-in learner's calendar day (YYYY-MM-DD); null = none; undefined = could not load. */
+  getIdeaOfTheDay(day: string): Promise<DailyIdea | null | undefined>;
+  ideaResponseFor(ideaId: string): IdeaResponse | undefined;
+  answerIdea(ideaId: string, optionIndex: number): void;
+  /** Votes per option. */
+  ideaStats(ideaId: string): Promise<number[] | null>;
+  /** Admin: every idea plus how many answered each option. */
+  loadIdeas(): Promise<{ ideas: DailyIdea[]; responses: Record<string, number[]> }>;
+  saveIdeas(ideas: DailyIdea[]): Promise<{ ok: boolean; error?: string }>;
+  deleteIdea(id: string): Promise<{ ok: boolean; error?: string }>;
+  // standing: leaderboard, stamps, profile stats
+  getLeaderboard(period: "all" | "month", role: Role | null, limit?: number): Promise<LeaderboardRow[] | null>;
+  getUserStamps(userId: string): Promise<EarnedStamp[]>;
+  getProfileStats(userId: string): Promise<ProfileStats | null>;
+  /** Days in a row with learning activity for the signed-in learner. */
+  learningStreak(): { current: number; best: number };
+  // other people's profiles, fetched as screens need them
+  ensureProfiles(ids: string[]): Promise<void>;
+  /** A profile by id or @handle; looks it up when it is not loaded. */
+  findProfile(idOrHandle: string): Promise<User | null>;
+  searchProfiles(query: string): Promise<User[]>;
+  isUsernameTaken(handle: string): Promise<boolean>;
+  // per-video discussion, fetched per video
+  loadVideoComments(videoId: string): Promise<void>;
   // assignments
   assignmentUnlocked(assignmentId: string, userId?: string): boolean;
   assignmentResult(
@@ -410,13 +527,24 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const userId = auth.userId;
     setFresh(false); // a different session: what is in the store is not this user's load yet
 
+    // Snapshots from older versions held every user's profile; remove them.
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && OLD_CACHE_PREFIXES.some((p) => k.startsWith(p))) localStorage.removeItem(k);
+      }
+    } catch {
+      /* storage blocked */
+    }
+
     // Instant paint from this user's cached snapshot (stale-while-revalidate), so
     // pages don't sit on a spinner waiting for the full load on every reload.
+    let cached: Partial<AppState> | null = null;
     if (userId) {
       try {
         const raw = localStorage.getItem(SB_CACHE_PREFIX + userId);
         if (raw) {
-          const cached = JSON.parse(raw) as Partial<AppState>;
+          cached = JSON.parse(raw) as Partial<AppState>;
           setState((s) => ({ ...s, ...cached, currentUserId: userId }));
           setHydrated(true);
         }
@@ -427,33 +555,57 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
 
     let active = true;
     (async () => {
-      // First sign-in: provision the profile row keyed by the Clerk user id (the
-      // old auth.users → handle_new_user trigger is gone). No-op if it already exists.
-      // Run in parallel with loadAll — ensureProfile is an ignoreDuplicates upsert so
-      // it's safe to race; and loadAll's fetchUser fallback (below) covers the case
-      // where the new row isn't in the initial profiles result yet.
+      // Signed out: the public pages' content is all there is to load.
+      if (!userId) {
+        const pub = await db.loadPublic(sb);
+        if (!active) return;
+        setState((s) => ({
+          ...s,
+          ...NO_PRIVATE_ROWS,
+          ...pub,
+          users: [],
+          pricing: pub.pricing ?? s.pricing,
+          siteContent: pub.siteContent ? { ...DEFAULT_SITE_CONTENT, ...pub.siteContent } : s.siteContent,
+          privacyPolicy: pub.privacyPolicy ?? DEFAULT_PRIVACY_POLICY,
+          currentUserId: null,
+        }));
+        setHydrated(true);
+        setFresh(true);
+        return;
+      }
+
+      // What the last visit knew decides which half to start at once: a learner's
+      // own rows, or the admin screens' data. A wrong guess (a role changed) only
+      // costs one more round trip below.
+      const cachedMe = cached?.users?.find((u) => u.id === userId);
+      const guessAdmin = !!cachedMe?.isAdmin;
+      // First sign-in: provision the profile row keyed by the Clerk user id. A
+      // returning user (in the snapshot) already has one, so the write is skipped.
       const ensurePromise =
-        userId && auth.identity
+        !cachedMe && auth.identity
           ? db.ensureProfile(sb, userId, auth.identity.email, auth.identity.name).then(
               ({ error }) => { if (error) console.error("[supabase] ensureProfile", error); },
               (e: unknown) => { console.error("[supabase] ensureProfile", e); },
             )
           : Promise.resolve();
 
-      const [data] = await Promise.all([db.loadAll(sb), ensurePromise]);
+      const ownStart = guessAdmin ? null : db.loadOwn(sb, userId);
+      const adminStart = guessAdmin ? db.loadAdmin(sb) : null;
+      const [pub, shared, firstMe] = await Promise.all([
+        db.loadPublic(sb),
+        db.loadShared(sb, userId),
+        db.fetchUser(sb, userId),
+      ]);
+      let me = firstMe;
+      if (!me) {
+        // A brand-new account: the profile row is being created right now.
+        await ensurePromise;
+        me = await db.fetchUser(sb, userId);
+      }
       if (!active) return;
 
-      // Guarantee the signed-in user is in `users` (loadAll can miss a just-created
-      // row due to RLS/replication lag) — else currentUser is null and guards bounce.
-      let users = data.users;
-      if (userId && !users.some((u) => u.id === userId)) {
-        const me = await db.fetchUser(sb, userId);
-        if (!active) return;
-        if (me) users = [...users, me];
-      }
-
       // Suspended account → sign out and stay logged out.
-      if (userId && users.find((u) => u.id === userId)?.banned) {
+      if (me?.banned) {
         pendingSignup.current = null;
         await auth.signOut();
         if (!active) return;
@@ -462,12 +614,17 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         return;
       }
 
+      const admin = me?.isAdmin ? await (adminStart ?? db.loadAdmin(sb)) : null;
+      const own = admin ? null : await (ownStart ?? db.loadOwn(sb, userId));
+      if (!active) return;
+
       // Apply any pending sign-up extras now that the row exists + token is active.
       const pending = pendingSignup.current;
-      if (userId && pending) {
+      if (me && pending) {
         pendingSignup.current = null;
-        const taken = new Set(users.map((u) => u.username).filter(Boolean) as string[]);
-        const username = uniqueUsername(baseUsername(pending.name, pending.email), taken);
+        const base = baseUsername(pending.name, pending.email);
+        const taken = await db.takenUsernames(sb, base).catch(() => new Set<string>());
+        const username = uniqueUsername(base, taken);
         const patch = {
           name: pending.name,
           username,
@@ -480,31 +637,50 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           region: pending.region ?? null,
         };
         Promise.resolve(db.updateProfile(sb, userId, patch)).catch((e) => console.error("[supabase]", e));
-        users = users.map((u) =>
-          u.id === userId
-            ? {
-                ...u,
-                name: pending.name,
-                username,
-                age: pending.age,
-                gender: pending.gender,
-                phone: pending.phone,
-                phoneVerified: pending.phoneVerified ?? false,
-                company: pending.company,
-                nationality: pending.nationality,
-                region: pending.region,
-              }
-            : u,
-        );
+        me = {
+          ...me,
+          name: pending.name,
+          username,
+          age: pending.age,
+          gender: pending.gender,
+          phone: pending.phone,
+          phoneVerified: pending.phoneVerified ?? false,
+          company: pending.company,
+          nationality: pending.nationality,
+          region: pending.region,
+        };
+        if (!active) return;
       }
+
+      // Admins get everyone (the admin screens list and count learners); a learner's
+      // store holds their own full profile, plus public profiles fetched as needed.
+      const users = admin
+        ? me
+          ? [...admin.users.filter((u) => u.id !== me!.id), me]
+          : admin.users
+        : me
+          ? [me]
+          : [];
 
       setState((s) => ({
         ...s,
-        ...data,
+        ...NO_PRIVATE_ROWS,
+        ...pub,
+        ...shared,
+        ...(admin
+          ? {
+              enrollments: admin.enrollments,
+              progress: admin.progress,
+              submissions: admin.submissions,
+              payments: admin.payments,
+              coupons: admin.coupons,
+              ideas: admin.ideas,
+            }
+          : { ...own!, ideas: [] }),
         users,
-        pricing: data.pricing ?? s.pricing,
-        siteContent: data.siteContent ? { ...DEFAULT_SITE_CONTENT, ...data.siteContent } : s.siteContent,
-        privacyPolicy: data.privacyPolicy ?? DEFAULT_PRIVACY_POLICY,
+        pricing: pub.pricing ?? s.pricing,
+        siteContent: pub.siteContent ? { ...DEFAULT_SITE_CONTENT, ...pub.siteContent } : s.siteContent,
+        privacyPolicy: pub.privacyPolicy ?? DEFAULT_PRIVACY_POLICY,
         currentUserId: userId,
       }));
       setHydrated(true);
@@ -535,31 +711,44 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
   // ── Cache the per-user snapshot (Supabase mode) for instant reloads — DEBOUNCED + slimmed ──
   React.useEffect(() => {
     if (!hydrated || !realMode || !state.currentUserId) return;
+    // Serialising the store blocks the page for a moment, so it waits for a quiet
+    // second (a burst of changes writes once) and then for the browser to be idle.
     const id = setTimeout(() => {
-      try {
-        localStorage.setItem(SB_CACHE_PREFIX + state.currentUserId, JSON.stringify(cacheSnapshot(state)));
-      } catch {
-        /* ignore quota errors — falls back to a full load next time */
-      }
-    }, 500);
+      const write = () => {
+        try {
+          localStorage.setItem(SB_CACHE_PREFIX + state.currentUserId, JSON.stringify(cacheSnapshot(state)));
+        } catch {
+          /* ignore quota errors — falls back to a full load next time */
+        }
+      };
+      const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      if (idle) idle(write, { timeout: 3000 });
+      else write();
+    }, 1000);
     return () => clearTimeout(id);
   }, [state, hydrated]);
 
   // ── Ensure the signed-in user has a unique @username (tagging resolves by handle).
-  // Covers OAuth signups and profiles created before usernames existed.
+  // Covers OAuth signups and profiles created before usernames existed. Which
+  // handles are taken is asked of the database (only the learner's own profile is
+  // loaded), once per account per page load.
+  const handleFor = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!hydrated) return;
+    if (!fresh) return;
     const u = state.users.find((x) => x.id === state.currentUserId);
-    if (!u || u.username) return;
-    const taken = new Set(state.users.map((x) => x.username).filter(Boolean) as string[]);
-    const username = uniqueUsername(baseUsername(u.name, u.email), taken);
-    setState((s) => ({
-      ...s,
-      users: s.users.map((x) => (x.id === u.id ? { ...x, username } : x)),
-    }));
-    const sb = getSupabase();
-    if (sb) Promise.resolve(db.updateProfile(sb, u.id, { username })).then(undefined, (e) => console.error("[supabase]", e));
-  }, [hydrated, state.currentUserId, state.users]);
+    if (!u || u.username || handleFor.current === u.id) return;
+    handleFor.current = u.id;
+    const base = baseUsername(u.name, u.email);
+    const sb = realMode ? getSupabase() : null;
+    (async () => {
+      const taken = sb
+        ? await db.takenUsernames(sb, base).catch(() => new Set<string>())
+        : new Set(state.users.map((x) => (x.username ?? "").toLowerCase()).filter(Boolean));
+      const username = uniqueUsername(base, taken);
+      setState((s) => ({ ...s, users: s.users.map((x) => (x.id === u.id ? { ...x, username } : x)) }));
+      if (sb) Promise.resolve(db.updateProfile(sb, u.id, { username })).then(undefined, (e) => console.error("[supabase]", e));
+    })();
+  }, [fresh, state.currentUserId, state.users]);
 
   // ── Notification polling (real mode): replies/@mentions reach the bell
   // without a full reload — refresh every 60s and whenever the tab regains focus.
@@ -588,34 +777,62 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     };
   }, [hydrated, state.currentUserId]);
 
+  // ── Lookup indexes, rebuilt only when their source rows change ──
+  // Every check below used to scan whole arrays: isVideoCompleted searched all
+  // progress rows, and the admin overview calls courseProgress() for each
+  // enrollment, so it did (enrollments × videos × progress rows) comparisons —
+  // fine for a demo, minutes of frozen page with a real cohort. These maps make
+  // each check a constant-time lookup.
+  const courseIndex = React.useMemo(() => {
+    const byId = new Map<string, Course>();
+    const bySlug = new Map<string, Course>();
+    const video = new Map<string, { course: Course; video: Video }>();
+    const assignment = new Map<string, { course: Course; assignment: Assignment }>();
+    for (const c of state.courses) {
+      byId.set(c.id, c);
+      bySlug.set(c.slug, c);
+      for (const v of c.videos) video.set(v.id, { course: c, video: v });
+      for (const a of c.assignments) assignment.set(a.id, { course: c, assignment: a });
+    }
+    return { byId, bySlug, video, assignment };
+  }, [state.courses]);
+  const userIndex = React.useMemo(() => new Map(state.users.map((u) => [u.id, u])), [state.users]);
+  const enrolledIndex = React.useMemo(() => new Set(state.enrollments.map((e) => `${e.userId}|${e.courseId}`)), [state.enrollments]);
+  const progressIndex = React.useMemo(() => new Map(state.progress.map((p) => [`${p.userId}|${p.videoId}`, p])), [state.progress]);
+  const submissionIndex = React.useMemo(() => {
+    const m = new Map<string, Submission[]>();
+    for (const sub of state.submissions) {
+      const k = `${sub.userId}|${sub.assignmentId}`;
+      const list = m.get(k);
+      if (list) list.push(sub);
+      else m.set(k, [sub]);
+    }
+    for (const list of m.values()) list.sort((a, b) => a.attemptNumber - b.attemptNumber);
+    return m;
+  }, [state.submissions]);
+
   const value = React.useMemo<AppContextValue>(() => {
     // The local demo (no Clerk) keeps everything in localStorage. It has no session,
     // so the database would refuse every write anyway; sending them only made a local
     // run fire rejected requests at the real project.
     const sb = realMode ? getSupabase() : null;
-    const currentUser = state.users.find((u) => u.id === state.currentUserId) ?? null;
+    const currentUser = (state.currentUserId && userIndex.get(state.currentUserId)) || null;
     const who = (userId?: string) => userId ?? state.currentUserId ?? "";
+    const userOf = (userId?: string) => userIndex.get(who(userId));
 
     // ── helpers ──
-    const getCourse = (id: string) => state.courses.find((c) => c.id === id);
-    const getCourseBySlug = (slug: string) => state.courses.find((c) => c.slug === slug);
-    const getVideoById = (id: string) => {
-      for (const c of state.courses) {
-        const v = c.videos.find((x) => x.id === id);
-        if (v) return { course: c, video: v };
-      }
-      return undefined;
-    };
+    const getCourse = (id: string) => courseIndex.byId.get(id);
+    const getCourseBySlug = (slug: string) => courseIndex.bySlug.get(slug);
+    const getVideoById = (id: string) => courseIndex.video.get(id);
 
-    const isEnrolled = (courseId: string, userId?: string) =>
-      state.enrollments.some((e) => e.userId === who(userId) && e.courseId === courseId);
+    const isEnrolled = (courseId: string, userId?: string) => enrolledIndex.has(`${who(userId)}|${courseId}`);
 
     // Entitlement to a course, IGNORING time-expiry (owns it / all-access / category pass / free).
     const hasGrant = (courseId: string, userId?: string) => {
       const course = getCourse(courseId);
       if (!course) return false;
       if (course.price === 0) return true;
-      const u = state.users.find((x) => x.id === who(userId));
+      const u = userOf(userId);
       if (!u) return false;
       if (u.subscriptionPlan === "all_access") return true;
       if (courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c))) return true; // category pass
@@ -628,7 +845,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       const course = getCourse(courseId);
       if (!course) return false;
       if (course.price === 0) return true;
-      const u = state.users.find((x) => x.id === who(userId));
+      const u = userOf(userId);
       if (!u) return false;
       if (u.subscriptionPlan === "all_access") return true;
       return courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c));
@@ -637,22 +854,18 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     // When this user's access to the topic lapses = the LATEST one-year window
     // across every entitlement that grants it (à-la-carte purchase, catalog pass,
     // all-access). null = never expires (free topic / undated legacy entitlement).
-    const courseExpiresAt = (courseId: string, userId?: string) =>
-      courseAccessExpiry(state.users.find((x) => x.id === who(userId)), getCourse(courseId));
-    const courseExpired = (courseId: string, userId?: string) =>
-      isCourseAccessExpired(state.users.find((x) => x.id === who(userId)), getCourse(courseId));
+    const courseExpiresAt = (courseId: string, userId?: string) => courseAccessExpiry(userOf(userId), getCourse(courseId));
+    const courseExpired = (courseId: string, userId?: string) => isCourseAccessExpired(userOf(userId), getCourse(courseId));
 
     // Access = a valid entitlement AND the per-course timer hasn't lapsed (applies to everyone).
     const hasAccess = (courseId: string, userId?: string) =>
       hasGrant(courseId, userId) && !courseExpired(courseId, userId);
 
-    const isVideoCompleted = (videoId: string, userId?: string) =>
-      state.progress.some((p) => p.userId === who(userId) && p.videoId === videoId && p.completed);
+    const progressFor = (videoId: string, userId?: string) => progressIndex.get(`${who(userId)}|${videoId}`);
+    const isVideoCompleted = (videoId: string, userId?: string) => !!progressFor(videoId, userId)?.completed;
 
     const assignmentResult = (assignmentId: string, userId?: string) => {
-      const subs = state.submissions
-        .filter((s) => s.userId === who(userId) && s.assignmentId === assignmentId)
-        .sort((a, b) => a.attemptNumber - b.attemptNumber);
+      const subs = submissionIndex.get(`${who(userId)}|${assignmentId}`) ?? [];
       const passed = subs.some((s) => s.passed);
       const bestScore = subs.reduce((m, s) => Math.max(m, s.score), 0);
       return { attempts: subs.length, passed, bestScore, last: subs[subs.length - 1] };
@@ -675,21 +888,16 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const courseProgress = (courseId: string, userId?: string) => {
       const course = getCourse(courseId);
       const total = course?.videos.length ?? 0;
-      const completed = course
-        ? course.videos.filter((v) => isVideoCompleted(v.id, userId)).length
-        : 0;
+      let completed = 0;
+      if (course) for (const v of course.videos) if (isVideoCompleted(v.id, userId)) completed++;
       return { completed, total, pct: total ? Math.round((completed / total) * 100) : 0 };
     };
 
     const assignmentUnlocked = (assignmentId: string, userId?: string) => {
-      for (const c of state.courses) {
-        const a = c.assignments.find((x) => x.id === assignmentId);
-        if (a) {
-          const gateVideo = c.videos.find((v) => v.order === a.afterVideoOrder);
-          return gateVideo ? isVideoCompleted(gateVideo.id, userId) : false;
-        }
-      }
-      return false;
+      const found = courseIndex.assignment.get(assignmentId);
+      if (!found) return false;
+      const gateVideo = found.course.videos.find((v) => v.order === found.assignment.afterVideoOrder);
+      return gateVideo ? isVideoCompleted(gateVideo.id, userId) : false;
     };
 
     // ── state setters ──
@@ -712,6 +920,59 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         const error = (r as { error?: unknown } | null | undefined)?.error;
         if (error) failed(error);
       }, failed);
+    };
+
+    /** fire(), then `after` once the database has accepted the write. */
+    const fireThen = (p: PromiseLike<unknown>, after?: () => void) => {
+      Promise.resolve(p).then(
+        (r) => {
+          const error = (r as { error?: unknown } | null | undefined)?.error;
+          if (error) {
+            console.error("[supabase] write failed", error);
+            setSaveError(SAVE_ERROR);
+          } else after?.();
+        },
+        (e) => {
+          console.error("[supabase] write failed", e);
+          setSaveError(SAVE_ERROR);
+        },
+      );
+    };
+
+    /**
+     * Reads the credits, credit history and stamps the database worked out after a
+     * learner finished something, so the screen shows its numbers (and the date a
+     * stamp was earned) rather than only the local estimate.
+     */
+    const refreshStanding = () => {
+      const uidNow = state.currentUserId;
+      if (!sb || !uidNow) return;
+      db.fetchStanding(sb, uidNow).then(
+        ({ creditEvents, stamps, credits }) =>
+          setState((s) =>
+            s.currentUserId !== uidNow
+              ? s
+              : {
+                  ...s,
+                  creditEvents,
+                  stamps,
+                  users: credits
+                    ? s.users.map((u) =>
+                        u.id === uidNow
+                          ? {
+                              ...u,
+                              // The database's number can be behind only when its migration has
+                              // not run (then this browser's is the one that counts).
+                              learningCredits: Math.max(credits.learning, creditEvents.length ? 0 : u.learningCredits),
+                              topicCredits: creditEvents.length ? credits.topics : u.topicCredits,
+                            }
+                          : u,
+                      )
+                    : s.users,
+                },
+          ),
+        (e) => console.error("[supabase] standing", e),
+      );
     };
 
     // Owner-only user mutations (grant/revoke/ban/delete) go through a service-role
@@ -1006,31 +1267,55 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         const found = getVideoById(videoId);
         const dur = found?.video.durationSeconds ?? 0;
         const courseId = found?.course.id ?? "";
-        // Mark this video complete on top of an arbitrary progress list.
+        // Mark this video complete on top of an arbitrary progress list. The resume
+        // point goes back to the start, as in the database (completeVideo).
         const withVideoDone = (base: VideoProgress[]): VideoProgress[] => {
+          const now = new Date().toISOString();
           const existing = base.find((p) => p.userId === user.id && p.videoId === videoId);
           return existing
             ? base.map((p) =>
                 p === existing
-                  ? { ...p, completed: true, watchSeconds: dur, completedAt: new Date().toISOString() }
+                  ? { ...p, completed: true, watchSeconds: dur, completedAt: p.completedAt ?? now, positionSeconds: 0, lastWatchedAt: now }
                   : p,
               )
             : [
                 ...base,
-                { userId: user.id, videoId, courseId, completed: true, watchSeconds: dur, completedAt: new Date().toISOString() },
+                { userId: user.id, videoId, courseId, completed: true, watchSeconds: dur, completedAt: now, positionSeconds: 0, lastWatchedAt: now },
               ];
         };
-        setState((s) => {
-          const progress = withVideoDone(s.progress);
-          // Completing the last video can finalize the topic → (re)compute its credit.
-          const { users } = applyTopicCredit(s.users, s.courses, courseId, user.id, s.submissions, progress);
-          return { ...s, progress, users };
-        });
+        const already = isVideoCompleted(videoId);
+        setState((s) => withProgressCredit(s, user.id, courseId, withVideoDone(s.progress), s.submissions, s.ideaResponses));
         if (sb) {
-          fire(db.completeVideo(sb, { userId: user.id, videoId, courseId, watchSeconds: dur }));
+          // The database works the credit and stamps out itself (sync_topic_credit,
+          // award_stamps) as part of this write; read its numbers back afterwards.
+          fireThen(db.completeVideo(sb, { userId: user.id, videoId, courseId, watchSeconds: dur }), already ? undefined : refreshStanding);
           const { patch } = applyTopicCredit(state.users, state.courses, courseId, user.id, state.submissions, withVideoDone(state.progress));
-          if (patch) fire(db.updateProfile(sb, user.id, patch));
+          // Only for a database that has not run the 2026-11-08 migration; after it,
+          // credits are pinned and this write changes nothing.
+          if (patch) fire(db.updateProfile(sb, user.id, patch), true);
         }
+      },
+      progressFor,
+      savePlayback(videoId, positionSeconds) {
+        if (!currentUser) return;
+        const user = currentUser;
+        const found = getVideoById(videoId);
+        if (!found) return;
+        const position = Math.max(0, Math.floor(positionSeconds));
+        const at = new Date().toISOString();
+        setState((s) => {
+          const existing = s.progress.find((p) => p.userId === user.id && p.videoId === videoId);
+          const progress = existing
+            ? s.progress.map((p) => (p === existing ? { ...p, positionSeconds: position, lastWatchedAt: at } : p))
+            : [
+                ...s.progress,
+                { userId: user.id, videoId, courseId: found.course.id, completed: false, watchSeconds: 0, positionSeconds: position, lastWatchedAt: at },
+              ];
+          return { ...s, progress };
+        });
+        // Quiet: a missed position save is not worth a warning; the next one (or this
+        // browser's own copy) covers it.
+        if (sb) fire(db.savePlayback(sb, { userId: user.id, videoId, courseId: found.course.id, positionSeconds: position, at }), true);
       },
 
       // ── assignments ──
@@ -1078,16 +1363,14 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           attemptNumber: prior.attempts + 1,
           submittedAt: new Date().toISOString(),
         };
-        setState((s) => {
-          const newSubs = [...s.submissions, submission];
-          // Answering a checkpoint can finalize the topic → (re)compute its credit (best kept).
-          const { users } = applyTopicCredit(s.users, s.courses, courseId, userId, newSubs, s.progress);
-          return { ...s, submissions: newSubs, users };
-        });
+        // Every checkpoint attempt can raise the topic's credit (best result kept).
+        setState((s) => withProgressCredit(s, userId, courseId, s.progress, [...s.submissions, submission], s.ideaResponses));
         if (sb) {
-          fire(db.insertSubmission(sb, submission));
+          // The database recalculates the credit and stamps in the same write.
+          fireThen(db.insertSubmission(sb, submission), refreshStanding);
           const { patch } = applyTopicCredit(state.users, state.courses, courseId, userId, [...state.submissions, submission], state.progress);
-          if (patch) fire(db.updateProfile(sb, userId, patch));
+          // Only matters on a database without the 2026-11-08 migration (credits pinned after it).
+          if (patch) fire(db.updateProfile(sb, userId, patch), true);
         }
         return submission;
       },
@@ -1181,6 +1464,229 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         } catch (e) {
           console.error("[supabase]", e);
           return null;
+        }
+      },
+      // ── transcripts: fetched for the video being watched ──
+      transcriptFor(videoId) {
+        if (videoId in state.transcripts) return state.transcripts[videoId];
+        return getVideoById(videoId)?.video.transcript;
+      },
+      async ensureTranscript(videoId) {
+        const known = state.transcripts[videoId] ?? getVideoById(videoId)?.video.transcript;
+        if (known !== undefined) return known;
+        if (!sb) return "";
+        let text = await db.fetchTranscript(sb, videoId);
+        if (text === null) {
+          // One retry for a dropped request, then settle on "none", so the lesson
+          // page does not wait for it forever.
+          await new Promise((r) => setTimeout(r, 1500));
+          text = await db.fetchTranscript(sb, videoId);
+        }
+        const settled = text ?? "";
+        setState((s) => (videoId in s.transcripts ? s : { ...s, transcripts: { ...s.transcripts, [videoId]: settled } }));
+        return settled;
+      },
+      async loadCourseForEdit(courseId) {
+        if (!sb) return getCourse(courseId) ?? null;
+        const full = await db.fetchCourseFull(sb, courseId);
+        return full;
+      },
+
+      // ── idea of the day ──
+      async getIdeaOfTheDay(day) {
+        const role = currentUser?.role ?? null;
+        if (!sb) return ideaForDay(state.ideas, role, day);
+        return db.fetchIdeaForDay(sb, role, day);
+      },
+      ideaResponseFor(ideaId) {
+        const me = state.currentUserId;
+        return state.ideaResponses.find((r) => r.ideaId === ideaId && r.userId === me);
+      },
+      answerIdea(ideaId, optionIndex) {
+        if (!currentUser) return;
+        if (state.ideaResponses.some((r) => r.ideaId === ideaId && r.userId === currentUser.id)) return; // first answer counts
+        const response: IdeaResponse = { userId: currentUser.id, ideaId, optionIndex, createdAt: new Date().toISOString() };
+        setState((s) => {
+          const ideaResponses = [response, ...s.ideaResponses];
+          if (realMode) return { ...s, ideaResponses };
+          const me = s.users.find((u) => u.id === response.userId);
+          const stamps = me ? [...s.stamps, ...newlyEarnedStamps(me, s.courses, s.submissions, s.progress, ideaResponses, s.stamps)] : s.stamps;
+          return { ...s, ideaResponses, stamps };
+        });
+        if (sb) fireThen(db.answerIdea(sb, response), refreshStanding);
+      },
+      async ideaStats(ideaId) {
+        if (!sb) {
+          const counts: number[] = [];
+          for (const r of state.ideaResponses) if (r.ideaId === ideaId) counts[r.optionIndex] = (counts[r.optionIndex] ?? 0) + 1;
+          return counts;
+        }
+        return db.fetchIdeaStats(sb, ideaId);
+      },
+      async loadIdeas() {
+        if (!sb) {
+          const responses: Record<string, number[]> = {};
+          for (const r of state.ideaResponses) {
+            const c = (responses[r.ideaId] ??= []);
+            c[r.optionIndex] = (c[r.optionIndex] ?? 0) + 1;
+          }
+          return { ideas: state.ideas, responses };
+        }
+        const [ideas, responses] = await Promise.all([db.fetchIdeas(sb), db.fetchIdeaResponseCounts(sb)]);
+        setState((s) => ({ ...s, ideas }));
+        return { ideas, responses };
+      },
+      async saveIdeas(ideas) {
+        if (!hasPermission(currentUser, "content")) return { ok: false, error: "You don't have permission to plan ideas." };
+        if (sb) {
+          const { error } = await db.saveIdeas(sb, ideas);
+          if (error) {
+            console.error("[supabase] saveIdeas", error);
+            return {
+              ok: false,
+              error: /daily_ideas/.test(error.message)
+                ? "The database has no ideas table yet. Run supabase/migrations/2026-11-08-ideas-standing-resume.sql in Supabase, then try again."
+                : error.message,
+            };
+          }
+        }
+        const byId = new Map(ideas.map((i) => [i.id, i]));
+        setState((s) => ({
+          ...s,
+          ideas: [...s.ideas.filter((i) => !byId.has(i.id)), ...ideas],
+        }));
+        return { ok: true };
+      },
+      async deleteIdea(id) {
+        if (!hasPermission(currentUser, "content")) return { ok: false, error: "You don't have permission to plan ideas." };
+        if (sb) {
+          const { error } = await db.deleteIdea(sb, id);
+          if (error) return { ok: false, error: error.message };
+        }
+        setState((s) => ({ ...s, ideas: s.ideas.filter((i) => i.id !== id), ideaResponses: s.ideaResponses.filter((r) => r.ideaId !== id) }));
+        return { ok: true };
+      },
+
+      // ── standing: leaderboard, stamps, profile stats ──
+      async getLeaderboard(period, role, limit = 10) {
+        if (sb) return db.fetchLeaderboard(sb, period, role, limit);
+        // Local demo: rank the accounts in this browser the same way.
+        const monthStart = new Date();
+        monthStart.setDate(1);
+        monthStart.setHours(0, 0, 0, 0);
+        const monthly = new Map<string, number>();
+        for (const e of state.creditEvents)
+          if (Date.parse(e.createdAt) >= monthStart.getTime()) monthly.set(e.userId, (monthly.get(e.userId) ?? 0) + e.amount);
+        const pool = state.users
+          .filter((u) => !u.isAdmin && !u.banned && (!role || u.role === role))
+          .map((u) => ({ u, credits: period === "month" ? monthly.get(u.id) ?? 0 : u.learningCredits }))
+          .sort((a, b) => b.credits - a.credits || a.u.name.localeCompare(b.u.name));
+        return pool
+          .map((x, i) => ({
+            rank: pool.findIndex((y) => y.credits === x.credits) + 1,
+            userId: x.u.id,
+            name: x.u.name,
+            username: x.u.username,
+            avatarUrl: x.u.avatarUrl ?? null,
+            role: x.u.role,
+            credits: x.credits,
+            isMe: x.u.id === state.currentUserId,
+            i,
+          }))
+          .filter((r) => (r.i < limit && r.credits > 0) || r.isMe)
+          .map(({ i: _i, ...r }) => r);
+      },
+      async getUserStamps(userId) {
+        if (userId === state.currentUserId && !sb) return state.stamps;
+        if (!sb) {
+          const u = userIndex.get(userId);
+          if (!u) return [];
+          return computeStamps(u, state.courses, state.submissions, state.progress, state.ideaResponses)
+            .filter((x) => x.earned)
+            .map((x) => ({ userId, stampId: x.id, earnedAt: x.earnedAt ?? u.lastActiveAt }));
+        }
+        return db.fetchStamps(sb, userId);
+      },
+      async getProfileStats(userId) {
+        if (sb) return db.fetchProfileStats(sb, userId);
+        const completedVideos = state.progress.filter((p) => p.userId === userId && p.completed).length;
+        return {
+          comments: state.videoComments.filter((c) => c.userId === userId).length,
+          videosCompleted: completedVideos,
+          topicsCompleted: state.courses.filter((c) => topicComplete(c, userId, state.submissions, state.progress)).length,
+          currentStreak: learningStreaks(userId, state.progress, state.submissions, state.ideaResponses).current,
+        };
+      },
+      learningStreak() {
+        if (!state.currentUserId) return { current: 0, best: 0 };
+        return learningStreaks(state.currentUserId, state.progress, state.submissions, state.ideaResponses);
+      },
+
+      // ── other people's profiles (a learner's store holds only their own) ──
+      async ensureProfiles(ids) {
+        if (!sb) return;
+        const missing = [...new Set(ids.filter((id) => id && !userIndex.has(id)))];
+        if (!missing.length) return;
+        const found = await db.fetchProfiles(sb, missing);
+        if (!found.length) return;
+        setState((s) => {
+          const have = new Set(s.users.map((u) => u.id));
+          return { ...s, users: [...s.users, ...found.filter((u) => !have.has(u.id))] };
+        });
+      },
+      async findProfile(idOrHandle) {
+        const key = idOrHandle.toLowerCase();
+        const local = state.users.find((u) => u.id === idOrHandle || (u.username ?? "").toLowerCase() === key);
+        if (local || !sb) return local ?? null;
+        const found = await db.fetchProfileByHandle(sb, idOrHandle);
+        if (found)
+          setState((s) => (s.users.some((u) => u.id === found.id) ? s : { ...s, users: [...s.users, found] }));
+        return found;
+      },
+      async searchProfiles(query) {
+        const q = query.trim().toLowerCase();
+        if (!sb)
+          return state.users
+            .filter((u) => !u.banned && u.username && (u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q)))
+            .slice(0, 8);
+        const found = await db.searchProfiles(sb, query, 8);
+        if (found.length)
+          setState((s) => {
+            const have = new Set(s.users.map((u) => u.id));
+            const add = found.filter((u) => !have.has(u.id));
+            return add.length ? { ...s, users: [...s.users, ...add] } : s;
+          });
+        return found;
+      },
+      async isUsernameTaken(handle) {
+        const h = normalizeUsername(handle);
+        if (!currentUser || !h) return false;
+        if (!sb) return !isUsernameAvailable(h, state.users, currentUser.id);
+        return db.isUsernameTaken(sb, h, currentUser.id);
+      },
+
+      // ── per-video discussion, fetched for the video on screen ──
+      async loadVideoComments(videoId) {
+        if (!sb) return;
+        const comments = await db.fetchVideoComments(sb, videoId);
+        setState((s) => ({
+          ...s,
+          videoComments: [...s.videoComments.filter((c) => c.videoId !== videoId), ...comments],
+        }));
+        // Authors' avatars and the people tagged.
+        const ids = new Set<string>();
+        for (const c of comments) {
+          ids.add(c.userId);
+          for (const m of c.mentions) ids.add(m);
+        }
+        const missing = [...ids].filter((id) => !userIndex.has(id));
+        if (missing.length) {
+          const found = await db.fetchProfiles(sb, missing);
+          if (found.length)
+            setState((s) => {
+              const have = new Set(s.users.map((u) => u.id));
+              return { ...s, users: [...s.users, ...found.filter((u) => !have.has(u.id))] };
+            });
         }
       },
       addNote(videoId, text) {
@@ -1929,7 +2435,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         setState(seedState());
       },
     };
-  }, [state, hydrated, fresh, saveError, auth]);
+  }, [state, hydrated, fresh, saveError, auth, courseIndex, userIndex, enrolledIndex, progressIndex, submissionIndex]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

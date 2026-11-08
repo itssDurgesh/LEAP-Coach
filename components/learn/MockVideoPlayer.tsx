@@ -1,11 +1,14 @@
 "use client";
 
 import * as React from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { Play, Pause, Volume2, Maximize, Settings, Check, RotateCcw, ArrowRight } from "lucide-react";
 import { ProfessorPhoto } from "@/components/ProfessorPhoto";
 import { CourseThumb } from "@/components/CourseThumb";
 import { buttonClasses } from "@/components/ui/button-variants";
+import { usePlaybackResume } from "@/components/learn/usePlaybackResume";
+import { canOptimize } from "@/lib/images";
 import { Course, Video } from "@/lib/types";
 import { cn, formatClock } from "@/lib/utils";
 
@@ -14,6 +17,8 @@ interface MockVideoPlayerProps {
   video: Video;
   isVishal?: boolean;
   alreadyCompleted?: boolean;
+  /** Whose place to remember, so two learners on one browser do not share it. */
+  learnerId?: string;
   onEnded?: () => void;
   nextHref?: string | null;
 }
@@ -23,23 +28,26 @@ export function MockVideoPlayer({
   video,
   isVishal,
   alreadyCompleted,
+  learnerId,
   onEnded,
   nextHref,
 }: MockVideoPlayerProps) {
   const dur = video.durationSeconds;
-  const [t, setT] = React.useState(0);
+  // Stand-in for a real player, but it keeps the learner's place the same way.
+  const resume = usePlaybackResume(video.id, learnerId);
+  const [t, setT] = React.useState(() => (resume.startAt > 0 && resume.startAt < dur ? resume.startAt : 0));
   const [playing, setPlaying] = React.useState(false);
   const [ended, setEnded] = React.useState(false);
+  const resumeRef = React.useRef(resume);
+  resumeRef.current = resume;
 
-  // reset when switching videos
-  React.useEffect(() => {
-    setT(0);
-    setPlaying(false);
-    setEnded(false);
-  }, [video.id]);
+  // The page mounts one player per video (`key`), so a new video starts fresh on its own.
 
   React.useEffect(() => {
-    if (!playing) return;
+    if (!playing) {
+      resumeRef.current.flush();
+      return;
+    }
     const id = window.setInterval(() => {
       setT((prev) => {
         const next = prev + dur / 60; // ~12s to finish at 200ms ticks
@@ -47,9 +55,11 @@ export function MockVideoPlayer({
           window.clearInterval(id);
           setPlaying(false);
           setEnded(true);
+          resumeRef.current.ended();
           onEnded?.();
           return dur;
         }
+        resumeRef.current.report(next, dur);
         return next;
       });
     }, 200);
@@ -62,6 +72,7 @@ export function MockVideoPlayer({
     const rect = e.currentTarget.getBoundingClientRect();
     const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     setT(p * dur);
+    resumeRef.current.report(p * dur, dur);
     if (p >= 0.99) {
       setEnded(true);
       onEnded?.();
@@ -71,7 +82,16 @@ export function MockVideoPlayer({
   return (
     <div className="overflow-hidden rounded-3xl bg-navy-950 shadow-lift ring-1 ring-white/10">
       <div className="group/stage relative aspect-video">
-        {isVishal ? (
+        {course.videoThumbnailUrl ? (
+          <Image
+            src={course.videoThumbnailUrl}
+            alt=""
+            fill
+            sizes="(max-width: 1024px) 100vw, 60vw"
+            unoptimized={!canOptimize(course.videoThumbnailUrl)}
+            className="object-cover"
+          />
+        ) : isVishal ? (
           <ProfessorPhoto
             className="absolute inset-0 h-full w-full"
             rounded="rounded-none"

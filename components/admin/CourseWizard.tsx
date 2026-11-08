@@ -61,7 +61,8 @@ interface DraftVideo {
   notesPdfName: string;
   /** undefined = not loaded (leave stored file alone) · null = clear it · string = set it. */
   notesPdfUrl?: string | null;
-  transcript: string;
+  /** undefined = not loaded (saving leaves the stored transcript alone). The edit page loads them all. */
+  transcript?: string;
   resources: Resource[];
 }
 interface DraftAssignment {
@@ -86,6 +87,8 @@ interface Draft {
   accessDurationDays: number; // 0 = standard 1 year (per-topic override for à-la-carte)
   accent: number;
   thumbnailUrl: string | null;
+  /** One picture for every video of the topic: the player poster and the up-next list. */
+  videoThumbnailUrl: string | null;
   workbookName: string | null;
   workbookUrl: string | null;
   hashtags: string[];
@@ -153,6 +156,7 @@ function blankDraft(): Draft {
     accessDurationDays: 0,
     accent: 0,
     thumbnailUrl: null,
+    videoThumbnailUrl: null,
     workbookName: null,
     workbookUrl: null,
     hashtags: ["", "", "", ""],
@@ -228,6 +232,7 @@ function toDraft(c: Course): Draft {
     accessDurationDays: c.accessDurationDays ?? 0,
     accent: c.accent,
     thumbnailUrl: c.thumbnailUrl ?? null,
+    videoThumbnailUrl: c.videoThumbnailUrl ?? null,
     workbookName: c.workbookName ?? null,
     workbookUrl: c.workbookUrl ?? null,
     hashtags: [...c.hashtags, "", "", "", ""].slice(0, 4),
@@ -327,6 +332,7 @@ function toCourse(d: Draft, existing: Course | undefined, takenSlugs: Set<string
     accent: d.accent,
     accessDurationDays: d.accessDurationDays && d.accessDurationDays > 0 ? d.accessDurationDays : null,
     thumbnailUrl: d.thumbnailUrl,
+    videoThumbnailUrl: d.videoThumbnailUrl,
     workbookName: d.workbookName,
     workbookUrl: d.workbookUrl,
     pendingApproval: existing?.pendingApproval ?? false,
@@ -608,6 +614,54 @@ export function CourseWizard({ initial }: { initial?: Course }) {
               <p className="text-sm text-muted">
                 Each session is either a video (Mux playback ID) or an audio recording you upload. Order defines the roadmap.
               </p>
+
+              {/* One thumbnail for every video in the topic. */}
+              <div className="rounded-xl border border-hair p-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-lg border border-hair bg-surface-2">
+                    {draft.videoThumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={draft.videoThumbnailUrl} alt="Video thumbnail" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="grid h-full w-full place-items-center text-faint">
+                        <ImageIcon className="h-6 w-6" />
+                      </div>
+                    )}
+                    {draft.videoThumbnailUrl && (
+                      <span className="absolute inset-0 grid place-items-center">
+                        <span className="grid h-9 w-9 place-items-center rounded-full bg-[#E9B93E] text-navy-900 shadow">
+                          <VideoIcon className="h-4 w-4" />
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <p className="font-heading text-sm font-semibold text-heading">Video thumbnail</p>
+                    <p className="text-xs text-muted">
+                      Shown on every video in this topic ({draft.videos.length} {draft.videos.length === 1 ? "session" : "sessions"}) before
+                      it plays, and in the lesson&rsquo;s &ldquo;Up next&rdquo; list. A 16:9 image works best.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3 pt-1">
+                      <UploadButton
+                        onBusy={trackUpload}
+                        accept="image/*"
+                        label={draft.videoThumbnailUrl ? "Replace thumbnail" : "Upload thumbnail"}
+                        onFile={(f) => uploadThen(f, "video-thumbnails", (url) => set({ videoThumbnailUrl: url }))}
+                      />
+                      {draft.thumbnailUrl && !draft.videoThumbnailUrl && (
+                        <button type="button" onClick={() => set({ videoThumbnailUrl: draft.thumbnailUrl })} className="text-xs font-medium text-gold-700 hover:underline">
+                          Use the topic cover
+                        </button>
+                      )}
+                      {draft.videoThumbnailUrl && (
+                        <button type="button" onClick={() => set({ videoThumbnailUrl: null })} className="text-xs text-faint hover:text-red-600">
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
               {draft.videos.map((v, i) => (
                 <div key={v.tmpId} className="rounded-xl border border-hair p-4">
                   <div className="mb-3 flex items-center justify-between">
@@ -800,7 +854,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
               <p className="text-sm text-muted">Paste each session&rsquo;s transcript. The LEAP AI tutor answers only from this text, so a session with no transcript has no tutor.</p>
               {draft.videos.map((v, i) => (
                 <Field key={v.tmpId} label={`Session ${i + 1}${v.title ? ` · ${v.title}` : ""}`}>
-                  <Textarea value={v.transcript} onChange={(e) => setVideo(i, { transcript: e.target.value })} placeholder="Full transcript…" />
+                  <Textarea value={v.transcript ?? ""} onChange={(e) => setVideo(i, { transcript: e.target.value })} placeholder="Full transcript…" />
                 </Field>
               ))}
             </div>
@@ -882,6 +936,7 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                   <li>• {draft.videos.filter((v) => v.media === "audio" && v.audioUrl).length} audio sessions</li>
                   <li>• {draft.videos.reduce((s, v) => s + v.resources.length, 0)} resource files</li>
                   <li>• Workbook: {draft.workbookName ?? "none"}</li>
+                  <li>• Video thumbnail: {draft.videoThumbnailUrl ? "set, shown on every session" : "none (Mux picks a frame)"}</li>
                   <li>• Access: {draft.accessDurationDays > 0 ? `${draft.accessDurationDays} days after purchase` : "1 year after purchase"}</li>
                   <li>• Instructor: {draft.instructorName || "—"}</li>
                 </ul>

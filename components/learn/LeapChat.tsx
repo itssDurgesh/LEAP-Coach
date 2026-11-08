@@ -5,6 +5,7 @@ import { ArrowRight, Send, FileText, HelpCircle, Layers } from "lucide-react";
 import { LogoMark } from "@/components/ui/Logo";
 import { Course, Video, ChatMessage } from "@/lib/types";
 import { leapReply, leapWelcome, LeapAction } from "@/lib/mock/leapAI";
+import { useApp } from "@/lib/store/AppProvider";
 import { cn } from "@/lib/utils";
 
 const quickActions: { label: string; action: Exclude<LeapAction, undefined>; icon: typeof FileText }[] = [
@@ -102,6 +103,7 @@ export function LeapChat({
   video: Video;
   showHeader?: boolean;
 }) {
+  const { ensureTranscript } = useApp();
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [typing, setTyping] = React.useState(false);
@@ -136,7 +138,11 @@ export function LeapChat({
     setInput("");
     setTyping(true);
 
-    const mock = () => leapReply(course, video, trimmed || labelFor(action), action);
+    // The transcript is fetched per video (it is not part of the page load); a
+    // question asked before it arrived waits for it rather than going without.
+    const transcript = video.transcript ?? (await ensureTranscript(video.id).catch(() => ""));
+    const lesson = { ...video, transcript };
+    const mock = () => leapReply(course, lesson, trimmed || labelFor(action), action);
     const unavailable = "I couldn't answer that just now. Please try again in a moment.";
     let reply: string;
     try {
@@ -146,7 +152,7 @@ export function LeapChat({
         body: JSON.stringify({
           courseTitle: course.title,
           // The transcript is the tutor's only source; the summary is deliberately not sent.
-          video: { title: video.title, transcript: video.transcript },
+          video: { title: video.title, transcript },
           messages: history,
           action,
         }),

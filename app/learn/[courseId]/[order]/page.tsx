@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, ClipboardCheck, Download, ExternalLink, Loader2, Paperclip, Play, Trash2 } from "lucide-react";
@@ -15,6 +16,7 @@ import { VideoComments } from "@/components/discussion/VideoComments";
 import { SegTabs, V2Card, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
 import { cn, formatClock, timeAgo } from "@/lib/utils";
+import { canOptimize } from "@/lib/images";
 import { downloadNotesPdf, downloadLessonNotesPdf } from "@/lib/pdf";
 import { Course, Video } from "@/lib/types";
 
@@ -92,7 +94,21 @@ function Player({ course, video }: { course: Course; video: Video }) {
     videoNotesUrl,
     isCourseComplete,
     myRatingFor,
+    transcriptFor,
+    ensureTranscript,
+    loadVideoComments,
   } = useApp();
+
+  // The transcript and the discussion are fetched for this video only; the page
+  // load no longer carries every transcript and comment of every topic.
+  const transcript = transcriptFor(video.id);
+  React.useEffect(() => {
+    void ensureTranscript(video.id);
+    void loadVideoComments(video.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [video.id]);
+  const lesson = React.useMemo(() => ({ ...video, transcript }), [video, transcript]);
+  const transcriptText = transcript ?? "";
 
   const [bottomTab, setBottomTab] = React.useState<BottomTab>("notes");
   const [rightTab, setRightTab] = React.useState<"chat" | "notes" | "next">("chat");
@@ -185,7 +201,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
       video.order,
       video.title,
       video.summary,
-      video.transcript,
+      await ensureTranscript(video.id),
       video.notesPdfName ?? `${course.slug}-session-${video.order}-notes`,
     );
   }
@@ -257,8 +273,10 @@ function Player({ course, video }: { course: Course; video: Video }) {
             />
           ) : (
             <MockVideoPlayer
+              key={video.id}
               course={course}
               video={video}
+              learnerId={currentUser?.id}
               isVishal={isVishal}
               alreadyCompleted={completed}
               onEnded={() => markVideoComplete(video.id)}
@@ -353,7 +371,7 @@ function Player({ course, video }: { course: Course; video: Video }) {
                 </div>
                 {video.summary && <p className="mt-4 text-[15px] leading-6 text-v2-body">{video.summary}</p>}
                 <ul className="mt-4 space-y-3.5">
-                  {video.transcript
+                  {transcriptText
                     .split(/(?<=[.!?])\s+/)
                     .filter(Boolean)
                     .slice(0, 4)
@@ -369,7 +387,15 @@ function Player({ course, video }: { course: Course; video: Video }) {
 
             {bottomTab === "transcript" && (
               <div className="scrollbar-thin max-h-80 overflow-y-auto pr-2">
-                <p className="whitespace-pre-line text-[15px] leading-7 text-v2-body">{video.transcript}</p>
+                {transcript === undefined ? (
+                  <p className="flex items-center gap-2 text-sm font-medium text-muted">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading the transcript…
+                  </p>
+                ) : transcriptText.trim() ? (
+                  <p className="whitespace-pre-line text-[15px] leading-7 text-v2-body">{transcriptText}</p>
+                ) : (
+                  <p className="text-sm font-medium text-muted">The transcript for this session has not been added yet.</p>
+                )}
                 <p className="mt-5 text-xs font-medium text-muted">
                   Transcript auto-syncs with the video when timestamps are available.
                 </p>
@@ -441,16 +467,27 @@ function Player({ course, video }: { course: Course; video: Video }) {
             <div className="min-h-0 flex-1">
               {/* The chat stays mounted behind the other tabs, so the conversation is still there on return. */}
               <div className={cn("h-full", sideTab !== "chat" && "hidden")}>
-                <LeapChat course={course} video={video} showHeader={false} />
+                <LeapChat course={course} video={lesson} showHeader={false} />
               </div>
               {sideTab === "chat" ? null : sideTab === "next" ? (
                 <div className="scrollbar-thin h-full space-y-1.5 overflow-y-auto px-5 pb-5 pt-1">
                   {upNext.map((v, i) => {
+                    const thumb = course.videoThumbnailUrl;
                     const body = (
                       <>
-                        <span className={cn(DOT, i === 0 ? "bg-[#E9B93E] text-navy-800" : "bg-surface-2 text-xs font-semibold text-muted")}>
-                          {i === 0 ? <Play className="h-3 w-3 fill-current" /> : pad(v.order)}
-                        </span>
+                        {thumb ? (
+                          // The topic-wide video thumbnail the admin uploaded, with the video number on it.
+                          <span className="relative h-9 w-16 shrink-0 overflow-hidden rounded-lg bg-surface-2">
+                            <Image src={thumb} alt="" fill sizes="64px" unoptimized={!canOptimize(thumb)} className="object-cover" />
+                            <span className="absolute inset-0 grid place-items-center bg-navy-950/35 text-[11px] font-bold text-white">
+                              {i === 0 ? <Play className="h-3 w-3 fill-current" /> : pad(v.order)}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className={cn(DOT, i === 0 ? "bg-[#E9B93E] text-navy-800" : "bg-surface-2 text-xs font-semibold text-muted")}>
+                            {i === 0 ? <Play className="h-3 w-3 fill-current" /> : pad(v.order)}
+                          </span>
+                        )}
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold leading-5 text-heading">{v.title}</p>
                           <p className="text-xs font-medium text-muted">

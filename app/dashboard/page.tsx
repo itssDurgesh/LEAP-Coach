@@ -13,7 +13,8 @@ import { IdeaOfTheDay } from "@/components/dashboard/IdeaOfTheDay";
 import { UpgradeBand } from "@/components/dashboard/UpgradeBand";
 import { isUpcoming } from "@/components/SessionCard";
 import { IntroContext, Rise, v2Button } from "@/components/v2/ui";
-import { resumeTarget } from "@/lib/resume";
+import { resumeTarget, topicLastActivity } from "@/lib/resume";
+import { formatClock } from "@/lib/utils";
 import { useApp } from "@/lib/store/AppProvider";
 import { courseCategories, isProfileComplete, missingProfileFields } from "@/lib/types";
 
@@ -79,18 +80,19 @@ function DashboardContent() {
   const myProgress = progress.filter((p) => p.userId === currentUser.id);
 
   // Every enrolled topic with its progress, next unwatched video and last activity.
+  // Activity includes watching part of a video, so the topic the learner was in
+  // most recently (whichever it is) comes first, and its button resumes the video
+  // where they stopped.
   const topics = enrolledCourses.map((course) => {
     const done = new Set(myProgress.filter((p) => p.courseId === course.id && p.completed).map((p) => p.videoId));
     const nextVideo = [...course.videos].sort((a, b) => a.order - b.order).find((v) => !done.has(v.id)) ?? null;
-    const lastActive = myProgress
-      .filter((p) => p.courseId === course.id && p.completedAt)
-      .reduce((latest, p) => Math.max(latest, +new Date(p.completedAt!)), 0);
+    const lastActive = topicLastActivity(course, currentUser.id, myProgress, submissions);
     return { course, ...courseProgress(course.id), nextVideo, lastActive, resume: resumeTarget(course, app) };
   });
-  // Unfinished topics: started ones first, most recently active first.
+  // Unfinished topics: most recently active first, then started ones, then furthest along.
   const open: (InProgressTopic & { lastActive: number })[] = topics
     .filter((t) => t.pct < 100)
-    .sort((a, b) => Number(b.completed > 0) - Number(a.completed > 0) || b.lastActive - a.lastActive || b.pct - a.pct);
+    .sort((a, b) => b.lastActive - a.lastActive || Number(b.completed > 0) - Number(a.completed > 0) || b.pct - a.pct);
   const [main, second] = open;
 
   const totals = topics.reduce((acc, t) => ({ done: acc.done + t.completed, all: acc.all + t.total }), { done: 0, all: 0 });
@@ -123,7 +125,11 @@ function DashboardContent() {
   const profileMissing = missingProfileFields(currentUser);
 
   let summary = `You have watched ${totals.done} of ${totals.all} videos across your coaching topics.`;
-  if (main && main.completed > 0) {
+  const stoppedAt = main?.resume.kind === "video" ? (main.resume.positionSeconds ?? 0) : 0;
+  if (main && stoppedAt > 0 && main.resume.video) {
+    const name = main.course.title.split(":")[0];
+    summary = `You stopped ${formatClock(stoppedAt)} into “${main.resume.video.title}” in ${name}. Pick it up right there.`;
+  } else if (main && main.completed > 0) {
     const left = main.total - main.completed;
     const name = main.course.title.split(":")[0];
     const mins = main.nextVideo ? Math.max(1, Math.round(main.nextVideo.durationSeconds / 60)) : 0;

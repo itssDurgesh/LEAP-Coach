@@ -8,7 +8,7 @@ import { CourseThumb } from "@/components/CourseThumb";
 import { Bar, LevelChip, PageHead, PillSelect, SegTabs, V2Card, v2Button } from "@/components/v2/ui";
 import { levelStyle } from "@/lib/levels";
 import { useApp } from "@/lib/store/AppProvider";
-import { resumeTarget, type ResumeTarget } from "@/lib/resume";
+import { resumeTarget, topicLastActivity, type ResumeTarget } from "@/lib/resume";
 import { ROLES, ownsTopic, planFor, type Course, type LeadershipTrack, type Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +47,7 @@ interface OwnedTopic {
 
 function MyTopics() {
   const app = useApp();
-  const { currentUser, courses, tracks, progress, isEnrolled, courseProgress, courseExpiresAt } = app;
+  const { currentUser, courses, tracks, progress, submissions, isEnrolled, courseProgress, courseExpiresAt } = app;
   const [filter, setFilter] = React.useState<Filter>("all");
   const [sort, setSort] = React.useState<Sort>("recent");
   if (!currentUser) return null;
@@ -60,10 +60,9 @@ function MyTopics() {
   // à-la-carte, unlocked by a category pass, or covered by the all-access plan.
   const owned = courses.filter((c) => ownsTopic(currentUser, c, isEnrolled(c.id)));
 
-  const myProgress = progress.filter((p) => p.userId === currentUser.id);
   const topics: OwnedTopic[] = owned.map((course) => {
-    const mine = myProgress.filter((p) => p.courseId === course.id);
-    const lastActive = mine.reduce((latest, p) => (p.completedAt ? Math.max(latest, +new Date(p.completedAt)) : latest), 0);
+    // Watching part of a video counts as activity too, not only finishing one.
+    const lastActive = topicLastActivity(course, currentUser.id, progress, submissions);
     const expiresAt = courseExpiresAt(course.id);
     return {
       course,

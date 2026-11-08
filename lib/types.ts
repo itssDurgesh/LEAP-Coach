@@ -20,7 +20,7 @@ export type Permission =
   | "payments";
 
 export const PERMISSIONS: { id: Permission; label: string; hint: string }[] = [
-  { id: "content", label: "Coaching topics", hint: "Create & edit topics, questions & workbooks (publishing needs owner approval)" },
+  { id: "content", label: "Coaching topics", hint: "Create & edit topics, questions & workbooks (publishing needs owner approval), and plan the idea of the day" },
   { id: "articles", label: "Articles", hint: "Write & publish articles shown to learners" },
   { id: "announcements", label: "Announcements", hint: "Post announcements broadcast to all learners" },
   { id: "team", label: "Team", hint: "Manage team members" },
@@ -233,7 +233,12 @@ export interface Video {
   muxPlaybackId: string; // mock for now
   audioUrl?: string | null; // set when the session is an audio recording instead of a video
   audioName?: string | null; // the uploaded audio file's name
-  transcript: string;
+  /**
+   * The full transcript. Left out of the bulk load (it is the heaviest column and
+   * only the lesson page and the editor use it): undefined = not loaded yet, which
+   * saving treats as "leave the stored transcript alone". See useTranscript().
+   */
+  transcript?: string;
   summary: string; // short summary used for AI context + roadmap
   notesPdfName?: string; // notes file name
   notesPdfUrl?: string | null; // uploaded notes (data URL or storage URL)
@@ -282,6 +287,7 @@ export interface Course {
   published: boolean;
   accent: number; // 0–5, picks a brand gradient for the thumbnail
   thumbnailUrl?: string | null; // uploaded cover image (overrides the gradient)
+  videoThumbnailUrl?: string | null; // one picture shown on every video of this topic (player poster, up-next list)
   workbookName?: string | null; // final workbook file name (PDF/DOCX)
   workbookUrl?: string | null; // final workbook (data URL or storage URL)
   accessDurationDays?: number | null; // access expires this many days after a learner enrolls; null/0 = lifetime
@@ -364,6 +370,74 @@ export interface VideoProgress {
   completed: boolean;
   watchSeconds: number;
   completedAt?: string | null;
+  /** Where the learner stopped, in seconds (0 = from the start). Saved while they watch. */
+  positionSeconds?: number;
+  /** When the player last saved a position: what "continue where you stopped" sorts by. */
+  lastWatchedAt?: string | null;
+}
+
+// ── Idea of the day (admin-written, one shown per day on the learner dashboard) ──
+export interface IdeaOption {
+  text: string;
+  good: boolean; // the response the idea is teaching towards
+  feedback: string; // shown once the learner picks this option
+}
+
+export interface DailyIdea {
+  id: string;
+  title: string;
+  body: string;
+  question: string;
+  options: IdeaOption[]; // 2–5
+  trackId: string | null; // leadership level shown as a chip
+  audience: Role | "all";
+  showOn: string | null; // YYYY-MM-DD it is scheduled for; null = rotation only
+  active: boolean;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IdeaResponse {
+  userId: string;
+  ideaId: string;
+  optionIndex: number;
+  createdAt: string;
+}
+
+// ── Credits ledger, stamps and the leaderboard (worked out by the database) ──
+export interface CreditEvent {
+  id: string;
+  userId: string;
+  courseId: string | null;
+  amount: number;
+  totalAfter: number;
+  createdAt: string;
+}
+
+export interface EarnedStamp {
+  userId: string;
+  stampId: string;
+  earnedAt: string;
+}
+
+export interface LeaderboardRow {
+  rank: number;
+  userId: string;
+  name: string;
+  username?: string;
+  avatarUrl?: string | null;
+  role: Role | null;
+  credits: number;
+  isMe: boolean;
+}
+
+/** What someone's public profile shows about their learning (see public_profile_stats()). */
+export interface ProfileStats {
+  comments: number;
+  videosCompleted: number;
+  topicsCompleted: number;
+  currentStreak: number;
 }
 
 export interface QuestionFeedback {

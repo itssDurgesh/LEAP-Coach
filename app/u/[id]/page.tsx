@@ -3,14 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowRight, BookOpen, Briefcase, CalendarDays, Check, MapPin, MessageCircle, Pencil, Star, Trophy, type LucideIcon } from "lucide-react";
+import { ArrowRight, BookOpen, Briefcase, CalendarDays, Check, Flame, Loader2, MapPin, MessageCircle, Pencil, PlayCircle, Star, Trophy, type LucideIcon } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { Avatar } from "@/components/ui/Avatar";
 import { StampGrid } from "@/components/v2/StampGrid";
 import { LevelChip, V2Card, V2_AVATAR, v2Button } from "@/components/v2/ui";
-import { computeStamps } from "@/lib/stamps";
+import { computeStamps, earnedStampsOnly, type Stamp } from "@/lib/stamps";
 import { useApp } from "@/lib/store/AppProvider";
-import { tierForCredits } from "@/lib/types";
+import { tierForCredits, type ProfileStats, type User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export default function PublicProfilePage() {
@@ -43,11 +43,54 @@ function Stat({ icon: Icon, tint, value, label }: { icon: LucideIcon; tint: stri
 function Profile() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const { currentUser, users, enrollments, courses, tracks, videoComments, submissions, progress, courseProgress } = useApp();
+  const app = useApp();
+  const { currentUser, users, enrollments, courses, tracks, submissions, progress, ideaResponses, stamps: myEarned, courseProgress, findProfile, getProfileStats, getUserStamps } = app;
   const [allTopics, setAllTopics] = React.useState(false);
 
-  // The route param can be a user id or a @username handle.
-  const user = users.find((u) => u.id === id || (u.username && u.username === id));
+  // The route param can be a user id or a @username handle. Only the learner's own
+  // profile is in the store, so anyone else is looked up.
+  const key = (id ?? "").toLowerCase();
+  const known = users.find((u) => u.id === id || (u.username ?? "").toLowerCase() === key);
+  const [lookup, setLookup] = React.useState<{ id: string; user: User | null } | null>(null);
+  React.useEffect(() => {
+    if (!id || known) return;
+    let active = true;
+    findProfile(id).then(
+      (u) => active && setLookup({ id, user: u }),
+      () => active && setLookup({ id, user: null }),
+    );
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, !!known]);
+  const user = known ?? (lookup && lookup.id === id ? lookup.user : undefined);
+
+  // Learning numbers and stamps come from the database (others' progress rows are private).
+  const [stats, setStats] = React.useState<ProfileStats | null>(null);
+  const [earned, setEarned] = React.useState<Stamp[] | null>(null);
+  const userId = user?.id;
+  const isMeHere = !!userId && userId === currentUser?.id;
+  React.useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    setStats(null);
+    getProfileStats(userId).then((s) => active && setStats(s));
+    if (!isMeHere)
+      getUserStamps(userId).then((rows) => active && setEarned(earnedStampsOnly(rows)), () => active && setEarned([]));
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, isMeHere]);
+
+  if (user === undefined) {
+    return (
+      <div className="grid min-h-[40vh] place-items-center">
+        <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -70,12 +113,16 @@ function Profile() {
     .filter((e) => e.userId === user.id)
     .map((e) => courses.find((c) => c.id === e.courseId))
     .filter(Boolean) as typeof courses;
-  const commentCount = videoComments.filter((c) => c.userId === user.id).length;
   const shownTopics = allTopics ? enrolledCourses : enrolledCourses.slice(0, TOPICS_SHOWN);
   const hiddenTopics = enrolledCourses.length - shownTopics.length;
 
-  // Progress is private to each learner, so stamps can only be worked out for your own profile.
-  const stamps = isMe && !isAdmin ? computeStamps(user, courses, submissions, progress) : null;
+  // Your own stamps include the ones you are working towards; for someone else,
+  // the ones the database has awarded them.
+  const stamps: Stamp[] | null = isAdmin
+    ? null
+    : isMe
+      ? computeStamps(user, courses, submissions, progress, ideaResponses, myEarned)
+      : earned;
 
   return (
     <div className="space-y-6">
@@ -124,10 +171,20 @@ function Profile() {
 
       {/* Stats (learners only) */}
       {!isAdmin && (
-        <div className="grid gap-6 sm:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
           <Stat icon={Star} tint="bg-v2-gold-soft text-v2-gold-text" value={user.learningCredits} label="Learning credits" />
-          <Stat icon={BookOpen} tint="bg-lv-self-tint text-lv-self-dark" value={enrolledCourses.length} label="Topics enrolled" />
-          <Stat icon={MessageCircle} tint="bg-lv-peers-tint text-lv-peers-dark" value={commentCount} label="Discussion comments" />
+          {isMe ? (
+            <Stat icon={BookOpen} tint="bg-lv-self-tint text-lv-self-dark" value={enrolledCourses.length} label="Topics enrolled" />
+          ) : (
+            <Stat icon={BookOpen} tint="bg-lv-self-tint text-lv-self-dark" value={stats ? stats.topicsCompleted : "–"} label="Topics finished" />
+          )}
+          <Stat icon={PlayCircle} tint="bg-lv-orgs-tint text-lv-orgs-dark" value={stats ? stats.videosCompleted : "–"} label="Videos watched" />
+          <Stat
+            icon={stats && stats.currentStreak > 0 ? Flame : MessageCircle}
+            tint={stats && stats.currentStreak > 0 ? "bg-lv-people-tint text-lv-people-dark" : "bg-lv-peers-tint text-lv-peers-dark"}
+            value={stats ? (stats.currentStreak > 0 ? stats.currentStreak : stats.comments) : "–"}
+            label={stats && stats.currentStreak > 0 ? "Day learning streak" : "Discussion comments"}
+          />
         </div>
       )}
 
@@ -181,10 +238,14 @@ function Profile() {
             <div className="flex items-center justify-between gap-3">
               <h2 className={HEADING}>Stamps</h2>
               <span className="text-[13px] font-medium text-muted">
-                {stamps.filter((s) => s.earned).length} of {stamps.length} earned
+                {isMe ? `${stamps.filter((s) => s.earned).length} of ${stamps.length} earned` : `${stamps.length} earned`}
               </span>
             </div>
-            <StampGrid stamps={stamps} />
+            {stamps.length ? (
+              <StampGrid stamps={stamps} />
+            ) : (
+              <p className="text-sm text-muted">No stamps yet. They arrive with finished videos, checkpoints and topics.</p>
+            )}
           </V2Card>
         )}
       </div>
