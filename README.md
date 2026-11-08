@@ -30,7 +30,9 @@ team, live sessions, prices, coupons and payments.
   sessions, articles and announcements, ratings, public profiles.
 - **Paid content stays paid:** session media, transcripts, workbooks and
   checkpoint answers reach only learners who may open the topic, checkpoints are
-  graded on the server, and members' contact details stay private.
+  graded on the server, and members' contact details stay private. With Mux
+  signed playback set up, a video plays only with a token that expires, so a
+  copied video link stops working.
 - **Admin panel** with owner and sub-admin roles, a 7-step topic editor,
   approvals for sub-admin topics, analytics, email broadcasts and a payments
   dashboard with retry and refund.
@@ -45,7 +47,7 @@ team, live sessions, prices, coupons and payments.
 | Database and files | [Supabase](https://supabase.com): Postgres with row-level security, Storage bucket `media` |
 | Payments | [Razorpay](https://razorpay.com) (INR, UPI and cards) |
 | AI tutor | Google Gemini, called only from server routes |
-| Video | [Mux](https://mux.com) player |
+| Video | [Mux](https://mux.com) player, with signed playback |
 | Email | Resend, with Gmail SMTP as fallback |
 | Hosting | Vercel, with Vercel Analytics and Speed Insights |
 | Telegram bot | Separate repository (see below) |
@@ -129,6 +131,39 @@ Notes for production:
   traffic grows.
 - The demo checkout route refuses to run with live Razorpay keys.
 
+## Signed video playback
+
+With a public Mux playback id, anyone who gets hold of the id can stream the
+video. With a signed one, Mux plays it only with a token, and the server
+(`/api/leap/playback`) gives tokens only to learners who may open the topic. A
+token lasts 6 hours plus twice the video's length (at most a day), and the
+player fetches a new one by itself when it runs out.
+
+1. Deploy this version. Nothing changes yet: every video plays as before.
+2. In the Mux dashboard, open **Settings → Signing keys** and generate a key. Put
+   its ID in `MUX_SIGNING_KEY` and its private key, exactly as shown (base64),
+   in `MUX_PRIVATE_KEY`, in Vercel and in `.env.local`. Redeploy. Videos with
+   public ids keep playing.
+3. Give the existing videos signed playback ids, with the script or by hand.
+   - Script: put a Mux access token with **Mux Video read and write** in
+     `MUX_TOKEN_ID` and `MUX_TOKEN_SECRET` in `.env.local`, then preview the
+     changes:
+
+     ```bash
+     node --env-file=.env.local scripts/mux-signed-playback.mjs
+     ```
+
+     Run it again with `--apply` to make them. For each video it adds a signed
+     playback id in Mux, checks that the id plays with your signing key, and
+     saves it on the video's sessions.
+   - By hand: in Mux, add a playback ID with the **Signed** policy to each video
+     and paste it into the session in Content Studio. Under each playback id,
+     Content Studio shows whether it is signed or public.
+4. Open a few lessons and check they play. Then delete the public ids, so copies
+   of them stop working: `--delete-public` previews, `--delete-public --apply`
+   deletes (this cannot be undone), or delete them in the Mux dashboard.
+5. From then on, upload new videos with the **Signed** playback policy.
+
 ## Telegram bot
 
 The coaching bot lives in its own repository,
@@ -145,6 +180,7 @@ components/       Admin, learner, marketing and shared UI components
 lib/              App state (store/AppProvider.tsx), Supabase, payments, AI, email, access and credit rules
 supabase/         database.sql and migrations
 public/           Logo, professor photo, home hero clip, social sharing image
+scripts/          mux-signed-playback.mjs (moves existing videos to signed playback)
 proxy.ts          Attaches the Clerk session to requests
 ARCHITECTURE.md   How the site works end to end
 .ua/              Code knowledge graph (Understand-Anything)
@@ -157,3 +193,4 @@ ARCHITECTURE.md   How the site works end to end
 | `npm run dev` | Development server on localhost:3000 |
 | `npm run build` | Production build |
 | `npm run start` | Serve the production build |
+| `node --env-file=.env.local scripts/mux-signed-playback.mjs` | Move existing videos to signed playback (see above) |

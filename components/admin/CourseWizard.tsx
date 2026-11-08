@@ -29,6 +29,7 @@ import { useApp } from "@/lib/store/AppProvider";
 import { Course, Question, Resource, Role, ROLES, courseCategories, isOwner } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
 import { uploadMedia } from "@/lib/supabase/storage";
+import { MuxPlaybackNote, useMuxPolicies } from "@/components/admin/MuxPlaybackNote";
 import { isClerkConfigured } from "@/lib/clerk/config";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -358,6 +359,8 @@ export function CourseWizard({ initial }: { initial?: Course }) {
   const router = useRouter();
   const [step, setStep] = React.useState(0);
   const [draft, setDraft] = React.useState<Draft>(() => (initial ? toDraft(initial) : blankDraft()));
+  // Whether each session's Mux playback id is signed or public (checked on the Sessions step).
+  const mux = useMuxPolicies(step === 1 ? draft.videos.filter((v) => v.media === "video").map((v) => v.muxPlaybackId) : []);
   const owner = isOwner(currentUser);
   const [saving, setSaving] = React.useState(false);
   const [problem, setProblem] = React.useState<{ title: string; items: string[] } | null>(null);
@@ -680,9 +683,12 @@ export function CourseWizard({ initial }: { initial?: Course }) {
                         </button>
                       ))}
                     </div>
-                    <div className="grid gap-2.5 sm:grid-cols-2">
+                    <div className="grid items-start gap-2.5 sm:grid-cols-2">
                       {v.media === "video" ? (
-                        <Input value={v.muxPlaybackId} onChange={(e) => setVideo(i, { muxPlaybackId: e.target.value })} placeholder="Mux playback ID" />
+                        <div className="min-w-0 space-y-1.5">
+                          <Input value={v.muxPlaybackId} onChange={(e) => setVideo(i, { muxPlaybackId: e.target.value })} placeholder="Mux playback ID" />
+                          <MuxPlaybackNote id={v.muxPlaybackId} mux={mux} />
+                        </div>
                       ) : (
                         <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                           <UploadButton

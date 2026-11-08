@@ -18,6 +18,7 @@ import { cn, formatClock, timeAgo } from "@/lib/utils";
 import { downloadNotesPdf, downloadLessonNotesPdf } from "@/lib/pdf";
 import { downloadUrl } from "@/lib/download";
 import { loadTranscript, useTranscript } from "@/lib/transcripts";
+import { loadPlayback } from "@/lib/playback";
 import { Course, Video } from "@/lib/types";
 
 // The Mux player (with its HLS engine) is about 300KB of compressed JavaScript, more
@@ -127,6 +128,14 @@ function Player({ course, video }: { course: Course; video: Video }) {
   React.useEffect(() => {
     void loadComments.current(video.id);
   }, [video.id]);
+
+  // A Mux video's playback id and tokens (signed playback, lib/playback.ts) are asked
+  // for now, while the player's code is still downloading, not after it arrives.
+  const muxPlaybackId = video.audioUrl ? "" : video.muxPlaybackId;
+  const viewerId = currentUser?.id;
+  React.useEffect(() => {
+    if (muxPlaybackId && !muxPlaybackId.startsWith("mux_")) void loadPlayback({ id: video.id, muxPlaybackId }, viewerId);
+  }, [video.id, muxPlaybackId, viewerId]);
 
   // Stable handlers for the media players, which are memoized: an inline arrow is a
   // new prop on every render and made the player re-render with the page each time.

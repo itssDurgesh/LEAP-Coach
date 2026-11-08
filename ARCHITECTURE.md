@@ -22,7 +22,7 @@ Last reviewed: November 2026 (branch `main`).
    │  reads + most writes, carrying the Clerk session token
    ▼
  Supabase: Postgres with row-level security · Storage bucket `media` · Realtime
- Mux: video streaming (playback ids only)        Clerk: sign-in and sessions
+ Mux: video streaming (signed playback tokens)   Clerk: sign-in and sessions
 ```
 
 - **Clerk** owns sign-in (email, Google, LinkedIn) and sessions.
@@ -32,11 +32,14 @@ Last reviewed: November 2026 (branch `main`).
   profile fields out of the browser's reach entirely (section 9). Uploaded
   files live in the public Storage bucket `media`, which only admins may list.
 - **Server routes** handle everything that needs a secret or must not be
-  trusted to the browser: the AI tutor, payments, owner user-management, the
+  trusted to the browser: the AI tutor, checkpoint grading, video playback
+  tokens, payments, owner user-management, the
   owner's publish and approval switches, email broadcasts, Telegram linking and
   unsubscribe. They use the Supabase
   service-role key where they must write past RLS.
-- **Mux** streams lesson videos; the app only stores playback ids.
+- **Mux** streams lesson videos. Each session stores its Mux playback id; with
+  signed playback set up, the server also signs short-lived tokens for learners
+  who may open the topic, and Mux plays a signed id only with one (section 6).
 
 ### Two modes
 
@@ -202,7 +205,12 @@ inline data.
    recording; a topic can set one thumbnail for all its session players. Both
    players remember where the learner stopped, in this browser and in
    `video_progress` (so another device resumes there too; the newer place wins),
-   and mark the session complete at the end. The dashboard's Continue card and
+   and mark the session complete at the end. A Mux video's playback id, and for
+   a signed id its tokens, come from `/api/leap/playback`, which checks the
+   learner may open the topic (`lib/mux/playback.ts`); Mux refuses a token for a
+   public id, so the server tells the two apart by asking Mux once per id. When
+   a token runs out or Mux refuses it, the player fetches a new one and carries
+   on from the same place. The dashboard's Continue card and
    the topic page resume the last session watched, across topics
    (`lib/resume.ts`, `lib/watch-position.ts`). Sessions with no media show a
    placeholder player.
@@ -279,6 +287,8 @@ Razorpay test keys or no keys.
 | `/api/admin/courses` | Publish, unpublish, approve, reject, feature a topic | Owner, service role |
 | `/api/leap/checkpoint` | Grade a checkpoint try, restore an attempt, submit it (writes the submission and credits) | Signed in, not banned, may open the topic |
 | `/api/leap/credits` | Bank a completed topic's credit from stored data | Signed in, not banned |
+| `/api/leap/playback` | A Mux video's playback id and, for a signed id, tokens that expire | Signed in, may open the topic |
+| `/api/admin/mux/playback-ids` | Whether playback ids are signed or public, for Content Studio | Admins who edit topics |
 | `/api/admin/email/broadcast` | Email an announcement or session invite | Matching permission |
 | `/api/telegram/link`, `unlink`, `status` | Link an account to the Telegram bot | Signed in |
 | `/api/unsubscribe` | One-click email opt-out | Signed token |
@@ -375,10 +385,12 @@ Rules worth knowing:
   (the `RateStore` interface in `lib/api/rate-limit.ts`) when traffic grows.
 - Each visit still reads every topic, and for learners everyone's public
   profile fields, at once; per-page loading will be needed as content grows.
-- File links (notes, audio, resources, workbooks) and Mux playback ids are
-  bearer links: they reach only learners who may open the topic, but one such
-  learner could pass them on. Closing that needs signed, expiring links (Mux
-  signed playback, Storage signed URLs).
+- File links (notes, audio, resources, workbooks) are bearer links: they reach
+  only learners who may open the topic, but one such learner could pass them
+  on. Closing that needs Storage signed URLs. Videos are covered by Mux signed
+  playback once it is set up (README): a passed-on token stops working within a
+  day. Until every video's public playback id is deleted in Mux, those ids
+  remain bearer links.
 - Each signed-in tab holds one Realtime connection, and Supabase plans cap
   concurrent connections. Past the cap, new tabs miss live topic changes (pages
   still work and catch up on reload).
@@ -411,10 +423,13 @@ lib/
   access.ts, credits.ts  Access windows and the credit score
   learning/server.ts     Server side of learning: access check, grading, credits
   checkpoint.ts          The browser's calls to the checkpoint and credits routes
+  mux/playback.ts        Signed Mux playback: tokens, telling signed ids from public
+  playback.ts            The browser's side of /api/leap/playback
   ideas.ts, stamps.ts    Which Idea of the day shows; the dashboard stamps
   resume.ts              Where a learner resumes (watch-position.ts: the saved place)
   download.ts            File downloads that keep the learner on the page
   types.ts               Shared types, roles, permissions
 supabase/                database.sql and migrations
+scripts/                 mux-signed-playback.mjs: existing videos to signed playback ids
 proxy.ts                 Attaches the Clerk session to requests (no route blocking)
 ```
