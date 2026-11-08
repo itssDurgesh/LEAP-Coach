@@ -5,8 +5,55 @@ import { ArrowRight, Send, FileText, HelpCircle, Layers } from "lucide-react";
 import { LogoMark } from "@/components/ui/Logo";
 import { Course, Video, ChatMessage } from "@/lib/types";
 import { leapReply, leapWelcome, LeapAction } from "@/lib/mock/leapAI";
-import { useApp } from "@/lib/store/AppProvider";
+import { loadTranscript } from "@/lib/transcripts";
+import { MAX_TRANSCRIPT_CHARS } from "@/lib/ai/limits";
+import { isClerkConfigured } from "@/lib/clerk/config";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { cn } from "@/lib/utils";
+
+// With the real services on, the tutor route reads the session's transcript from the
+// database by id. Only the local demo (topics in this browser only) sends its own.
+const live = isClerkConfigured && isSupabaseConfigured;
+
+const UNAVAILABLE = "I couldn't answer that just now. Please try again in a moment.";
+
+/** One event of the tutor's streamed reply (see app/api/leap/chat). */
+interface ReplyEvent {
+  delta?: string;
+  done?: boolean;
+  error?: boolean;
+}
+
+/** Read a text/event-stream body, calling `onText` with the reply so far. Returns the whole reply ("" if none). */
+async function readReply(body: ReadableStream<Uint8Array>, onText: (text: string) => void): Promise<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      let event: ReplyEvent;
+      try {
+        event = JSON.parse(line.slice(5).trim()) as ReplyEvent;
+      } catch {
+        continue;
+      }
+      if (event.error) return text;
+      if (typeof event.delta === "string" && event.delta) {
+        text += event.delta;
+        onText(text);
+      }
+    }
+  }
+  return text;
+}
 
 const quickActions: { label: string; action: Exclude<LeapAction, undefined>; icon: typeof FileText }[] = [
   { label: "Summarize", action: "summarize", icon: FileText },
@@ -94,7 +141,9 @@ function TypingDots() {
   );
 }
 
-export function LeapChat({
+// Memoized: it sits on the lesson page, which re-renders for reasons that never
+// concern the chat (store updates, switching the lesson tabs).
+export const LeapChat = React.memo(function LeapChat({
   course,
   video,
   showHeader = true,
@@ -103,20 +152,40 @@ export function LeapChat({
   video: Video;
   showHeader?: boolean;
 }) {
-  const { ensureTranscript } = useApp();
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [typing, setTyping] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  // Replies still coming in for this session; stopped when the learner moves on.
+  const inFlight = React.useRef(new Set<AbortController>());
 
   React.useEffect(() => {
     setMessages([
       { id: "welcome", role: "assistant", text: leapWelcome(video), createdAt: new Date().toISOString() },
     ]);
+    setTyping(false);
+    const pending = inFlight.current;
+    return () => {
+      // Another session (or another page): a reply still streaming belongs to the
+      // old conversation, so stop it rather than let it land in the new one.
+      pending.forEach((c) => c.abort());
+      pending.clear();
+    };
   }, [video.id]);
 
+  // The learner's own message (and the typing dots) scroll smoothly into view. A reply
+  // streaming in keeps its end in view instantly, since a smooth scroll per piece
+  // stutters, and only while the learner is at the end: someone who scrolled up to
+  // re-read is left where they are. "At the end" is measured against the height
+  // before this update, so a tall piece of text cannot make it look otherwise.
+  const lastHeight = React.useRef(0);
   React.useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!el) return;
+    const atEnd = lastHeight.current - el.scrollTop - el.clientHeight < 48;
+    if (typing || messages[messages.length - 1]?.role === "user") el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    else if (atEnd) el.scrollTop = el.scrollHeight;
+    lastHeight.current = el.scrollHeight;
   }, [messages, typing]);
 
   async function send(text: string, action?: LeapAction) {
@@ -138,38 +207,60 @@ export function LeapChat({
     setInput("");
     setTyping(true);
 
-    // The transcript is fetched per video (it is not part of the page load); a
-    // question asked before it arrived waits for it rather than going without.
-    const transcript = video.transcript ?? (await ensureTranscript(video.id).catch(() => ""));
-    const lesson = { ...video, transcript };
-    const mock = () => leapReply(course, lesson, trimmed || labelFor(action), action);
-    const unavailable = "I couldn't answer that just now. Please try again in a moment.";
-    let reply: string;
+    const ctl = new AbortController();
+    inFlight.current.add(ctl);
+    const replyId = `a${Date.now()}`;
+    // The reply's bubble appears with its first piece and then grows.
+    const show = (text: string) =>
+      setMessages((m) =>
+        m.some((x) => x.id === replyId)
+          ? m.map((x) => (x.id === replyId ? { ...x, text } : x))
+          : [...m, { id: replyId, role: "assistant", text, createdAt: new Date().toISOString() }],
+      );
+
     try {
+      // Real services: the route reads the transcript itself, so none is sent (or
+      // fetched here). The local demo sends this browser's copy. The transcript went
+      // up whole with every message once, and one over the size limit failed them all.
+      const context = live ? "" : (await loadTranscript(video)).trim().slice(0, MAX_TRANSCRIPT_CHARS);
       const res = await fetch("/api/leap/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: ctl.signal,
         body: JSON.stringify({
-          courseTitle: course.title,
-          // The transcript is the tutor's only source; the summary is deliberately not sent.
-          video: { title: video.title, transcript },
+          videoId: video.id,
+          ...(live ? {} : { courseTitle: course.title, video: { title: video.title, transcript: context } }),
           messages: history,
           action,
         }),
       });
-      const data = await res.json();
-      // The canned mock is only for a setup with no AI key (the route says `fallback`).
-      // Any other failure says so, because the mock is not written from the transcript.
-      reply = data?.fallback ? mock() : typeof data?.reply === "string" && data.reply ? data.reply : unavailable;
-    } catch {
-      reply = unavailable;
-    }
 
-    setMessages((m) => [
-      ...m,
-      { id: `a${Date.now()}`, role: "assistant", text: reply, createdAt: new Date().toISOString() },
-    ]);
-    setTyping(false);
+      if (res.ok && res.body && (res.headers.get("content-type") ?? "").includes("text/event-stream")) {
+        const text = await readReply(res.body, (soFar) => {
+          setTyping(false);
+          show(soFar);
+        });
+        // Nothing came through (blocked, or the connection dropped at once).
+        if (!text) show(UNAVAILABLE);
+      } else {
+        const data = await res.json().catch(() => null);
+        if (data?.fallback) {
+          // No AI key on this setup: the canned local replies, which read the transcript.
+          const transcript = await loadTranscript(video).catch(() => "");
+          show(leapReply(course, { ...video, transcript }, trimmed || labelFor(action), action));
+        } else {
+          // An answer the route wrote itself (no transcript yet, session gone), or a
+          // failure. The mock is not used here: it is not written from the transcript.
+          show(typeof data?.reply === "string" && data.reply ? data.reply : UNAVAILABLE);
+        }
+      }
+    } catch {
+      // Stopped on purpose (the learner moved on) → leave the old conversation alone.
+      if (!ctl.signal.aborted) show(UNAVAILABLE);
+    } finally {
+      inFlight.current.delete(ctl);
+      if (!ctl.signal.aborted) setTyping(false);
+    }
   }
 
   // Before the first question, the three starters fill the panel instead of leaving it empty.
@@ -273,4 +364,4 @@ export function LeapChat({
       </form>
     </div>
   );
-}
+});

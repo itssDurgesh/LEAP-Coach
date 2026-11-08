@@ -2,16 +2,17 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowRight, Check, Flag, Flame, Megaphone, Quote, Trophy, Video } from "lucide-react";
-import { Avatar } from "@/components/ui/Avatar";
+import { ArrowRight, Check, Flag, Megaphone, Quote, Trophy, Video } from "lucide-react";
 import { daysUntil, hostInitials } from "@/components/SessionCard";
 import { StampGrid } from "@/components/v2/StampGrid";
-import { Bar, SegTabs, V2Card, V2_AVATAR, v2Button } from "@/components/v2/ui";
+import { Avatar } from "@/components/ui/Avatar";
+import { Bar, SegTabs, V2Card, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
 import { levelStyle, shortLevelLabel } from "@/lib/levels";
-import { computeStamps, type Stamp } from "@/lib/stamps";
+import { computeStamps } from "@/lib/stamps";
+import { creditOutlook, topicComplete } from "@/lib/credits";
 import { CREDIT_TIERS, tierForCredits, courseCategories } from "@/lib/types";
-import type { Announcement, DailyTip, LeaderboardRow, LiveSession, Role } from "@/lib/types";
+import type { Announcement, DailyTip, LeaderboardEntry, LiveSession, Role } from "@/lib/types";
 import { cn, timeAgo } from "@/lib/utils";
 
 /** One slim line for the latest announcement. */
@@ -176,41 +177,113 @@ export function LeadershipMap() {
 
 type StandingTab = "credits" | "stamps" | "leaderboard";
 
-/**
- * Six stamps for the dashboard card: the newest earned ones, then the ones the
- * learner is closest to earning. The full set is on their profile.
- */
-function dashboardStamps(stamps: Stamp[]): Stamp[] {
-  const earned = stamps.filter((s) => s.earned).sort((a, b) => ((a.earnedAt ?? "") < (b.earnedAt ?? "") ? 1 : -1));
-  const next = stamps.filter((s) => !s.earned).sort((a, b) => b.current / b.target - a.current / a.target);
-  const pick = [...earned.slice(0, 3), ...next].slice(0, 6);
-  // Keep the catalogue's order, so a stamp does not jump around as it is earned.
-  return stamps.filter((s) => pick.includes(s));
-}
-type Period = "month" | "all";
-/** Rows on the dashboard board; the learner's own row is added below when they are further down. */
-const BOARD_SIZE = 5;
-
+// Initials circles, one tint per learner (stable: picked from their id).
 const BOARD_TINTS = [
   "bg-lv-peers-tint text-lv-peers-dark",
   "bg-lv-people-tint text-lv-people-dark",
   "bg-lv-upwards-tint text-lv-upwards-dark",
   "bg-lv-self-tint text-lv-self-dark",
-  "bg-lv-cultures-tint text-lv-cultures-dark",
-  "bg-lv-orgs-tint text-lv-orgs-dark",
 ];
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase() || "?";
+const tintFor = (id: string) => BOARD_TINTS[[...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % BOARD_TINTS.length];
 
-/** Credits, stamps and the leaderboard in one card, behind tabs. All three are real data. */
+/**
+ * The real leaderboard: learners of the signed-in learner's track ranked by banked
+ * credits (all time), the top five and their own row. Ranked in the database when
+ * its leaderboard() function exists, otherwise from the profiles the store holds.
+ * Fetched when the tab opens, and again when the learner's own credits change.
+ */
+function Leaderboard({ role, meId, myCredits }: { role: Role; meId: string; myCredits: number }) {
+  const { fetchLeaderboard } = useApp();
+  const fetchRef = React.useRef(fetchLeaderboard);
+  fetchRef.current = fetchLeaderboard;
+  const [rows, setRows] = React.useState<LeaderboardEntry[] | null>(null);
+  React.useEffect(() => {
+    let live = true;
+    fetchRef.current(role).then(
+      (r) => live && setRows(r),
+      () => live && setRows([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [role, myCredits]);
+
+  if (!rows) {
+    return (
+      <div className="space-y-2" aria-busy="true" aria-label="Loading the leaderboard">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-8 animate-pulse rounded-xl bg-surface" />
+        ))}
+      </div>
+    );
+  }
+
+  const total = rows[0]?.total ?? 0;
+  // Learners who have banked something; a board of zeros ranks nobody.
+  const top = rows.filter((r) => r.credits > 0 && r.userId !== meId);
+  const me = rows.find((r) => r.userId === meId);
+  const meRanked = !!me && me.credits > 0;
+  // Among equal ranks the learner comes first, so a tie for fifth keeps them in the list.
+  const shown = [...top, ...(meRanked && me ? [me] : [])]
+    .sort((a, b) => a.rank - b.rank || (a.userId === meId ? -1 : b.userId === meId ? 1 : 0))
+    .slice(0, 5);
+  const meShown = shown.some((r) => r.userId === meId);
+
+  const row = (r: LeaderboardEntry, isMe: boolean) => (
+    <li key={r.userId} className={cn("flex items-center gap-2.5 rounded-xl px-2.5 py-1", isMe && "bg-v2-gold-soft")}>
+      <span className="w-5 shrink-0 text-right text-[13px] font-semibold tabular-nums text-muted">{r.rank}</span>
+      {r.avatarUrl ? (
+        <Avatar src={r.avatarUrl} name={r.name} size={28} ring={false} />
+      ) : (
+        <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10.5px] font-bold", isMe ? "bg-v2-strong text-v2-on-strong" : tintFor(r.userId))}>
+          {r.name
+            .split(/\s+/)
+            .map((w) => w[0])
+            .slice(0, 2)
+            .join("")
+            .toUpperCase() || "?"}
+        </span>
+      )}
+      <span className={cn("min-w-0 flex-1 truncate text-sm text-heading", isMe ? "font-semibold" : "font-medium")}>
+        {r.name || (r.username ? `@${r.username}` : "Learner")}
+        {isMe && " (you)"}
+      </span>
+      <span className="shrink-0 text-[13px] font-bold tabular-nums text-heading">{r.credits.toLocaleString("en-IN")}</span>
+    </li>
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-medium capitalize text-muted">All time · {role} track</p>
+        {total > 0 && (
+          <span className="text-xs font-semibold text-muted">
+            {total.toLocaleString("en-IN")} learner{total === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+      {shown.length === 0 ? (
+        <p className="rounded-xl bg-surface px-3 py-3 text-sm text-v2-body">
+          No one in the <span className="capitalize">{role}</span> track has banked credits yet. Finish a topic to top the board.
+        </p>
+      ) : (
+        <ol className="space-y-1">{shown.map((r) => row(r, r.userId === meId))}</ol>
+      )}
+      {/* Their own place, when it is outside the top five or they have nothing banked yet. */}
+      {me && !meShown && (
+        <div className="space-y-1">
+          {shown.length > 0 && <p className="px-2.5 text-xs font-medium text-faint">…</p>}
+          <ol>{row(me, true)}</ol>
+          {me.credits === 0 && <p className="px-2.5 text-xs font-medium text-muted">Credits are banked when you finish a topic.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Credits, stamps and the leaderboard in one card, behind tabs. */
 export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; href: string } | null; animate?: boolean }) {
-  const { currentUser, courses, submissions, progress, ideaResponses, stamps: earned, creditEvents, learningStreak, getCourse } = useApp();
+  const { currentUser, courses, submissions, progress, isEnrolled } = useApp();
   const [tab, setTab] = React.useState<StandingTab>("credits");
   if (!currentUser) return null;
 
@@ -218,10 +291,16 @@ export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; hr
   const tier = tierForCredits(credits);
   const tierIndex = CREDIT_TIERS.findIndex((t) => t.label === tier.label);
   const nextTier = CREDIT_TIERS[tierIndex + 1];
-  const stamps = computeStamps(currentUser, courses, submissions, progress, ideaResponses, earned);
-  const earnedCount = stamps.filter((s) => s.earned).length;
-  const streak = learningStreak();
-  const recent = creditEvents.filter((e) => e.userId === currentUser.id).slice(0, 3);
+  const stamps = computeStamps(currentUser, courses, submissions, progress);
+
+  // Credits on their way: topics with checkpoints answered but not finished yet, so
+  // nothing is banked for them. What the answers so far are on track for.
+  const onTheWay = courses
+    .filter((c) => isEnrolled(c.id) && c.assignments.length > 0 && !topicComplete(c, currentUser.id, submissions, progress))
+    .map((c) => ({ course: c, ...creditOutlook(c, currentUser.id, submissions) }))
+    .filter((o) => o.checkpointsDone > 0 && o.projected !== null)
+    .sort((a, b) => b.checkpointsDone / b.checkpoints - a.checkpointsDone / a.checkpoints)
+    .slice(0, 2);
 
   return (
     <V2Card className="flex h-full flex-col gap-[18px] p-6">
@@ -237,26 +316,21 @@ export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; hr
         onChange={setTab}
         tabs={[
           { id: "credits", label: "Credits" },
-          { id: "stamps", label: `Stamps ${earnedCount}/${stamps.length}` },
+          { id: "stamps", label: "Stamps" },
           { id: "leaderboard", label: "Leaderboard" },
         ]}
       />
 
       {tab === "leaderboard" ? (
-        <Leaderboard role={currentUser.role} />
+        currentUser.role ? (
+          <Leaderboard role={currentUser.role} meId={currentUser.id} myCredits={credits} />
+        ) : null
       ) : tab === "credits" ? (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="flex items-baseline gap-2">
-              <span className="font-heading text-[44px] font-bold leading-[48px] tracking-[-0.015em] text-heading tabular-nums">{credits}</span>
-              <span className="text-[15px] text-muted">credits</span>
-            </p>
-            {streak.current > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-lv-people-tint px-2.5 py-1 text-xs font-semibold text-lv-people-dark" title={`Best: ${streak.best} days`}>
-                <Flame className="h-3.5 w-3.5" /> {streak.current}-day streak
-              </span>
-            )}
-          </div>
+          <p className="flex items-baseline gap-2">
+            <span className="font-heading text-[44px] font-bold leading-[48px] tracking-[-0.015em] text-heading">{credits}</span>
+            <span className="text-[15px] text-muted">credits banked</span>
+          </p>
           <div className="flex gap-1.5">
             {CREDIT_TIERS.map((t, i) => {
               const upper = CREDIT_TIERS[i + 1]?.min;
@@ -272,18 +346,24 @@ export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; hr
           <p className="text-sm font-medium text-v2-body">
             {nextTier ? `${nextTier.min - credits} credits to reach ${nextTier.label}` : "You have reached the top tier."}
           </p>
-          {recent.length > 0 ? (
-            <ul className="space-y-1.5">
-              {recent.map((e) => (
-                <li key={e.id} className="flex items-center gap-2.5 text-[13px]">
-                  <span className="grid h-6 min-w-[44px] place-items-center rounded-full bg-lv-orgs-tint px-2 font-bold tabular-nums text-lv-orgs-dark">+{e.amount}</span>
-                  <span className="min-w-0 flex-1 truncate font-medium text-heading">{(e.courseId && getCourse(e.courseId)?.title.split(":")[0]) || "A topic"}</span>
-                  <span className="shrink-0 text-xs font-medium text-muted">{timeAgo(e.createdAt)}</span>
-                </li>
+          {onTheWay.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted">On the way · banked when you finish the topic</p>
+              {onTheWay.map((o) => (
+                <div key={o.course.id} className="flex items-center gap-3 rounded-2xl bg-surface px-3 py-2.5">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-semibold text-heading">{o.course.title}</span>
+                    <span className="block text-xs font-medium text-muted">
+                      {o.checkpointsDone} of {o.checkpoints} checkpoint{o.checkpoints === 1 ? "" : "s"} done
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block font-heading text-base font-bold leading-5 text-heading">{o.projected}</span>
+                    <span className="block text-[11px] font-medium text-muted">on track</span>
+                  </span>
+                </div>
               ))}
-            </ul>
-          ) : (
-            <p className="text-[13px] leading-5 text-muted">Credits grow as you finish videos and checkpoints: up to 100 for each topic, more for answers you get right first time.</p>
+            </div>
           )}
           {nextUp && (
             <Link href={nextUp.href} className="group flex items-center gap-3 rounded-2xl bg-surface p-3 transition-colors duration-200 hover:bg-surface-2">
@@ -291,8 +371,8 @@ export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; hr
                 <Flag className="h-[18px] w-[18px]" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-semibold text-heading">Keep going in {nextUp.title}</span>
-                <span className="block text-xs font-medium text-muted">Each video and checkpoint adds to its 100 credits</span>
+                <span className="block truncate text-[13px] font-semibold text-heading">Finish {nextUp.title}</span>
+                <span className="block text-xs font-medium text-muted">Earns up to 100 credits</span>
               </span>
               <ArrowRight className="h-4 w-4 shrink-0 text-heading transition-transform duration-200 group-hover:translate-x-0.5" />
             </Link>
@@ -300,115 +380,12 @@ export function StandingCard({ nextUp, animate }: { nextUp?: { title: string; hr
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[13px] font-semibold text-v2-body">
-              {earnedCount} of {stamps.length} stamps earned
-            </p>
-            <Link href={`/u/${currentUser.username ?? currentUser.id}`} className="text-xs font-semibold text-v2-gold-text hover:underline">
-              See all {stamps.length}
-            </Link>
-          </div>
-          <StampGrid stamps={dashboardStamps(stamps)} />
+          <p className="text-[13px] font-semibold text-v2-body">
+            {stamps.filter((s) => s.earned).length} of {stamps.length} stamps earned
+          </p>
+          <StampGrid stamps={stamps} />
         </div>
       )}
     </V2Card>
-  );
-}
-
-/** Learners ranked by credits, this month or all time, in the learner's path or everyone. */
-function Leaderboard({ role }: { role: Role | null }) {
-  const { getLeaderboard, stamps } = useApp();
-  const [period, setPeriod] = React.useState<Period>("month");
-  const [scope, setScope] = React.useState<"path" | "everyone">("path");
-  const [rows, setRows] = React.useState<LeaderboardRow[] | null | undefined>(undefined);
-  const filterRole = scope === "path" ? role : null;
-
-  React.useEffect(() => {
-    let active = true;
-    setRows(undefined);
-    getLeaderboard(period, filterRole, BOARD_SIZE).then(
-      (r) => active && setRows(r),
-      () => active && setRows(null),
-    );
-    return () => {
-      active = false;
-    };
-    // stamps: a new stamp means the learner just earned credits; refresh the ranks.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, filterRole, stamps.length]);
-
-  const list = rows ?? [];
-  const meRow = list.find((r) => r.isMe);
-  // The learner's own row comes last when they are outside the top rows.
-  const meDetached = !!meRow && list.length > BOARD_SIZE && list[list.length - 1] === meRow;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <SegTabs
-          value={period}
-          onChange={setPeriod}
-          className="p-0.5 [&>button]:px-3 [&>button]:py-1 [&>button]:text-xs"
-          tabs={[
-            { id: "month", label: "This month" },
-            { id: "all", label: "All time" },
-          ]}
-        />
-        {role && (
-          <SegTabs
-            value={scope}
-            onChange={setScope}
-            className="p-0.5 [&>button]:px-3 [&>button]:py-1 [&>button]:text-xs"
-            tabs={[
-              { id: "path", label: "My path" },
-              { id: "everyone", label: "Everyone" },
-            ]}
-          />
-        )}
-      </div>
-
-      {rows === undefined ? (
-        <ol aria-busy className="space-y-1.5">
-          {[0, 1, 2, 3].map((i) => (
-            <li key={i} className="h-8 animate-pulse rounded-xl bg-surface" />
-          ))}
-        </ol>
-      ) : rows === null ? (
-        <p className="py-4 text-center text-sm text-muted">The leaderboard could not be loaded right now.</p>
-      ) : list.every((r) => r.credits === 0) ? (
-        <div className="rounded-2xl bg-surface p-4 text-center">
-          <p className="text-sm font-semibold text-heading">{period === "month" ? "Nobody has earned credits this month yet" : "No credits earned yet"}</p>
-          <p className="mt-1 text-xs text-muted">Finish a video or a checkpoint and you are on the board.</p>
-        </div>
-      ) : (
-        <ol className="space-y-1">
-          {list.map((r, i) => (
-            <React.Fragment key={r.userId}>
-              {meDetached && r.isMe && <li aria-hidden className="px-2.5 text-center text-xs leading-3 text-faint">···</li>}
-              <li>
-                <Link
-                  href={`/u/${r.username ?? r.userId}`}
-                  className={cn("flex items-center gap-2.5 rounded-xl px-2.5 py-1 transition-colors duration-200", r.isMe ? "bg-v2-gold-soft" : "hover:bg-surface")}
-                >
-                  <span className={cn("w-5 shrink-0 text-[13px] font-semibold tabular-nums", r.rank <= 3 && r.credits > 0 ? "text-v2-gold-text" : "text-muted")}>{r.rank}</span>
-                  {r.avatarUrl ? (
-                    <Avatar src={r.avatarUrl} name={r.name} size={28} ring={false} className={V2_AVATAR} />
-                  ) : (
-                    <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10.5px] font-bold", r.isMe ? "bg-v2-strong text-v2-on-strong" : BOARD_TINTS[i % BOARD_TINTS.length])}>
-                      {initials(r.name)}
-                    </span>
-                  )}
-                  <span className={cn("min-w-0 flex-1 truncate text-sm text-heading", r.isMe ? "font-semibold" : "font-medium")}>
-                    {r.name}
-                    {r.isMe && " (you)"}
-                  </span>
-                  <span className="shrink-0 text-[13px] font-bold tabular-nums text-heading">{r.credits}</span>
-                </Link>
-              </li>
-            </React.Fragment>
-          ))}
-        </ol>
-      )}
-    </div>
   );
 }

@@ -14,4 +14,4 @@ import "server-only"; // reads GEMINI_API_KEY — keep out of the client bundle
 export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-lite-latest";
 
 /** Keep transcript context bounded so token cost/latency stays predictable. */
-export const MAX_TRANSCRIPT_CHARS = 8000;
+export { MAX_TRANSCRIPT_CHARS } from "./limits";

@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -26,16 +25,10 @@ const fmtDate = (iso: string, month: "short" | "long") =>
 function ArticleReader() {
   const params = useParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const { articles, users, ensureProfiles } = useApp();
+  const { articles, users } = useApp();
 
   const published = articles.filter((a) => a.published && !a.archived);
   const article = published.find((a) => a.id === id);
-  // The author's profile (for the avatar) is fetched when it is not loaded.
-  const authorId = article?.authorId;
-  React.useEffect(() => {
-    if (authorId) void ensureProfiles([authorId]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authorId]);
 
   if (!article) {
     return (

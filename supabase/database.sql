@@ -32,9 +32,6 @@
 -- 1. EXTENSIONS & HELPERS
 -- ─────────────────────────────────────────────────────────────────────────────
 create extension if not exists "pgcrypto";
--- public.is_admin(), the RLS helper, is defined in section 2 right after the
--- profiles table it reads: a SQL function's body is checked when it is created,
--- so defining it first made this file fail on a brand-new database.
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -73,7 +70,9 @@ create unique index if not exists profiles_username_key on public.profiles (lowe
 
 -- RLS helper: is the current user an admin? Declared STABLE so the planner can
 -- cache it within a statement; policies below additionally wrap calls in
--- (select …) so it runs once per query.
+-- (select …) so it runs once per query. It is defined here, after the table it
+-- reads, because a SQL function's body is checked when it is created: declared
+-- before `profiles` existed, it made this file fail on a brand-new database.
 create or replace function public.is_admin()
 returns boolean language sql security definer set search_path = public stable as $$
   select coalesce((select is_admin from public.profiles where id = (auth.jwt() ->> 'sub')), false);
@@ -117,7 +116,6 @@ create table if not exists public.courses (
   published            boolean default false,
   accent               int default 0,
   thumbnail_url        text,                    -- uploaded cover image
-  video_thumbnail_url  text,                    -- one picture shown on every video of the topic
   workbook_name        text,                    -- final workbook (PDF/DOCX)
   workbook_url         text,
   pending_approval     boolean default false,   -- sub-admin submission awaiting owner
@@ -175,23 +173,6 @@ create table if not exists public.recommended_resources (
   blurb       text,
   target_role text default 'all',
   accent      int default 0
-);
-
--- "Idea of the day" on the learner dashboard. Admins write ideas and schedule
--- them for a date; idea_for_day() (section 11b) picks the one for a learner's day.
-create table if not exists public.daily_ideas (
-  id          text primary key,
-  title       text not null,
-  body        text not null default '',
-  question    text not null default '',
-  options     jsonb not null default '[]',      -- [{ "text", "good", "feedback" }], 2–5 of them
-  track_id    text,                             -- leadership level shown as a chip
-  audience    text not null default 'all' check (audience in ('all','student','professional','entrepreneur')),
-  show_on     date,                             -- the day it is scheduled for; null = rotation only
-  active      boolean not null default true,
-  created_by  text,
-  created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
 );
 
 create table if not exists public.live_sessions (
@@ -315,8 +296,6 @@ create table if not exists public.video_progress (
   completed     boolean default false,
   watch_seconds int default 0,
   completed_at  timestamptz,
-  position_seconds int default 0,              -- where the learner stopped (resume point)
-  last_watched_at  timestamptz,                -- last time the player saved a position
   unique (user_id, video_id)
 );
 
@@ -333,6 +312,24 @@ create table if not exists public.submissions (
   submitted_at   timestamptz default now()
 );
 
+-- Server-graded checkpoints: one row per learner, question and checkpoint attempt
+-- (tries, wrong answers, solved / answer shown). Written only by the server
+-- (app/api/leap/checkpoint), which builds each submission from these rows.
+create table if not exists public.checkpoint_progress (
+  user_id        text not null references public.profiles (id) on delete cascade,
+  question_id    text not null references public.questions (id) on delete cascade,
+  assignment_id  text not null references public.assignments (id) on delete cascade,
+  attempt_number int  not null,
+  tries          int  not null default 0,
+  wrong          jsonb not null default '[]',
+  solved         boolean not null default false,
+  revealed       boolean not null default false,
+  updated_at     timestamptz not null default now(),
+  primary key (user_id, question_id, attempt_number)
+);
+create index if not exists idx_checkpoint_progress_attempt
+  on public.checkpoint_progress (user_id, assignment_id, attempt_number);
+
 create table if not exists public.user_notes (
   id         text primary key,
   user_id    text references public.profiles (id) on delete cascade,
@@ -345,47 +342,6 @@ create table if not exists public.session_attendees (
   session_id text references public.live_sessions (id) on delete cascade,
   user_id    text references public.profiles (id) on delete cascade,
   primary key (session_id, user_id)
-);
-
--- One rating per learner per topic; course_ratings_sync keeps courses.rating /
--- rating_count in step (section 11b).
-create table if not exists public.course_ratings (
-  id          text primary key,
-  user_id     text not null,
-  course_id   text not null references public.courses (id) on delete cascade,
-  stars       int  not null check (stars between 1 and 5),
-  review      text,
-  created_at  timestamptz default now(),
-  updated_at  timestamptz default now(),
-  unique (user_id, course_id)
-);
-
--- A learner's answer to an idea of the day (one per idea).
-create table if not exists public.idea_responses (
-  user_id      text not null references public.profiles (id) on delete cascade,
-  idea_id      text not null references public.daily_ideas (id) on delete cascade,
-  option_index int  not null check (option_index between 0 and 9),
-  created_at   timestamptz not null default now(),
-  primary key (user_id, idea_id)
-);
-
--- Every credit gain, written only by sync_topic_credit(). The monthly
--- leaderboard adds these up.
-create table if not exists public.credit_events (
-  id          bigint generated always as identity primary key,
-  user_id     text not null references public.profiles (id) on delete cascade,
-  course_id   text references public.courses (id) on delete set null,
-  amount      int not null,
-  total_after int not null,
-  created_at  timestamptz not null default now()
-);
-
--- Stamps the database has awarded (award_stamps(), section 11b).
-create table if not exists public.user_stamps (
-  user_id   text not null references public.profiles (id) on delete cascade,
-  stamp_id  text not null,
-  earned_at timestamptz not null default now(),
-  primary key (user_id, stamp_id)
 );
 
 
@@ -560,6 +516,25 @@ create table if not exists public.site_pages (
 );
 insert into public.site_pages (id, privacy_policy) values (1, null) on conflict (id) do nothing;
 
+-- Idea of the day. Admins (and sub-admins with the "content" permission) write
+-- several at once; the dashboard shows one a day: an idea pinned to today's date
+-- (India time) if there is one, otherwise the next idea of the rotation.
+create table if not exists public.daily_ideas (
+  id          text primary key,
+  title       text not null default '',
+  body        text not null default '',
+  track_id    text,                                  -- leadership level, shown as a chip
+  question    text not null default '',
+  options     jsonb not null default '[]',           -- [{ "text", "good", "feedback" }]
+  target_role text not null default 'all'
+              check (target_role in ('all', 'student', 'professional', 'entrepreneur')),
+  show_on     date,                                  -- pinned to this day; null = in the rotation
+  order_index int not null default 0,                -- position in the rotation
+  active      boolean not null default true,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
+);
+
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 8. INTEGRATIONS — Telegram bot linking + realtime
@@ -652,10 +627,12 @@ alter table public.live_sessions add column if not exists notified_user_ids json
 -- Refund audit trail (kept in sync by the refund route + refund.* webhook events).
 alter table public.payments      add column if not exists razorpay_refund_id text;
 alter table public.payments      add column if not exists refund_amount_inr int;
--- Topic-wide video thumbnail + resume position (migrations/2026-11-08-ideas-standing-resume.sql).
-alter table public.courses        add column if not exists video_thumbnail_url text;
-alter table public.video_progress add column if not exists position_seconds int default 0;
+-- Resume on any device: where the learner left each video, and when (the
+-- dashboard offers the most recently watched one). watch_seconds is unchanged.
+alter table public.video_progress add column if not exists position_seconds int;
 alter table public.video_progress add column if not exists last_watched_at timestamptz;
+-- One thumbnail for every video of a topic (the topic editor's Sessions step).
+alter table public.courses       add column if not exists video_thumbnail_url text;
 
 -- Backfill @usernames for profiles that don't have one yet (tagging on the
 -- discussion board resolves people by handle). Idempotent: only fills NULLs.
@@ -696,21 +673,74 @@ do $$ declare t text; begin
     'submissions','user_notes','session_attendees','community_posts','post_likes',
     'post_comments','comment_likes','video_comments','video_comment_likes',
     'notifications','site_content','team_members','books','articles','announcements',
-    'faqs','site_pages','telegram_link_tokens','telegram_links',
-    'course_ratings','daily_ideas','idea_responses','credit_events','user_stamps'
+    'faqs','site_pages','telegram_link_tokens','telegram_links','daily_ideas','checkpoint_progress'
   ] loop
     execute format('alter table public.%I enable row level security;', t);
   end loop;
 end $$;
 
--- Profiles: readable by all; users create + edit their own row; admins manage all.
+-- Who may open a topic (used by the policies below and by catalog(), section 14).
+-- Same rule as lib/access.ts (hasAccess): every purchase lasts one year from its
+-- own date (a topic's access_duration_days overrides that for an à-la-carte
+-- purchase), and the topic stays open while any one of them has time left.
+-- Undated entitlements never lapse. Banned accounts open nothing.
+create or replace function public.user_has_course_access(p_user_id text, p_course_id text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(p_user_id, '') <> ''
+    and not exists (select 1 from public.profiles b where b.id = p_user_id and coalesce(b.banned, false))
+    and exists (
+      select 1 from public.courses c
+      where c.id = p_course_id
+        and (
+          coalesce(c.price, 0) = 0
+          or exists (
+            select 1 from public.profiles p
+            where p.id = p_user_id
+              and (
+                coalesce(p.is_admin, false)
+                or (p.subscription_plan = 'all_access'
+                    and (p.subscription_valid_until is null or p.subscription_valid_until > now()))
+              )
+          )
+          or exists (
+            select 1 from public.category_passes cp
+            where cp.user_id = p_user_id
+              and cp.category = any (
+                case when coalesce(cardinality(c.categories), 0) > 0 then c.categories else array[c.category] end
+              )
+              and (cp.granted_at is null or cp.granted_at + interval '365 days' > now())
+          )
+          or exists (
+            select 1 from public.course_purchases pu
+            where pu.user_id = p_user_id and pu.course_id = c.id
+              and (pu.purchased_at is null
+                   or pu.purchased_at + make_interval(days => case when coalesce(c.access_duration_days, 0) > 0
+                                                                   then c.access_duration_days else 365 end) > now())
+          )
+        )
+    );
+$$;
+
+-- The same question for whoever is calling (RLS policies and the functions below).
+create or replace function public.has_course_access(p_course_id text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.user_has_course_access(auth.jwt() ->> 'sub', p_course_id);
+$$;
+
+-- user_has_course_access answers for ANY user id: only the server may ask that.
+revoke execute on function public.user_has_course_access(text, text) from public, anon, authenticated;
+grant  execute on function public.user_has_course_access(text, text) to service_role;
+grant  execute on function public.has_course_access(text) to anon, authenticated, service_role;
+
+-- Profiles: signed-in members read (the private columns are hidden, section 14);
+-- users create + edit their own row; admins manage all.
 -- "insert self" is how the app provisions the row (db.ensureProfile) on first
 -- Clerk sign-in. Privileged columns are pinned by the trigger in section 11.
 drop policy if exists "profiles read"        on public.profiles;
 drop policy if exists "profiles insert self" on public.profiles;
 drop policy if exists "profiles update self" on public.profiles;
 drop policy if exists "profiles admin all"   on public.profiles;
-create policy "profiles read"        on public.profiles for select using (true);
+create policy "profiles read"        on public.profiles for select using ((select auth.jwt() ->> 'sub') is not null);
 create policy "profiles insert self" on public.profiles for insert with check ((select auth.jwt() ->> 'sub') = id);
 create policy "profiles update self" on public.profiles for update
   using ((select auth.jwt() ->> 'sub') = id or (select public.is_admin()))
@@ -731,6 +761,19 @@ do $$ declare t text; begin
     execute format('create policy "%1$s admin write" on public.%1$I for all using ((select public.is_admin())) with check ((select public.is_admin()));', t);
   end loop;
 end $$;
+
+-- Checkpoint questions: only people who may open the topic (and admins); their
+-- answers are hidden from everyone but admins (section 14).
+drop policy if exists "questions read" on public.questions;
+create policy "questions read" on public.questions for select using (
+  (select public.is_admin())
+  or public.has_course_access((select a.course_id from public.assignments a where a.id = questions.assignment_id))
+);
+
+-- Live sessions carry the join link: signed-in members only (as in the app).
+drop policy if exists "live_sessions read" on public.live_sessions;
+create policy "live_sessions read" on public.live_sessions
+  for select using ((select auth.jwt() ->> 'sub') is not null);
 
 -- Articles: learners read only PUBLISHED, non-archived ones; admins read + write all.
 drop policy if exists "articles read"        on public.articles;
@@ -754,6 +797,14 @@ drop policy if exists "faqs admin write" on public.faqs;
 create policy "faqs read" on public.faqs
   for select using (published or (select public.is_admin()));
 create policy "faqs admin write" on public.faqs
+  for all using ((select public.is_admin())) with check ((select public.is_admin()));
+
+-- Idea of the day: learners read the active ideas; admins read + write all.
+drop policy if exists "daily_ideas read"        on public.daily_ideas;
+drop policy if exists "daily_ideas admin write" on public.daily_ideas;
+create policy "daily_ideas read" on public.daily_ideas
+  for select using (active or (select public.is_admin()));
+create policy "daily_ideas admin write" on public.daily_ideas
   for all using ((select public.is_admin())) with check ((select public.is_admin()));
 
 -- Site pages (privacy policy): public read; admin write.
@@ -813,13 +864,26 @@ create policy "enrollments delete own" on public.enrollments
 
 -- Private per-user tables: owner CRUD; admins read all.
 do $$ declare t text; begin
-  foreach t in array array['video_progress','submissions','user_notes'] loop
+  foreach t in array array['video_progress','user_notes'] loop
     execute format('drop policy if exists "%1$s owner" on public.%1$I;', t);
     execute format('drop policy if exists "%1$s admin read" on public.%1$I;', t);
     execute format('create policy "%1$s owner" on public.%1$I for all using ((select auth.jwt() ->> ''sub'') = user_id) with check ((select auth.jwt() ->> ''sub'') = user_id);', t);
     execute format('create policy "%1$s admin read" on public.%1$I for select using ((select public.is_admin()));', t);
   end loop;
 end $$;
+
+-- Submissions and checkpoint progress: learners read their own (admins all); only
+-- the server writes them, after grading (app/api/leap/checkpoint).
+drop policy if exists "submissions owner"      on public.submissions;
+drop policy if exists "submissions read own"   on public.submissions;
+drop policy if exists "submissions admin read" on public.submissions;
+create policy "submissions read own" on public.submissions
+  for select using ((select auth.jwt() ->> 'sub') = user_id);
+create policy "submissions admin read" on public.submissions
+  for select using ((select public.is_admin()));
+drop policy if exists "checkpoint_progress read own" on public.checkpoint_progress;
+create policy "checkpoint_progress read own" on public.checkpoint_progress
+  for select using ((select auth.jwt() ->> 'sub') = user_id or (select public.is_admin()));
 
 -- Likes & attendees: counts are public; only the owner writes their own row.
 do $$ declare t text; begin
@@ -872,65 +936,16 @@ create policy "notifications delete" on public.notifications for delete using ((
 drop policy if exists "telegram_link_tokens service" on public.telegram_link_tokens;  -- legacy
 drop policy if exists "telegram_links service"       on public.telegram_links;        -- legacy
 
--- Course ratings: everyone reads; a learner rates only a topic they are enrolled
--- in, and edits only their own rating; admins moderate.
-drop policy if exists "course_ratings read"       on public.course_ratings;
-drop policy if exists "course_ratings insert own" on public.course_ratings;
-drop policy if exists "course_ratings update own" on public.course_ratings;
-drop policy if exists "course_ratings delete own" on public.course_ratings;
-create policy "course_ratings read" on public.course_ratings for select using (true);
-create policy "course_ratings insert own" on public.course_ratings for insert with check (
-  (select auth.jwt() ->> 'sub') = user_id
-  and exists (select 1 from public.enrollments e
-               where e.user_id = (select auth.jwt() ->> 'sub') and e.course_id = course_ratings.course_id)
-);
-create policy "course_ratings update own" on public.course_ratings for update
-  using ((select auth.jwt() ->> 'sub') = user_id or (select public.is_admin()))
-  with check ((select auth.jwt() ->> 'sub') = user_id or (select public.is_admin()));
-create policy "course_ratings delete own" on public.course_ratings for delete
-  using ((select auth.jwt() ->> 'sub') = user_id or (select public.is_admin()));
-
--- Ideas of the day: learners read active ideas up to tomorrow (time zones), so the
--- schedule is not spoiled; admins read and write all of them.
-drop policy if exists "daily_ideas read"        on public.daily_ideas;
-drop policy if exists "daily_ideas admin write" on public.daily_ideas;
-create policy "daily_ideas read" on public.daily_ideas for select
-  using ((active and (show_on is null or show_on <= current_date + 1)) or (select public.is_admin()));
-create policy "daily_ideas admin write" on public.daily_ideas for all
-  using ((select public.is_admin())) with check ((select public.is_admin()));
-
--- Idea answers: a learner sees and adds only their own; admins read all.
-drop policy if exists "idea_responses read own"   on public.idea_responses;
-drop policy if exists "idea_responses insert own" on public.idea_responses;
-create policy "idea_responses read own" on public.idea_responses for select
-  using ((select auth.jwt() ->> 'sub') = user_id or (select public.is_admin()));
-create policy "idea_responses insert own" on public.idea_responses for insert
-  with check (
-    (select auth.jwt() ->> 'sub') = user_id
-    and exists (select 1 from public.daily_ideas i where i.id = idea_id and i.active)
-  );
-
--- Credit history: read-only from the browser (rows come from sync_topic_credit()).
-drop policy if exists "credit_events read own" on public.credit_events;
-create policy "credit_events read own" on public.credit_events for select
-  using ((select auth.jwt() ->> 'sub') = user_id or (select public.is_admin()));
-
--- Stamps: public (shown on profiles); written only by award_stamps().
-drop policy if exists "user_stamps read" on public.user_stamps;
-create policy "user_stamps read" on public.user_stamps for select using (true);
-
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 11. PRIVILEGE HARDENING
 --     A user may create/edit their OWN profile row (RLS above), but must never
 --     grant themselves admin, sub-admin permissions, a paid subscription, or
---     un-ban themselves. This trigger pins those columns for everyone except the
+--     un-ban themselves, or set their own learning credits (the server banks those
+--     after grading). This trigger pins those columns for everyone except the
 --     service role (payment/grant server) and existing admins — on INSERT *and*
 --     UPDATE. INSERT matters because "profiles insert self" would otherwise let a
 --     brand-new user insert is_admin=true or subscription_plan='all_access'.
---     Learning credits are pinned the same way: the database works them out
---     (sync_topic_credit, section 11b), so the leaderboard cannot be typed into.
---     sync_topic_credit switches leap.credit_sync on for its own update only.
 -- ─────────────────────────────────────────────────────────────────────────────
 create or replace function public.protect_privileged_cols()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -952,10 +967,8 @@ begin
     new.subscription_plan        := old.subscription_plan;
     new.subscription_valid_until := old.subscription_valid_until;
     new.banned                   := old.banned;
-    if coalesce(current_setting('leap.credit_sync', true), '') <> 'on' then
-      new.learning_credits := old.learning_credits;
-      new.topic_credits    := old.topic_credits;
-    end if;
+    new.learning_credits         := old.learning_credits;
+    new.topic_credits            := old.topic_credits;
   end if;
   return new;
 end;
@@ -971,404 +984,39 @@ create trigger protect_privileged_cols
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 11b. LEARNING ENGAGEMENT — credits, stamps, idea of the day, leaderboard
---      Credits are worked out here, from what a learner has actually done, and
---      written by triggers; the browser only reads them. Same code as
---      migrations/2026-11-08-ideas-standing-resume.sql.
+-- 12. LEADERBOARD
+--     The top learners of one track by banked credits, plus the caller's own
+--     row with their rank. SECURITY DEFINER so it keeps working if profile reads
+--     are tightened, and it returns only what a leaderboard shows: name, handle,
+--     avatar, credits. `rank` is competition ranking (ties share a rank);
+--     `total` is the number of learners in the track.
 -- ─────────────────────────────────────────────────────────────────────────────
--- ── Course ratings: keep courses.rating / rating_count in step ─────────────
--- Recomputed from scratch for the affected topic: cheap (indexed) and immune to
--- the drift of +1 / -1 arithmetic.
-create or replace function public.sync_course_rating()
-returns trigger language plpgsql security definer set search_path = public as $$
-declare
-  target text := coalesce(new.course_id, old.course_id);
-begin
-  update public.courses c
-     set rating = coalesce((select round(avg(r.stars)::numeric, 2) from public.course_ratings r where r.course_id = target), 0),
-         rating_count = (select count(*) from public.course_ratings r where r.course_id = target)
-   where c.id = target;
-  return null;
-end;
-$$;
-
-drop trigger if exists course_ratings_sync on public.course_ratings;
-create trigger course_ratings_sync
-  after insert or update or delete on public.course_ratings
-  for each row execute function public.sync_course_rating();
-
--- ── Credits ──────────────────────────────────────────────────────────────────
--- One learner's credit for one topic. Mirrors topicCreditNow() in lib/credits.ts:
---   quality  = the ladder below, applied to the attempt-weighted score over the
---              questions of the checkpoints attempted so far (latest attempt each)
---   progress = (videos completed + checkpoints attempted) / (videos + checkpoints)
---   credit   = round(quality × progress)        0–100; 0 for a topic with no questions
--- Once everything is done, progress is 1 and this is the full topic credit.
-create or replace function public.topic_credit(p_user text, p_course text)
-returns int language sql stable security definer set search_path = public as $$
-  with qs as (
-    select q.id as question_id, q.assignment_id
-      from public.questions q
-      join public.assignments a on a.id = q.assignment_id
-     where a.course_id = p_course
-  ),
-  latest as (
-    select distinct on (s.assignment_id) s.assignment_id, s.feedback
-      from public.submissions s
-     where s.user_id = p_user and s.course_id = p_course
-     order by s.assignment_id, s.attempt_number desc, s.submitted_at desc
-  ),
-  graded as (
-    select qs.question_id,
-           (select case
-                     when f ->> 'attempts' is null then case when coalesce((f ->> 'correct')::boolean, false) then 1.0 else 0 end
-                     when not coalesce((f ->> 'solved')::boolean, false) then 0
-                     when (f ->> 'attempts')::numeric <= 1 then 1.0
-                     when (f ->> 'attempts')::numeric = 2 then 0.7
-                     when (f ->> 'attempts')::numeric = 3 then 0.4
-                     else 0
-                   end
-              from jsonb_array_elements(case when jsonb_typeof(l.feedback) = 'array' then l.feedback else '[]'::jsonb end) f
-             where f ->> 'questionId' = qs.question_id
-             limit 1) as weight
-      from qs
-      join latest l on l.assignment_id = qs.assignment_id
-  ),
-  agg as (
-    select (select count(*) from qs)                                              as total_q,
-           (select count(*) from graded)                                          as attempted_q,
-           (select coalesce(sum(coalesce(weight, 0)), 0) from graded)             as weight_sum,
-           (select count(*) from public.videos v where v.course_id = p_course)    as total_v,
-           (select count(*) from public.video_progress vp
-              join public.videos v on v.id = vp.video_id
-             where vp.user_id = p_user and v.course_id = p_course and vp.completed) as done_v,
-           (select count(*) from public.assignments a where a.course_id = p_course) as total_a,
-           (select count(*) from latest)                                          as done_a
-  )
-  select case
-           when total_q = 0 or attempted_q = 0 then 0
-           else round(
-                  (case
-                     when weight_sum * 100.0 / attempted_q > 85 then 100
-                     when weight_sum * 100.0 / attempted_q > 75 then 90
-                     when weight_sum * 100.0 / attempted_q > 65 then 80
-                     when weight_sum * 100.0 / attempted_q > 55 then 70
-                     when weight_sum * 100.0 / attempted_q > 45 then 60
-                     when weight_sum * 100.0 / attempted_q > 0  then 50
-                     else 40
-                   end) * least(done_v + done_a, total_v + total_a)::numeric
-                  / greatest(1, total_v + total_a)
-                )::int
-         end
-    from agg;
-$$;
-
--- Recalculates one topic's credit and, when it went up (the best result is kept),
--- writes the profile and a credit_events row. Called by the triggers below.
-create or replace function public.sync_topic_credit(p_user text, p_course text, p_at timestamptz default now())
-returns void language plpgsql security definer set search_path = public as $$
-declare
-  v_credits jsonb;
-  v_old     int;
-  v_new     int;
-  v_total   int;
-begin
-  if p_user is null or p_course is null then
-    return;
-  end if;
-  select topic_credits into v_credits from public.profiles where id = p_user for update;
-  if not found then
-    return;
-  end if;
-  if v_credits is null or jsonb_typeof(v_credits) <> 'object' then
-    v_credits := '{}'::jsonb;
-  end if;
-
-  v_new := public.topic_credit(p_user, p_course);
-  v_old := case when jsonb_typeof(v_credits -> p_course) = 'number' then (v_credits ->> p_course)::numeric::int else 0 end;
-  if v_new <= v_old then
-    return;
-  end if;
-
-  v_credits := jsonb_set(v_credits, array[p_course], to_jsonb(v_new));
-  select coalesce(sum(case when jsonb_typeof(value) = 'number' then value::text::numeric else 0 end), 0)::int
-    into v_total
-    from jsonb_each(v_credits);
-
-  -- protect_privileged_cols lets this one update through (and nothing else).
-  perform set_config('leap.credit_sync', 'on', true);
-  update public.profiles set topic_credits = v_credits, learning_credits = v_total where id = p_user;
-  perform set_config('leap.credit_sync', 'off', true);
-
-  insert into public.credit_events (user_id, course_id, amount, total_after, created_at)
-       values (p_user, p_course, v_new - v_old, v_total, coalesce(p_at, now()));
-end;
-$$;
-
-
--- ── Stamps ───────────────────────────────────────────────────────────────────
--- Topics finished: every video completed and every checkpoint attempted (lib/credits.ts topicComplete).
-create or replace function public.completed_topic_count(p_user text)
-returns int language sql stable security definer set search_path = public as $$
-  select count(*)::int
-    from public.courses c
-   where exists (select 1 from public.videos v where v.course_id = c.id)
-     and not exists (
-           select 1 from public.videos v
-            where v.course_id = c.id
-              and not exists (select 1 from public.video_progress p
-                               where p.user_id = p_user and p.video_id = v.id and p.completed))
-     and not exists (
-           select 1 from public.assignments a
-            where a.course_id = c.id
-              and not exists (select 1 from public.submissions s
-                               where s.user_id = p_user and s.assignment_id = a.id));
-$$;
-
--- Days in a row (India time) with learning activity: watching or finishing a
--- video, submitting a checkpoint, answering an idea of the day.
--- current_streak counts only a run that reaches today or yesterday.
-create or replace function public.learning_streaks(p_user text)
-returns table (current_streak int, best_streak int)
+create or replace function public.leaderboard(p_role text, p_limit int default 5)
+returns table (user_id text, name text, username text, avatar_url text, credits int, rank bigint, total bigint)
 language sql stable security definer set search_path = public as $$
-  with days as (
-    select distinct d from (
-      select (completed_at    at time zone 'Asia/Kolkata')::date as d from public.video_progress where user_id = p_user and completed_at is not null
-      union all
-      select (last_watched_at at time zone 'Asia/Kolkata')::date      from public.video_progress where user_id = p_user and last_watched_at is not null
-      union all
-      select (submitted_at    at time zone 'Asia/Kolkata')::date      from public.submissions    where user_id = p_user and submitted_at is not null
-      union all
-      select (created_at      at time zone 'Asia/Kolkata')::date      from public.idea_responses where user_id = p_user
-    ) x
-  ),
-  runs as (
-    select max(d) as last_day, count(*)::int as len
-      from (select d, d - (row_number() over (order by d))::int as grp from days) g
-     group by grp
-  )
-  select coalesce((select r.len from runs r
-                    where r.last_day >= (now() at time zone 'Asia/Kolkata')::date - 1
-                    order by r.last_day desc limit 1), 0),
-         coalesce((select max(r.len) from runs r), 0);
-$$;
-
--- Awards every stamp the learner has reached and does not hold yet. The ids and
--- thresholds match STAMP_RULES in lib/stamps.ts.
-create or replace function public.award_stamps(p_user text)
-returns void language plpgsql security definer set search_path = public as $$
-declare
-  v_videos  int;
-  v_passed  int;
-  v_perfect boolean;
-  v_topics  int;
-  v_credits int;
-  v_ideas   int;
-  v_best    int;
-begin
-  if p_user is null or not exists (select 1 from public.profiles where id = p_user) then
-    return;
-  end if;
-  select count(*) into v_videos from public.video_progress where user_id = p_user and completed;
-  select count(distinct assignment_id) into v_passed from public.submissions where user_id = p_user and passed;
-  select exists (select 1 from public.submissions where user_id = p_user and score >= 100) into v_perfect;
-  select coalesce(learning_credits, 0) into v_credits from public.profiles where id = p_user;
-  select count(*) into v_ideas from public.idea_responses where user_id = p_user;
-  v_topics := public.completed_topic_count(p_user);
-  select best_streak into v_best from public.learning_streaks(p_user);
-
-  insert into public.user_stamps (user_id, stamp_id)
-  select p_user, t.stamp
-    from (values
-      ('first_video',      v_videos  >= 1),
-      ('videos_10',        v_videos  >= 10),
-      ('first_checkpoint', v_passed  >= 1),
-      ('perfect_score',    v_perfect),
-      ('first_topic',      v_topics  >= 1),
-      ('topics_5',         v_topics  >= 5),
-      ('topics_10',        v_topics  >= 10),
-      ('tier_learner',     v_credits >= 501),
-      ('tier_advanced',    v_credits >= 1001),
-      ('tier_star',        v_credits >= 2000),
-      ('streak_7',         coalesce(v_best, 0) >= 7),
-      ('ideas_7',          v_ideas   >= 7)
-    ) as t(stamp, earned)
-   where t.earned
-  on conflict do nothing;
-end;
-$$;
-
-
--- ── Triggers that keep credits and stamps current ────────────────────────────
-create or replace function public.on_submission_progress()
-returns trigger language plpgsql security definer set search_path = public as $$
-begin
-  perform public.sync_topic_credit(new.user_id, new.course_id);
-  perform public.award_stamps(new.user_id);
-  return null;
-end;
-$$;
-
-create or replace function public.on_video_completed()
-returns trigger language plpgsql security definer set search_path = public as $$
-begin
-  perform public.sync_topic_credit(
-    new.user_id,
-    coalesce(new.course_id, (select v.course_id from public.videos v where v.id = new.video_id))
-  );
-  perform public.award_stamps(new.user_id);
-  return null;
-end;
-$$;
-
-create or replace function public.on_idea_answered()
-returns trigger language plpgsql security definer set search_path = public as $$
-begin
-  perform public.award_stamps(new.user_id);
-  return null;
-end;
-$$;
-
-drop trigger if exists submissions_credit_sync on public.submissions;
-create trigger submissions_credit_sync
-  after insert on public.submissions
-  for each row execute function public.on_submission_progress();
-
--- Only a video turning complete counts. Saving the playback position (every few
--- seconds while someone watches) does not touch `completed`, so it fires nothing.
-drop trigger if exists video_progress_completed_ins on public.video_progress;
-create trigger video_progress_completed_ins
-  after insert on public.video_progress
-  for each row when (new.completed) execute function public.on_video_completed();
-
-drop trigger if exists video_progress_completed_upd on public.video_progress;
-create trigger video_progress_completed_upd
-  after update of completed on public.video_progress
-  for each row when (new.completed and not coalesce(old.completed, false))
-  execute function public.on_video_completed();
-
-drop trigger if exists idea_responses_stamps on public.idea_responses;
-create trigger idea_responses_stamps
-  after insert on public.idea_responses
-  for each row execute function public.on_idea_answered();
-
-
--- ── Functions the app calls ──────────────────────────────────────────────────
--- The idea for one learner on one day (the learner's own calendar date):
---   1. an active idea scheduled for that day, for their path or for everyone
---      (one for their path wins);
---   2. otherwise a daily rotation through the active ideas scheduled before that
---      day or not scheduled at all, so the card still changes every day.
--- Mirrored by ideaForDay() in lib/ideas.ts, which the admin schedule preview uses.
-create or replace function public.idea_for_day(p_role text, p_day date)
-returns setof public.daily_ideas language plpgsql stable set search_path = public as $$
-declare
-  v_n int;
-begin
-  return query
-    select i.* from public.daily_ideas i
-     where i.active and i.show_on = p_day
-       and (i.audience = 'all' or i.audience = p_role)
-     order by (i.audience <> 'all') desc, i.created_at desc, i.id collate "C"
-     limit 1;
-  if found then
-    return;
-  end if;
-  select count(*) into v_n from public.daily_ideas i
-   where i.active and (i.audience = 'all' or i.audience = p_role)
-     and (i.show_on is null or i.show_on < p_day);
-  if v_n = 0 then
-    return;
-  end if;
-  return query
-    select i.* from public.daily_ideas i
-     where i.active and (i.audience = 'all' or i.audience = p_role)
-       and (i.show_on is null or i.show_on < p_day)
-     order by i.show_on nulls last, i.created_at, i.id collate "C"
-    offset (((p_day - date '2024-01-01') % v_n) + v_n) % v_n
-     limit 1;
-end;
-$$;
-
--- How everyone answered one idea: votes per option.
-create or replace function public.idea_stats(p_idea text)
-returns table (option_index int, votes int)
-language sql stable security definer set search_path = public as $$
-  select r.option_index, count(*)::int
-    from public.idea_responses r
-   where r.idea_id = p_idea
-   group by r.option_index;
-$$;
-
--- Learners ranked by credits: all time ('all') or earned this month in India time
--- ('month'), optionally within one path. Returns the top p_limit learners with
--- any credits, plus the learner asking wherever they stand. Admins and suspended
--- accounts are left out. rank is shared on a tie (1, 2, 2, 4).
-create or replace function public.leaderboard(p_period text default 'all', p_role text default null, p_limit int default 10)
-returns table (rank int, user_id text, name text, username text, avatar_url text, role text, credits int, is_me boolean)
-language sql stable security definer set search_path = public as $$
-  with me as (
-    select auth.jwt() ->> 'sub' as id
-  ),
-  month_start as (
-    select date_trunc('month', now() at time zone 'Asia/Kolkata') at time zone 'Asia/Kolkata' as t
-  ),
-  monthly as (
-    select e.user_id, sum(e.amount)::int as credits
-      from public.credit_events e
-     where p_period = 'month' and e.created_at >= (select t from month_start)
-     group by e.user_id
-  ),
-  pool as (
-    select p.id, p.name, p.username, p.avatar_url, p.role,
-           case when p_period = 'month' then coalesce(m.credits, 0) else coalesce(p.learning_credits, 0) end as credits
+  with board as (
+    select p.id, p.name, p.username, p.avatar_url,
+           coalesce(p.learning_credits, 0) as credits,
+           rank()       over (order by coalesce(p.learning_credits, 0) desc) as rank,
+           row_number() over (order by coalesce(p.learning_credits, 0) desc, p.created_at, p.id) as pos,
+           count(*)     over () as total
       from public.profiles p
-      left join monthly m on m.user_id = p.id
-     where not coalesce(p.is_admin, false)
+     where p.role = p_role
+       and not coalesce(p.is_admin, false)
        and not coalesce(p.banned, false)
-       and (p_role is null or p.role = p_role)
-  ),
-  ranked as (
-    select pool.*,
-           (rank() over (order by pool.credits desc))::int as rnk,
-           row_number() over (order by pool.credits desc, pool.name, pool.id) as rn
-      from pool
   )
-  select r.rnk, r.id, r.name, r.username, r.avatar_url, r.role, r.credits::int, r.id = (select id from me)
-    from ranked r
-   where (r.rn <= greatest(1, least(coalesce(p_limit, 10), 50)) and r.credits > 0)
-      or r.id = (select id from me)
-   order by r.rn;
+  select b.id, b.name, b.username, b.avatar_url, b.credits, b.rank, b.total
+    from board b
+   where b.pos <= least(greatest(coalesce(p_limit, 5), 1), 20)
+      or b.id = (select auth.jwt() ->> 'sub')
+   order by b.pos;
 $$;
-
--- What a public profile shows about someone's learning, without exposing their
--- private progress rows.
-create or replace function public.public_profile_stats(p_user text)
-returns table (comments int, videos_completed int, topics_completed int, current_streak int)
-language sql stable security definer set search_path = public as $$
-  select (select count(*)::int from public.video_comments where user_id = p_user),
-         (select count(*)::int from public.video_progress where user_id = p_user and completed),
-         public.completed_topic_count(p_user),
-         (select s.current_streak from public.learning_streaks(p_user) s);
-$$;
-
--- Internal helpers are not for calling from the browser.
-revoke all on function public.topic_credit(text, text)                         from public, anon, authenticated;
-revoke all on function public.sync_topic_credit(text, text, timestamptz)       from public, anon, authenticated;
-revoke all on function public.completed_topic_count(text)                      from public, anon, authenticated;
-revoke all on function public.learning_streaks(text)                           from public, anon, authenticated;
-revoke all on function public.award_stamps(text)                               from public, anon, authenticated;
-revoke all on function public.leaderboard(text, text, int)                     from public, anon;
-revoke all on function public.idea_stats(text)                                 from public, anon;
-revoke all on function public.public_profile_stats(text)                       from public, anon;
-grant execute on function public.leaderboard(text, text, int)                  to authenticated, service_role;
-grant execute on function public.idea_stats(text)                              to authenticated, service_role;
-grant execute on function public.public_profile_stats(text)                    to authenticated, service_role;
-grant execute on function public.idea_for_day(text, date)                      to anon, authenticated, service_role;
+revoke execute on function public.leaderboard(text, int) from public, anon;
+grant  execute on function public.leaderboard(text, int) to authenticated;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 12. PERFORMANCE INDEXES
+-- 13. PERFORMANCE INDEXES
 --     Postgres does NOT auto-index foreign keys. Every per-user RLS query and
 --     join below scans without these. Pure speed-up — no behavior change.
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1421,144 +1069,160 @@ create index if not exists idx_articles_published      on public.articles (publi
 create index if not exists idx_announcements_published on public.announcements (published, pinned, created_at desc);
 create index if not exists idx_faqs_published          on public.faqs (published, order_index);
 
+-- Leaderboard (learners of a track by credits), the bell (newest first), the
+-- profile page's comment count, and the dashboard's idea of the day.
+create index if not exists idx_profiles_leaderboard
+  on public.profiles (role, learning_credits desc)
+  where not coalesce(is_admin, false) and not coalesce(banned, false);
+create index if not exists idx_notifications_user_created on public.notifications (user_id, created_at desc);
+create index if not exists idx_video_comments_user        on public.video_comments (user_id);
+create index if not exists idx_daily_ideas_active         on public.daily_ideas (active, show_on);
+
 -- Telegram
 create index if not exists telegram_link_tokens_user_idx    on public.telegram_link_tokens (user_id);
 create index if not exists telegram_link_tokens_expires_idx on public.telegram_link_tokens (expires_at);
 
--- Learning engagement (idea of the day, credits, stamps, resume, profile stats)
-create index if not exists course_ratings_course_idx    on public.course_ratings (course_id);
-create index if not exists course_ratings_user_idx      on public.course_ratings (user_id);
-create index if not exists idx_daily_ideas_show_on      on public.daily_ideas (show_on) where active;
-create index if not exists idx_idea_responses_idea      on public.idea_responses (idea_id);
-create index if not exists idx_credit_events_user       on public.credit_events (user_id, created_at desc);
-create index if not exists idx_credit_events_created    on public.credit_events (created_at);
-create index if not exists idx_video_progress_recent    on public.video_progress (user_id, last_watched_at desc);
-create index if not exists idx_submissions_user_course  on public.submissions (user_id, course_id);
-create index if not exists idx_video_comments_user      on public.video_comments (user_id);
-create index if not exists idx_notifications_user_time  on public.notifications (user_id, created_at desc);
-
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 12b. STORAGE + ONE-TIME BACKFILLS
---      Both are safe to re-run: the bucket upsert changes nothing the second
---      time, and the credit backfill runs only while credit_events is empty.
+-- 14. PAID CONTENT, ANSWERS AND PRIVATE FIELDS
+--     The browser's key reads the topic tree through catalog(): session media,
+--     workbooks and questions only for topics the caller may open, answers only
+--     for admins. Transcripts, notes files and full profile rows come from small
+--     functions with the same check. The tables themselves no longer hand those
+--     columns to anon / authenticated (apply_column_privileges, below). After
+--     adding a column to courses, videos, questions or profiles, re-run this file
+--     or `select public.apply_column_privileges();`.
 -- ─────────────────────────────────────────────────────────────────────────────
--- ── Media storage bucket ─────────────────────────────────────────────────────
--- Uploads (covers, notes, workbooks, avatars, audio) live in the public `media`
--- bucket; rows keep only the short URL (see migrations/2026-08-19-media-storage.sql).
-insert into storage.buckets (id, name, public)
-values ('media', 'media', true)
-on conflict (id) do update set public = true;
+-- The topic tree, shaped like the embedded select it replaces
+-- (courses + videos + assignments + questions), so the app maps it the same way.
+-- Media, the workbook and the questions only for topics the caller may open;
+-- answers and explanations only for admins. p_course_id = one topic, or all.
+create or replace function public.catalog(p_course_id text default null)
+returns jsonb language sql stable security definer set search_path = public as $$
+  with me as (
+    select auth.jwt() ->> 'sub' as uid, public.is_admin() as admin
+  ),
+  cs as (
+    select c, public.user_has_course_access((select uid from me), c.id) as entitled
+    from public.courses c
+    where p_course_id is null or c.id = p_course_id
+  )
+  select coalesce(jsonb_agg(
+    (to_jsonb(cs.c) - 'workbook_url')
+    || jsonb_build_object(
+      'workbook_url', case when cs.entitled then (cs.c).workbook_url end,
+      'videos', (
+        select coalesce(jsonb_agg(jsonb_build_object(
+          'id', v.id, 'course_id', v.course_id, 'title', v.title, 'order_index', v.order_index,
+          'duration_seconds', v.duration_seconds, 'summary', v.summary,
+          'notes_pdf_url', v.notes_pdf_url, 'audio_name', v.audio_name,
+          'mux_playback_id', case when cs.entitled then v.mux_playback_id end,
+          'audio_url', case when cs.entitled then v.audio_url end,
+          'resources', case when cs.entitled then coalesce(v.resources, '[]'::jsonb) else '[]'::jsonb end
+        ) order by v.order_index), '[]'::jsonb)
+        from public.videos v where v.course_id = (cs.c).id
+      ),
+      'assignments', (
+        select coalesce(jsonb_agg(jsonb_build_object(
+          'id', a.id, 'course_id', a.course_id, 'after_video_order', a.after_video_order, 'title', a.title,
+          'questions', case when cs.entitled then (
+            select coalesce(jsonb_agg(
+              jsonb_build_object('id', q.id, 'assignment_id', q.assignment_id, 'type', q.type,
+                                 'prompt', q.prompt, 'options', coalesce(q.options, '[]'::jsonb))
+              || case when (select admin from me)
+                   then jsonb_build_object('correct_answer', q.correct_answer, 'explanation', q.explanation)
+                   else '{}'::jsonb end
+              order by q.ctid), '[]'::jsonb)
+            from public.questions q where q.assignment_id = a.id
+          ) else '[]'::jsonb end
+        ) order by a.after_video_order), '[]'::jsonb)
+        from public.assignments a where a.course_id = (cs.c).id
+      )
+    )
+  ), '[]'::jsonb)
+  from cs;
+$$;
 
-drop policy if exists "media public read"    on storage.objects;
-drop policy if exists "media authed insert"  on storage.objects;
-drop policy if exists "media admin update"   on storage.objects;
-drop policy if exists "media admin delete"   on storage.objects;
-create policy "media public read" on storage.objects
-  for select using (bucket_id = 'media');
-create policy "media authed insert" on storage.objects
-  for insert with check (bucket_id = 'media' and (select auth.jwt() ->> 'sub') is not null);
-create policy "media admin update" on storage.objects
-  for update using (bucket_id = 'media' and (select public.is_admin()))
-  with check (bucket_id = 'media' and (select public.is_admin()));
-create policy "media admin delete" on storage.objects
-  for delete using (bucket_id = 'media' and (select public.is_admin()));
+-- One session's transcript (lesson page, class-notes PDF); null without access.
+create or replace function public.lesson_transcript(p_video_id text)
+returns text language sql stable security definer set search_path = public as $$
+  select v.transcript from public.videos v
+  where v.id = p_video_id and public.has_course_access(v.course_id);
+$$;
 
--- ── Credits and stamps for what learners had already done ───────────────────
--- Runs only while credit_events is empty, so running this file again does not
--- add the history twice. A topic credit the learner already had from finishing
--- the topic is kept when it is higher than the recalculated one (capped at 100).
-do $$
+-- Every transcript of one topic, for the topic editor.
+create or replace function public.course_transcripts(p_course_id text)
+returns table (id text, transcript text) language sql stable security definer set search_path = public as $$
+  select v.id, v.transcript from public.videos v
+  where v.course_id = p_course_id and public.has_course_access(p_course_id);
+$$;
+
+-- One session's uploaded class-notes file; null without access.
+create or replace function public.lesson_notes_file(p_video_id text)
+returns text language sql stable security definer set search_path = public as $$
+  select v.notes_file_url from public.videos v
+  where v.id = p_video_id and public.has_course_access(v.course_id);
+$$;
+
+-- The caller's own full profile row (email, phone, plan…), which the table no
+-- longer shows to anon / authenticated.
+create or replace function public.my_profile()
+returns setof public.profiles language sql stable security definer set search_path = public as $$
+  select * from public.profiles where id = (auth.jwt() ->> 'sub');
+$$;
+
+-- Every full profile row, for admins only (Users & Access, analytics, exports).
+create or replace function public.admin_profiles()
+returns setof public.profiles language sql stable security definer set search_path = public as $$
+  select * from public.profiles where public.is_admin();
+$$;
+
+grant execute on function public.catalog(text)            to anon, authenticated, service_role;
+grant execute on function public.lesson_transcript(text)  to anon, authenticated, service_role;
+grant execute on function public.course_transcripts(text) to anon, authenticated, service_role;
+grant execute on function public.lesson_notes_file(text)  to anon, authenticated, service_role;
+-- Functions are executable by PUBLIC by default; these two are for signed-in callers.
+revoke execute on function public.my_profile()            from public, anon;
+revoke execute on function public.admin_profiles()        from public, anon;
+grant  execute on function public.my_profile()            to authenticated, service_role;
+grant  execute on function public.admin_profiles()        to authenticated, service_role;
+
+-- Column privileges.
+-- anon / authenticated may SELECT every column of these tables except the private
+-- ones listed here. The service role (server routes, the Telegram bot) is not
+-- affected. Re-run after adding a column to one of these tables.
+create or replace function public.apply_column_privileges()
+returns void language plpgsql security definer set search_path = public as $$
 declare
-  r        record;
-  v_old    jsonb;
-  v_keep   int;
-  v_prev   int;
-  v_total  int;
+  spec constant jsonb := jsonb_build_object(
+    'videos',    jsonb_build_array('mux_playback_id', 'transcript', 'notes_file_url', 'audio_url', 'resources'),
+    'questions', jsonb_build_array('correct_answer', 'explanation'),
+    'courses',   jsonb_build_array('workbook_url'),
+    'profiles',  jsonb_build_array('email', 'phone', 'phone_verified', 'age', 'gender', 'subscription_plan',
+                                   'subscription_valid_until', 'email_opt_out', 'permissions', 'last_active_at')
+  );
+  t text;
+  hidden text[];
+  cols text;
 begin
-  if exists (select 1 from public.credit_events) then
-    return;
-  end if;
-  perform set_config('leap.credit_sync', 'on', true);
-
-  for r in
-    select x.user_id, x.course_id, max(x.at) as at
-      from (
-        select vp.user_id, coalesce(vp.course_id, v.course_id) as course_id,
-               coalesce(vp.completed_at, vp.last_watched_at, now()) as at
-          from public.video_progress vp
-          left join public.videos v on v.id = vp.video_id
-         where vp.completed
-        union all
-        select s.user_id, s.course_id, coalesce(s.submitted_at, now())
-          from public.submissions s
-      ) x
-      join public.profiles p on p.id = x.user_id
-      join public.courses c on c.id = x.course_id
-     group by x.user_id, x.course_id
-     order by x.user_id, max(x.at)
-  loop
-    select topic_credits into v_old from public.profiles where id = r.user_id;
-    if v_old is null or jsonb_typeof(v_old) <> 'object' then
-      v_old := '{}'::jsonb;
-    end if;
-    v_prev := case when jsonb_typeof(v_old -> r.course_id) = 'number'
-                   then least(100, greatest(0, (v_old ->> r.course_id)::numeric::int)) else 0 end;
-    v_keep := public.topic_credit(r.user_id, r.course_id);
-    -- Only a finished topic can carry an earlier, higher credit.
-    if v_prev > v_keep and exists (
-         select 1 from public.courses c where c.id = r.course_id
-            and exists (select 1 from public.videos v where v.course_id = c.id)
-            and not exists (select 1 from public.videos v where v.course_id = c.id
-                              and not exists (select 1 from public.video_progress p
-                                               where p.user_id = r.user_id and p.video_id = v.id and p.completed))
-            and not exists (select 1 from public.assignments a where a.course_id = c.id
-                              and not exists (select 1 from public.submissions s
-                                               where s.user_id = r.user_id and s.assignment_id = a.id))) then
-      v_keep := v_prev;
-    end if;
-    if v_keep > 0 then
-      insert into public.credit_events (user_id, course_id, amount, total_after, created_at)
-           values (r.user_id, r.course_id, v_keep, 0, r.at);
-    end if;
-  end loop;
-
-  -- Profiles: topic_credits / learning_credits rebuilt from the events above.
-  update public.profiles p
-     set topic_credits = coalesce(t.credits, '{}'::jsonb),
-         learning_credits = coalesce(t.total, 0)
-    from (
-      select p2.id,
-             (select jsonb_object_agg(e.course_id, e.amount) from public.credit_events e where e.user_id = p2.id) as credits,
-             (select sum(e.amount)::int from public.credit_events e where e.user_id = p2.id) as total
-        from public.profiles p2
-    ) t
-   where t.id = p.id
-     and (coalesce(p.learning_credits, 0) <> coalesce(t.total, 0)
-          or coalesce(p.topic_credits, '{}'::jsonb) <> coalesce(t.credits, '{}'::jsonb));
-
-  -- Running totals on the events, in time order per learner.
-  update public.credit_events e
-     set total_after = s.running
-    from (
-      select id, sum(amount) over (partition by user_id order by created_at, id) as running
-        from public.credit_events
-    ) s
-   where s.id = e.id;
-
-  perform set_config('leap.credit_sync', 'off', true);
-
-  for r in select id from public.profiles loop
-    perform public.award_stamps(r.id);
+  for t in select jsonb_object_keys(spec) loop
+    select array_agg(x) into hidden from jsonb_array_elements_text(spec -> t) as x;
+    select string_agg(quote_ident(column_name::text), ', ' order by ordinal_position) into cols
+      from information_schema.columns
+     where table_schema = 'public' and table_name = t and column_name::text <> all (hidden);
+    -- A table-level REVOKE also clears earlier column grants, so this re-applies cleanly.
+    execute format('revoke select on public.%I from anon, authenticated', t);
+    execute format('grant select (%s) on public.%I to anon, authenticated', cols, t);
   end loop;
 end $$;
+revoke execute on function public.apply_column_privileges() from public, anon, authenticated;
+select public.apply_column_privileges();
 
--- PostgREST caches tables and functions; refresh so the new ones work at once.
 notify pgrst, 'reload schema';
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 13. AFTER SETUP (one-time bootstrap)
+-- 15. AFTER SETUP (one-time bootstrap)
 --     1) Sign up once with your admin email via Clerk — the app provisions your
 --        profile row keyed by your Clerk user id.
 --     2) Make that profile the owner. The protect_privileged_cols trigger pins

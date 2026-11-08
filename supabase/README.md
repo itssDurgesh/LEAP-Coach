@@ -1,9 +1,11 @@
 # Auth (Clerk) + Database (Supabase) setup
 
 Authentication is handled by **Clerk** (sign-in/up, Google/LinkedIn, sessions).
-Data lives in **Supabase** Postgres. The app runs on built-in **mock data** until
-the Clerk + Supabase env vars are present, then automatically switches to the real
-services. Follow these steps to go live.
+Data lives in **Supabase** Postgres, uploaded files in Supabase Storage. Until the
+Clerk + Supabase env vars are present the app runs in **local demo mode** (data in
+the browser only, nothing sent to Supabase), then it switches to the real services
+automatically. Follow these steps to go live. How the pieces fit together is in
+[`ARCHITECTURE.md`](../ARCHITECTURE.md).
 
 ## 1. Create a Supabase project
 Create a project at [supabase.com](https://supabase.com) and wait for it to provision.
@@ -11,35 +13,35 @@ Create a project at [supabase.com](https://supabase.com) and wait for it to prov
 ## 2. Run the database script
 Open **SQL Editor** → paste the contents of [`database.sql`](./database.sql) → **Run**.
 
-This single file is the complete schema: every table (including FAQ/privacy and the
-Telegram linking tables), all row-level-security policies (final hardened state,
-keyed to the Clerk user id), the payment-protection trigger, and every performance
-index. It is **idempotent** (safe to re-run after every update) and **seed-free** —
-no demo content; the only inserted rows are two structural singletons
-(`pricing_tiers` id=1, `site_pages` id=1) that never overwrite your edits.
+This file is the main schema: every core table (including FAQ/privacy and the
+Telegram linking tables), the row-level-security policies (keyed to the Clerk user
+id), the privilege-protection trigger, and the performance indexes. It is
+**idempotent** (safe to re-run after updates) and **seed-free** — no demo content;
+the only inserted rows are two structural singletons (`pricing_tiers` id=1,
+`site_pages` id=1) that never overwrite your edits.
+
+Then run the migrations in [`migrations/`](./migrations) that are not part of
+`database.sql` yet, in this order (each is idempotent):
+
+| File | What it adds | Run it? |
+| --- | --- | --- |
+| `2026-08-19-media-storage.sql` | The public Storage bucket `media` and its upload rules (all file uploads go here) | Yes, once |
+| `2026-08-19-course-ratings.sql` | Topic ratings: table, rules and the trigger that keeps each topic's average | Yes, once, after `database.sql` |
+| `2026-10-09-audio-sessions.sql` | `audio_url` / `audio_name` on sessions (audio sessions) | Already included in `database.sql`; harmless to run |
+| `2026-11-04-ideas-resume-thumbnails-leaderboard.sql` | Idea of the day (`daily_ideas`), the resume place on `video_progress`, a topic's video thumbnail, the `leaderboard()` function, and indexes for them | Already included in `database.sql`. On a database set up before it, run this file once; until then the site works without those features (its header lists how) |
+| `2026-11-05-lock-paid-content.sql` | Locks paid content: session media, transcripts, workbooks and checkpoint answers reach only people who may open the topic (answers only admins), members' private profile fields only their owner and admins, live-session links only signed-in members; Storage can no longer be listed; checkpoints and credits are written only by the server | Already included in `database.sql`. On an existing database, **deploy the app version that ships with it first, then run it once** (an older app version cannot read the locked columns) |
+| `draft-2026-10-10-sub-admin-limits-enrolment-counts.sql` | Database rules for sub-admin limits, self-enrolment for pass-holders, and learner / purchase counts kept by the database | **Draft.** Read its header first. Once it has been run, do not re-run `database.sql` until the two are merged, or the old rules come back |
+
+After adding a column to `courses`, `videos`, `questions` or `profiles`, run
+`select public.apply_column_privileges();` (or re-run `database.sql`): since the
+2026-11-05 lockdown the browser's key reads only the columns granted to it, and a
+new column stays hidden until then.
 
 > ⚠️ **Migrating an existing Supabase-Auth database?** Profile/user ids change from
 > `uuid` to `text` (the Clerk user id), which `create table if not exists` cannot
 > alter in place. Rebuild the schema first (`drop schema public cascade; …`) — see
 > the **section 9** banner inside `database.sql` for the exact commands. This resets
 > demo purchases/progress.
-
-### Upgrading a database that is already live
-Re-running `database.sql` is always safe and brings an existing database up to date.
-If you prefer to apply only what changed, run the newest file in `migrations/`:
-
-- **`migrations/2026-11-08-ideas-standing-resume.sql`** — Idea of the day
-  (`daily_ideas`, `idea_responses`, `idea_for_day()`), credits worked out by the
-  database (triggers on video completions and checkpoint submissions; learners can no
-  longer write their own credits), the credit history behind the monthly leaderboard
-  (`credit_events`, `leaderboard()`), database-awarded stamps (`user_stamps`), the
-  resume position (`video_progress.position_seconds` / `last_watched_at`) and the
-  topic-wide video thumbnail (`courses.video_thumbnail_url`). On its first run it
-  recalculates every learner's credits from what they have actually done and awards
-  the stamps they have already earned.
-
-The site keeps working before it is run (those features stay empty), but admins
-cannot schedule ideas or save a video thumbnail until it is.
 
 ## 3. Create a Clerk application
 Create an app at [dashboard.clerk.com](https://dashboard.clerk.com).
@@ -98,12 +100,20 @@ browser never reaches the verify step (closed tab, network drop):
    (for local testing, expose your dev server with a tunnel, e.g. ngrok/cloudflared).
 3. Active events: **`payment.captured`**, **`refund.created`**, **`refund.processed`**,
    **`refund.failed`** (and optionally `order.paid`) — the refund events keep receipts
-   in sync with refunds made from the Razorpay dashboard (see `docs/PAYMENTS.md`).
+   in sync with refunds made from the Razorpay dashboard (payment flow:
+   [`ARCHITECTURE.md`](../ARCHITECTURE.md), section 7).
 4. Set a **secret**, and paste the same value into `RAZORPAY_WEBHOOK_SECRET` in `.env.local`.
 
 If a payment is captured but access can't be granted, it's **flagged** on the Admin →
-Payments page: **Retry grant** fulfils it; the **owner** can **Refund** it (full refund
+Payments page and the owner is emailed: **Retry grant** fulfils it (owner, or a
+sub-admin with the Payments permission); the **owner** can **Refund** it (full refund
 via Razorpay). Receipts are private — RLS lets each learner see only their own.
+
+Optional: schedule the reconcile sweep, which records any captured payment the app
+missed. Set `PAYMENTS_RECONCILE_SECRET` (or Vercel's `CRON_SECRET`) and call
+`GET /api/payments/razorpay/reconcile` with `Authorization: Bearer <secret>`, for
+example from a Vercel cron. The owner, or a sub-admin with the Payments permission, can
+also press **Reconcile** on Admin → Payments.
 
 ## 9. Scaling for many concurrent users
 - `database.sql` creates **indexes** on every foreign-key / filter column — run it (or
@@ -116,21 +126,16 @@ via Razorpay). Receipts are private — RLS lets each learner see only their own
   + upserts) and the coupon counter is atomic (`increment_coupon_redemption` RPC), so
   simultaneous users / webhook retries can't double-grant, double-charge, or lose counts.
 
-- **What each visitor loads** (`lib/supabase/db.ts`). A signed-out visitor loads only
-  the public content (topics, FAQs, team, books, prices). A learner adds their own rows
-  (filtered by their id) and the shared content; other people's profiles, a video's
-  comments and transcripts are fetched when a screen shows them. Admins additionally
-  load what the admin screens count across learners, without the heavy columns
-  (answers, per-question feedback). Leaderboard, idea of the day and profile numbers
-  are worked out in the database (RPC functions), not by downloading rows.
-
 **Recommended before go-live (documented, not yet done):**
-- **Pagination** for the tables that grow with every learner on the admin side
-  (profiles, progress, submissions, payments): the admin screens still load them whole,
-  just with fewer columns. Server-side aggregates are the next step at large scale.
-- **Durable background writes.** Non-payment writes (notes, posts, progress, likes) are
-  optimistic + fire-and-forget; a transient failure self-heals on the next load but isn't
-  retried/surfaced. Add retry + a "couldn't save" indicator. (Payments are already
+- **Per-page data loading.** Visitors now load only public content, and transcripts,
+  session discussions and the leaderboard load on demand, but every topic and (for
+  learners) everyone's public profile fields still load on sign-in. As content grows,
+  move those to on-demand fetching + pagination. This is the main latency lever at
+  large scale.
+- **Retrying failed writes.** Non-payment writes (notes, progress, comments, likes,
+  admin edits) are optimistic. A write the database refuses is now logged and shown
+  to the person ("could not be saved", with Reload), and saving a topic waits for the
+  database, but nothing is retried automatically yet. (Payments are already
   server-authoritative and durable.)
 - **Distributed rate limiting.** The API routes already rate-limit per user/IP
   (`lib/api/rate-limit.ts`), but the counters are in-memory per instance. If the app

@@ -1,6 +1,7 @@
 "use client";
 
 import { getSupabase } from "@/lib/supabase/client";
+import { mimeForFilename } from "@/lib/download";
 
 const BUCKET = "media";
 
@@ -15,6 +16,19 @@ function safeName(name: string): string {
   const ext = dot > 0 ? name.slice(dot).toLowerCase().replace(/[^a-z0-9.]/g, "") : "";
   const rand = Math.random().toString(36).slice(2, 8);
   return `${stem || "file"}-${Date.now().toString(36)}-${rand}${ext}`;
+}
+
+/**
+ * Some systems hand over a File with an empty `type` (a .docx on a PC with no Word,
+ * some drag-and-drops). Storage then keeps it as a generic binary and a data URL
+ * comes out as "data:;base64,…", so the file downloads without its kind. Label it
+ * from its extension instead.
+ */
+function withType(file: File): File {
+  if (file.type) return file;
+  const type = mimeForFilename(file.name);
+  if (type === "application/octet-stream") return file;
+  return new File([file], file.name, { type, lastModified: file.lastModified });
 }
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -45,8 +59,9 @@ export interface UploadResult {
  * upload fails, so the admin console keeps working offline rather than losing the
  * file. Callers can check `stored` if they want to warn.
  */
-export async function uploadMedia(file: File, folder: string): Promise<UploadResult> {
+export async function uploadMedia(picked: File, folder: string): Promise<UploadResult> {
   const sb = getSupabase();
+  const file = withType(picked);
   const name = file.name;
 
   if (!sb) return { url: await readAsDataUrl(file), name, stored: false };

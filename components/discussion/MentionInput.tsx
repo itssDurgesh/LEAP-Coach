@@ -21,10 +21,7 @@ export function mentionIdsFromText(text: string, users: MentionUser[]): string[]
 interface MentionInputProps {
   value: string;
   onChange: (v: string) => void;
-  /** People already known on this page (comment authors and so on). */
   users: MentionUser[];
-  /** Looks people up as the learner types; only their own profile is loaded otherwise. */
-  onSearch?: (query: string) => Promise<MentionUser[]>;
   placeholder?: string;
   autoFocus?: boolean;
   className?: string;
@@ -32,7 +29,7 @@ interface MentionInputProps {
 }
 
 /** A textarea with an @username autocomplete dropdown. */
-export function MentionInput({ value, onChange, users, onSearch, placeholder, autoFocus, className, rows = 3 }: MentionInputProps) {
+export function MentionInput({ value, onChange, users, placeholder, autoFocus, className, rows = 3 }: MentionInputProps) {
   const taRef = React.useRef<HTMLTextAreaElement>(null);
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -48,36 +45,13 @@ export function MentionInput({ value, onChange, users, onSearch, placeholder, au
     }
   });
 
-  // Server matches for the current query (debounced), merged with the people already known.
-  const [found, setFound] = React.useState<MentionUser[]>([]);
-  React.useEffect(() => {
-    if (!open || !onSearch) return;
-    let active = true;
-    const t = window.setTimeout(() => {
-      onSearch(query).then(
-        (r) => active && setFound(r),
-        () => active && setFound([]),
-      );
-    }, 180);
-    return () => {
-      active = false;
-      window.clearTimeout(t);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, query]);
-
   const suggestions = React.useMemo(() => {
     if (!open) return [];
     const q = query.toLowerCase();
-    const seen = new Set<string>();
-    return [...users, ...found]
-      .filter((u) => {
-        if (!u.username || seen.has(u.id)) return false;
-        seen.add(u.id);
-        return u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q);
-      })
+    return users
+      .filter((u) => u.username && (u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q)))
       .slice(0, 6);
-  }, [open, query, users, found]);
+  }, [open, query, users]);
 
   function recompute(text: string, caret: number) {
     const slice = text.slice(0, caret);

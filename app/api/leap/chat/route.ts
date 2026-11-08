@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@clerk/nextjs/server";
 import { MAX_TRANSCRIPT_CHARS } from "@/lib/ai/config";
-import { generateContent } from "@/lib/ai/gemini";
+import { streamContent } from "@/lib/ai/gemini";
 import { isClerkConfigured } from "@/lib/clerk/config";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getServiceClient } from "@/lib/supabase/admin";
+import { canOpenCourse, fetchLessonContext } from "@/lib/learning/server";
 import { parseJson } from "@/lib/api/validate";
 import { apiError } from "@/lib/api/errors";
 import { enforceRate } from "@/lib/api/rate-limit";
@@ -17,12 +20,23 @@ type Action = "summarize" | "quiz" | "deeper";
 // prompt-injection-sized payload. The per-message cap is env-tunable (AI_MAX_MESSAGE_CHARS).
 const MAX_MESSAGE_CHARS = Number(process.env.AI_MAX_MESSAGE_CHARS) || 4000;
 
+// With the app's real services on (Clerk and Supabase, as in the browser), the
+// session is read from the database by id. The browser's copy is used only in the
+// local demo, where the topics exist solely in that browser.
+const GROUNDED_ON_SERVER = isClerkConfigured && isSupabaseConfigured;
+
+const UNAVAILABLE = "I couldn't answer that just now. Please try again in a moment.";
+
 const ChatSchema = z.object({
+  videoId: z.string().min(1, "Missing lesson context.").max(100),
+  // Local demo only (see GROUNDED_ON_SERVER); ignored otherwise.
   courseTitle: z.string().max(300).optional().default(""),
-  video: z.object({
-    title: z.string().min(1, "Missing lesson context.").max(300),
-    transcript: z.string().max(60_000).optional().default(""),
-  }),
+  video: z
+    .object({
+      title: z.string().max(300).optional().default(""),
+      transcript: z.string().max(60_000).optional().default(""),
+    })
+    .optional(),
   messages: z
     .array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(MAX_MESSAGE_CHARS) }))
     .max(50)
@@ -73,11 +87,39 @@ export async function POST(req: NextRequest) {
 
   const parsed = await parseJson(req, ChatSchema);
   if (!parsed.ok) return apiError(400, parsed.error);
-  const { courseTitle, video, messages, action } = parsed.data;
+  const { videoId, messages, action } = parsed.data;
+
+  // What the tutor teaches from. Read from the database, so a caller cannot supply
+  // their own "transcript" and steer the instructions below; and only for a session
+  // of a topic the learner may open, or the tutor would recite paid transcripts to
+  // anyone who asked.
+  let lesson: { courseTitle: string; title: string; transcript: string };
+  if (GROUNDED_ON_SERVER) {
+    const sb = getServiceClient();
+    if (!sb) return NextResponse.json({ reply: UNAVAILABLE });
+    const read = await fetchLessonContext(sb, videoId);
+    if (!read.ok) {
+      return NextResponse.json({
+        reply: read.reason === "missing" ? "I can't find this session any more. Please reload the page." : UNAVAILABLE,
+      });
+    }
+    const open = await canOpenCourse(sb, userId!, read.value.courseId);
+    if (open === null) return NextResponse.json({ reply: UNAVAILABLE });
+    if (!open) {
+      return NextResponse.json({ reply: "This session is part of a topic you don't have access to, so I can't help with it." });
+    }
+    lesson = read.value;
+  } else {
+    lesson = {
+      courseTitle: parsed.data.courseTitle,
+      title: parsed.data.video?.title ?? "",
+      transcript: parsed.data.video?.transcript ?? "",
+    };
+  }
 
   // The session transcript is the tutor's ONLY source. Without one there is nothing
   // to ground an answer in, so say that instead of letting the model improvise.
-  const transcript = video.transcript.trim().slice(0, MAX_TRANSCRIPT_CHARS);
+  const transcript = lesson.transcript.trim().slice(0, MAX_TRANSCRIPT_CHARS);
   if (!transcript) {
     return NextResponse.json({
       reply:
@@ -86,8 +128,8 @@ export async function POST(req: NextRequest) {
   }
 
   const systemInstruction = [
-    `You are the LEAP Coach AI tutor, a warm and encouraging learning assistant for the coaching topic “${courseTitle}”.`,
-    `You are helping a learner with one session: “${video.title}”.`,
+    `You are the LEAP Coach AI tutor, a warm and encouraging learning assistant for the coaching topic “${lesson.courseTitle}”.`,
+    `You are helping a learner with one session: “${lesson.title}”.`,
     "The session transcript below is your ONLY source of knowledge.",
     "",
     "<transcript>",
@@ -124,20 +166,67 @@ export async function POST(req: NextRequest) {
   if (contents.length === 0)
     contents.push({ role: "user", parts: [{ text: "Introduce yourself and what you can help with for this lesson." }] });
 
-  const result = await generateContent({
-    key,
-    system: systemInstruction,
-    contents,
-    temperature: 0.3, // low: stay close to the transcript's own wording
-    maxOutputTokens: 1024,
-    scope: "gemini chat",
+  // Streamed, so the learner reads the start of the answer while the rest is still
+  // being written (a full reply used to arrive all at once, after several seconds).
+  // Anything that fails before the first piece still answers with JSON; once pieces
+  // are on screen they stay there.
+  const upstreamAbort = new AbortController();
+  const pieces = await streamContent(
+    {
+      key,
+      system: systemInstruction,
+      contents,
+      temperature: 0.3, // low: stay close to the transcript's own wording
+      maxOutputTokens: 1024,
+      scope: "gemini chat",
+    },
+    AbortSignal.any([req.signal, upstreamAbort.signal]),
+  );
+  // A failed call used to fall back to the client's canned mock reply, which is not
+  // written from the transcript. Be honest instead; the mock stays only for local
+  // development with no key (top of this handler).
+  if (!pieces) return NextResponse.json({ reply: UNAVAILABLE });
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: { delta?: string; done?: boolean; finishReason?: string; error?: boolean }) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      let chars = 0;
+      let finishReason = "";
+      try {
+        for await (const piece of pieces) {
+          if (piece.finishReason) finishReason = piece.finishReason;
+          if (piece.text) {
+            chars += piece.text.length;
+            send({ delta: piece.text });
+          }
+        }
+        // Not one piece of text (blocked, or cut off at once): the client says it could not answer.
+        send(chars ? { done: true, finishReason } : { error: true });
+      } catch {
+        /* the learner went away mid-reply: nothing left to send to */
+      } finally {
+        try {
+          controller.close();
+        } catch {
+          /* already closed by a cancel */
+        }
+      }
+    },
+    cancel() {
+      // The learner left the page: stop reading (and paying for) the rest of the reply.
+      upstreamAbort.abort();
+    },
   });
 
-  // A failed or cut-off (MAX_TOKENS) call used to fall back to the client's canned
-  // mock reply, which is not written from the transcript. Be honest instead; the
-  // mock stays only for local development with no key (top of this handler).
-  if (!result || !result.text || result.finishReason === "MAX_TOKENS") {
-    return NextResponse.json({ reply: "I couldn't answer that just now. Please try again in a moment." });
-  }
-  return NextResponse.json({ reply: result.text });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      // no-transform: a compressing proxy (or Next's own gzip) would otherwise hold
+      // the pieces back and send them in one go.
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

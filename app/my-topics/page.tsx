@@ -8,7 +8,7 @@ import { CourseThumb } from "@/components/CourseThumb";
 import { Bar, LevelChip, PageHead, PillSelect, SegTabs, V2Card, v2Button } from "@/components/v2/ui";
 import { levelStyle } from "@/lib/levels";
 import { useApp } from "@/lib/store/AppProvider";
-import { resumeTarget, topicLastActivity, type ResumeTarget } from "@/lib/resume";
+import { resumeTarget, type ResumeTarget } from "@/lib/resume";
 import { ROLES, ownsTopic, planFor, type Course, type LeadershipTrack, type Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +47,7 @@ interface OwnedTopic {
 
 function MyTopics() {
   const app = useApp();
-  const { currentUser, courses, tracks, progress, submissions, isEnrolled, courseProgress, courseExpiresAt } = app;
+  const { currentUser, courses, tracks, isEnrolled, courseProgress, courseExpiresAt, lastActivityAt } = app;
   const [filter, setFilter] = React.useState<Filter>("all");
   const [sort, setSort] = React.useState<Sort>("recent");
   if (!currentUser) return null;
@@ -61,8 +61,9 @@ function MyTopics() {
   const owned = courses.filter((c) => ownsTopic(currentUser, c, isEnrolled(c.id)));
 
   const topics: OwnedTopic[] = owned.map((course) => {
-    // Watching part of a video counts as activity too, not only finishing one.
-    const lastActive = topicLastActivity(course, currentUser.id, progress, submissions);
+    // Watching counts as activity, not only finishing a video, so "Recent" puts the
+    // topic the learner was last in first.
+    const lastActive = lastActivityAt(course.id);
     const expiresAt = courseExpiresAt(course.id);
     return {
       course,
@@ -204,7 +205,7 @@ function OwnedTopicCard({ topic, tracks }: { topic: OwnedTopic; tracks: Leadersh
                 "Checkpoint"
               ) : (
                 <>
-                  <Play className="h-3.5 w-3.5 fill-current" /> {completed > 0 ? "Resume" : "Start"}
+                  <Play className="h-3.5 w-3.5 fill-current" /> {completed > 0 || (resume.seconds ?? 0) > 0 ? "Resume" : "Start"}
                 </>
               )}
             </Link>

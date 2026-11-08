@@ -1,6 +1,5 @@
 "use client";
 
-import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Newspaper } from "lucide-react";
@@ -41,17 +40,11 @@ function Cover({ article, sizes, className }: { article: Article; sizes: string;
 }
 
 function Articles() {
-  const { articles, users, ensureProfiles } = useApp();
+  const { articles, users } = useApp();
   const published = articles
     .filter((a) => a.published && !a.archived)
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const [latest, ...more] = published;
-  // The lead article's author avatar; profiles are fetched as pages need them.
-  const latestAuthor = latest?.authorId;
-  React.useEffect(() => {
-    if (latestAuthor) void ensureProfiles([latestAuthor]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestAuthor]);
 
   return (
     <div className="space-y-7">

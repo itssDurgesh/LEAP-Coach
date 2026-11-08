@@ -1,23 +1,11 @@
 import type { Question } from "@/lib/types";
+import { isClerkConfigured } from "@/lib/clerk/config";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { localHint } from "@/lib/hint-text";
 
-/** Remove the literal correct answer from a string so a fallback hint never leaks it. */
-function stripAnswer(text: string, answer: string): string {
-  if (!answer) return text;
-  const re = new RegExp(answer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
-  return text.replace(re, "the right idea").replace(/\s{2,}/g, " ").trim();
-}
-
-/** Explanation-derived hint used when the AI is unavailable. Never reveals the answer. */
-function localHint(q: Question, attempt: number): string {
-  const safe = stripAnswer((q.explanation || "").trim(), q.correctAnswer);
-  if (attempt >= 3) {
-    return safe
-      ? `Focus on the lesson's core idea: ${safe} Try ruling out the options that don't fit.`
-      : "Re-read the lesson summary and rule out the options that don't fit its main point.";
-  }
-  if (safe) return `Hint: ${safe}`;
-  return "Think back to the key idea from this lesson — which option best matches it?";
-}
+// With the real services on, the hint route reads the question from the database by
+// id; only the local demo (topics in this browser only) sends its own copy.
+const live = isClerkConfigured && isSupabaseConfigured;
 
 export interface HintRequest {
   courseTitle: string;
@@ -34,13 +22,18 @@ export async function fetchHint(req: HintRequest): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        courseTitle: req.courseTitle,
-        video: req.video,
-        question: { prompt: req.question.prompt, options: req.question.options, type: req.question.type },
+        questionId: req.question.id,
         wrongAnswer: req.wrongAnswer,
-        correctAnswer: req.question.correctAnswer,
-        explanation: req.question.explanation,
         attempt: req.attempt,
+        ...(live
+          ? {}
+          : {
+              courseTitle: req.courseTitle,
+              video: req.video,
+              question: { prompt: req.question.prompt, options: req.question.options, type: req.question.type },
+              correctAnswer: req.question.correctAnswer,
+              explanation: req.question.explanation,
+            }),
       }),
     });
     const data = await res.json();
@@ -48,5 +41,7 @@ export async function fetchHint(req: HintRequest): Promise<string> {
   } catch {
     /* fall through to the local hint */
   }
-  return localHint(req.question, req.attempt);
+  // In real mode this copy has no explanation (hidden), so this is the generic nudge;
+  // the route sends its own explanation-based hint whenever it can.
+  return localHint(req.question.explanation, req.question.correctAnswer, req.attempt);
 }

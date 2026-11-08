@@ -13,10 +13,11 @@ import { IdeaOfTheDay } from "@/components/dashboard/IdeaOfTheDay";
 import { UpgradeBand } from "@/components/dashboard/UpgradeBand";
 import { isUpcoming } from "@/components/SessionCard";
 import { IntroContext, Rise, v2Button } from "@/components/v2/ui";
-import { resumeTarget, topicLastActivity } from "@/lib/resume";
-import { formatClock } from "@/lib/utils";
+import { ideaForDay, msUntilNextIndiaDay } from "@/lib/ideas";
+import { resumeTarget } from "@/lib/resume";
 import { useApp } from "@/lib/store/AppProvider";
 import { courseCategories, isProfileComplete, missingProfileFields } from "@/lib/types";
+import { formatClock } from "@/lib/utils";
 
 export default function DashboardPage() {
   return (
@@ -54,12 +55,21 @@ function DashboardContent() {
     resources,
     articles,
     announcements,
+    ideas,
     submissions,
-    progress,
     isEnrolled,
+    isVideoCompleted,
     courseProgress,
+    lastActivityAt,
   } = app;
   const reduceMotion = useReducedMotion();
+  // Today, in India time. The Idea of the day changes at midnight there, so a
+  // dashboard left open overnight moves on to the new idea by itself.
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const t = setTimeout(() => setNow(Date.now()), msUntilNextIndiaDay(now) + 1000);
+    return () => clearTimeout(t);
+  }, [now]);
   const [intro] = React.useState(decideIntro);
   React.useEffect(() => {
     // Once the entrance has had time to finish, stop it replaying when the learner
@@ -77,22 +87,21 @@ function DashboardContent() {
   const headline = fullName ? `Welcome back, ${fullName} Coachee` : "Welcome back, Coachee";
 
   const enrolledCourses = courses.filter((c) => isEnrolled(c.id));
-  const myProgress = progress.filter((p) => p.userId === currentUser.id);
 
-  // Every enrolled topic with its progress, next unwatched video and last activity.
-  // Activity includes watching part of a video, so the topic the learner was in
-  // most recently (whichever it is) comes first, and its button resumes the video
-  // where they stopped.
+  // Every enrolled topic with its progress, where Resume leads and its last activity.
   const topics = enrolledCourses.map((course) => {
-    const done = new Set(myProgress.filter((p) => p.courseId === course.id && p.completed).map((p) => p.videoId));
-    const nextVideo = [...course.videos].sort((a, b) => a.order - b.order).find((v) => !done.has(v.id)) ?? null;
-    const lastActive = topicLastActivity(course, currentUser.id, myProgress, submissions);
-    return { course, ...courseProgress(course.id), nextVideo, lastActive, resume: resumeTarget(course, app) };
+    const resume = resumeTarget(course, app);
+    const firstOpen = [...course.videos].sort((a, b) => a.order - b.order).find((v) => !isVideoCompleted(v.id)) ?? null;
+    // The video Resume opens (the one the learner was last in), else the first unwatched one.
+    const nextVideo = resume.video ?? firstOpen;
+    return { course, ...courseProgress(course.id), nextVideo, lastActive: lastActivityAt(course.id), resume };
   });
-  // Unfinished topics: most recently active first, then started ones, then furthest along.
+  // Unfinished topics, the one the learner was in most recently first. Watching
+  // counts, not only finishing a video: start a video in another topic and that
+  // topic becomes the one to continue. Untouched topics follow, most advanced first.
   const open: (InProgressTopic & { lastActive: number })[] = topics
     .filter((t) => t.pct < 100)
-    .sort((a, b) => b.lastActive - a.lastActive || Number(b.completed > 0) - Number(a.completed > 0) || b.pct - a.pct);
+    .sort((a, b) => b.lastActive - a.lastActive || b.pct - a.pct);
   const [main, second] = open;
 
   const totals = topics.reduce((acc, t) => ({ done: acc.done + t.completed, all: acc.all + t.total }), { done: 0, all: 0 });
@@ -122,18 +131,23 @@ function DashboardContent() {
     .filter((a) => a.published && (a.targetRole === "all" || a.targetRole === role))
     .sort((a, b) => (a.pinned !== b.pinned ? (a.pinned ? -1 : 1) : a.createdAt < b.createdAt ? 1 : -1))[0];
 
+  const idea = ideaForDay(ideas, role, now);
+
   const profileMissing = missingProfileFields(currentUser);
 
   let summary = `You have watched ${totals.done} of ${totals.all} videos across your coaching topics.`;
-  const stoppedAt = main?.resume.kind === "video" ? (main.resume.positionSeconds ?? 0) : 0;
-  if (main && stoppedAt > 0 && main.resume.video) {
-    const name = main.course.title.split(":")[0];
-    summary = `You stopped ${formatClock(stoppedAt)} into “${main.resume.video.title}” in ${name}. Pick it up right there.`;
-  } else if (main && main.completed > 0) {
+  if (main && (main.completed > 0 || main.lastActive > 0)) {
     const left = main.total - main.completed;
     const name = main.course.title.split(":")[0];
+    const at = main.resume.seconds ?? 0;
     const mins = main.nextVideo ? Math.max(1, Math.round(main.nextVideo.durationSeconds / 60)) : 0;
-    summary = `${left} video${left === 1 ? "" : "s"} left in ${name}.${mins ? ` Your next one is ${mins} minute${mins === 1 ? "" : "s"}.` : ""}`;
+    summary = `${left} video${left === 1 ? "" : "s"} left in ${name}.${
+      at > 0 && main.nextVideo
+        ? ` You stopped ${formatClock(at)} into “${main.nextVideo.title}”.`
+        : mins
+          ? ` Your next one is ${mins} minute${mins === 1 ? "" : "s"}.`
+          : ""
+    }`;
   } else if (enrolledCourses.length === 0) {
     summary = "Pick a topic from the catalog to get started.";
   }
@@ -239,10 +253,11 @@ function DashboardContent() {
           <LeadershipMap />
         </Rise>
 
-        {/* ── Today: idea of the day (sample content for now) beside the learner's standing ── */}
+        {/* ── Today: the idea of the day (Admin → Idea of the Day) beside the learner's
+            standing. With no idea scheduled, the standing card sits on its own. ── */}
         <Rise delay={0.9}>
-          <div className={TWO_COL}>
-            <IdeaOfTheDay tracks={tracks} />
+          <div className={idea ? TWO_COL : "grid gap-6 lg:grid-cols-2"}>
+            {idea && <IdeaOfTheDay key={idea.id} idea={idea} tracks={tracks} learnerId={currentUser.id} />}
             <StandingCard
               animate={intro}
               nextUp={main ? { title: main.course.title.split(":")[0], href: `/courses/${main.course.slug}` } : null}

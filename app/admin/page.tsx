@@ -39,10 +39,17 @@ function Overview() {
   const rates = enrollments.map((e) => courseProgress(e.courseId, e.userId).pct);
   const completionRate = rates.length ? Math.round(rates.reduce((a, b) => a + b, 0) / rates.length) : 0;
 
+  // Grouped once: filtering all enrollments for every learner cost learners × enrollments.
+  const enrollmentsByUser = new Map<string, typeof enrollments>();
+  for (const e of enrollments) {
+    const list = enrollmentsByUser.get(e.userId);
+    if (list) list.push(e);
+    else enrollmentsByUser.set(e.userId, [e]);
+  }
   const cohorts = ROLES.map((r) => {
     const roleUsers = learners.filter((u) => u.role === r.id);
     const userRates = roleUsers.flatMap((u) =>
-      enrollments.filter((e) => e.userId === u.id).map((e) => courseProgress(e.courseId, u.id).pct),
+      (enrollmentsByUser.get(u.id) ?? []).map((e) => courseProgress(e.courseId, u.id).pct),
     );
     const avg = userRates.length ? Math.round(userRates.reduce((a, b) => a + b, 0) / userRates.length) : 0;
     return { role: r.label, id: r.id, learners: roleUsers.length, avg };

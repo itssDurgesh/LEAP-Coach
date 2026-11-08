@@ -20,7 +20,7 @@ export type Permission =
   | "payments";
 
 export const PERMISSIONS: { id: Permission; label: string; hint: string }[] = [
-  { id: "content", label: "Coaching topics", hint: "Create & edit topics, questions & workbooks (publishing needs owner approval), and plan the idea of the day" },
+  { id: "content", label: "Coaching topics", hint: "Create & edit topics, questions & workbooks (publishing needs owner approval)" },
   { id: "articles", label: "Articles", hint: "Write & publish articles shown to learners" },
   { id: "announcements", label: "Announcements", hint: "Post announcements broadcast to all learners" },
   { id: "team", label: "Team", hint: "Manage team members" },
@@ -233,11 +233,8 @@ export interface Video {
   muxPlaybackId: string; // mock for now
   audioUrl?: string | null; // set when the session is an audio recording instead of a video
   audioName?: string | null; // the uploaded audio file's name
-  /**
-   * The full transcript. Left out of the bulk load (it is the heaviest column and
-   * only the lesson page and the editor use it): undefined = not loaded yet, which
-   * saving treats as "leave the stored transcript alone". See useTranscript().
-   */
+  // undefined = not loaded yet: the bulk load leaves transcripts out, and the lesson
+  // page / topic editor fetch them on demand (lib/transcripts.ts). "" = no transcript.
   transcript?: string;
   summary: string; // short summary used for AI context + roadmap
   notesPdfName?: string; // notes file name
@@ -254,6 +251,12 @@ export interface Question {
   options: string[]; // choices / word bank
   correctAnswer: string;
   explanation: string;
+  /**
+   * This copy carries no answer or explanation (both are "" here). Learners' copies
+   * are like this since the database stopped handing answers to the browser; the
+   * checkpoint is then graded on the server (app/api/leap/checkpoint).
+   */
+  hidden?: boolean;
 }
 
 export interface Assignment {
@@ -287,7 +290,7 @@ export interface Course {
   published: boolean;
   accent: number; // 0–5, picks a brand gradient for the thumbnail
   thumbnailUrl?: string | null; // uploaded cover image (overrides the gradient)
-  videoThumbnailUrl?: string | null; // one picture shown on every video of this topic (player poster, up-next list)
+  videoThumbnailUrl?: string | null; // one poster for every video of the topic (topic editor → Sessions)
   workbookName?: string | null; // final workbook file name (PDF/DOCX)
   workbookUrl?: string | null; // final workbook (data URL or storage URL)
   accessDurationDays?: number | null; // access expires this many days after a learner enrolls; null/0 = lifetime
@@ -326,6 +329,44 @@ export interface DailyTip {
   author: string;
   targetRole: Role | "all";
   active: boolean;
+}
+
+/** One answer to an Idea of the day's question, with the response a learner sees on picking it. */
+export interface IdeaOption {
+  text: string;
+  good: boolean;
+  feedback: string;
+}
+
+/**
+ * The dashboard's Idea of the day. Admins write several; one shows each day (see
+ * lib/ideas.ts): an idea pinned to today's date if there is one, otherwise the next
+ * idea of the rotation.
+ */
+export interface DailyIdea {
+  id: string;
+  title: string;
+  body: string;
+  trackId: string | null; // leadership level, shown as a chip
+  question: string;
+  options: IdeaOption[];
+  targetRole: Role | "all";
+  showOn: string | null; // "YYYY-MM-DD" (India time) — pinned to that day; null = in the rotation
+  order: number; // position in the rotation
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One row of the dashboard leaderboard (a learner's public fields and rank in their track). */
+export interface LeaderboardEntry {
+  userId: string;
+  name: string;
+  username?: string;
+  avatarUrl?: string | null;
+  credits: number;
+  rank: number; // competition ranking: equal credits share a rank
+  total: number; // learners in the track
 }
 
 export interface LiveSession {
@@ -370,80 +411,19 @@ export interface VideoProgress {
   completed: boolean;
   watchSeconds: number;
   completedAt?: string | null;
-  /** Where the learner stopped, in seconds (0 = from the start). Saved while they watch. */
-  positionSeconds?: number;
-  /** When the player last saved a position: what "continue where you stopped" sorts by. */
+  /** Where the learner last left the video, in seconds (resume point; 0 after finishing it). */
+  positionSeconds?: number | null;
+  /** When they last watched it: drives "continue where you stopped" across topics. */
   lastWatchedAt?: string | null;
-}
-
-// ── Idea of the day (admin-written, one shown per day on the learner dashboard) ──
-export interface IdeaOption {
-  text: string;
-  good: boolean; // the response the idea is teaching towards
-  feedback: string; // shown once the learner picks this option
-}
-
-export interface DailyIdea {
-  id: string;
-  title: string;
-  body: string;
-  question: string;
-  options: IdeaOption[]; // 2–5
-  trackId: string | null; // leadership level shown as a chip
-  audience: Role | "all";
-  showOn: string | null; // YYYY-MM-DD it is scheduled for; null = rotation only
-  active: boolean;
-  createdBy?: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface IdeaResponse {
-  userId: string;
-  ideaId: string;
-  optionIndex: number;
-  createdAt: string;
-}
-
-// ── Credits ledger, stamps and the leaderboard (worked out by the database) ──
-export interface CreditEvent {
-  id: string;
-  userId: string;
-  courseId: string | null;
-  amount: number;
-  totalAfter: number;
-  createdAt: string;
-}
-
-export interface EarnedStamp {
-  userId: string;
-  stampId: string;
-  earnedAt: string;
-}
-
-export interface LeaderboardRow {
-  rank: number;
-  userId: string;
-  name: string;
-  username?: string;
-  avatarUrl?: string | null;
-  role: Role | null;
-  credits: number;
-  isMe: boolean;
-}
-
-/** What someone's public profile shows about their learning (see public_profile_stats()). */
-export interface ProfileStats {
-  comments: number;
-  videosCompleted: number;
-  topicsCompleted: number;
-  currentStreak: number;
 }
 
 export interface QuestionFeedback {
   questionId: string;
   correct: boolean;
   explanation: string;
+  /** The correct answer and the plain explanation, for the result screen of a server-graded attempt. */
+  answer?: string;
+  note?: string;
   // ── interactive checkpoint (hint-and-retry) metrics ──
   attempts?: number; // tries the learner used on this question (1 = solved first try)
   solved?: boolean; // got it right within the retry limit (vs. answer revealed after 4 tries)

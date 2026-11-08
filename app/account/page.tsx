@@ -12,7 +12,7 @@ import { PageHead, V2Card, V2_AVATAR, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
 import { Gender, User, tierForCredits } from "@/lib/types";
 import { cn, formatINR } from "@/lib/utils";
-import { normalizeUsername } from "@/lib/username";
+import { isUsernameAvailable, normalizeUsername } from "@/lib/username";
 import { uploadMedia } from "@/lib/supabase/storage";
 
 const GENDERS: { v: Gender; l: string }[] = [
@@ -50,7 +50,7 @@ type FormState = {
 };
 
 function Account() {
-  const { currentUser, updateProfileInfo, isUsernameTaken } = useApp();
+  const { currentUser, users, updateProfileInfo } = useApp();
   const u = currentUser!;
   const tier = tierForCredits(u.learningCredits);
 
@@ -76,33 +76,14 @@ function Account() {
   // no handle yet may set it once; after that the field is locked.
   const usernameLocked = !!u.username?.trim();
   const unameNorm = normalizeUsername(form.username);
-  // Whether the handle is free is asked of the database (other people's profiles
-  // are not loaded on this page), a moment after typing stops.
-  const [taken, setTaken] = React.useState<{ handle: string; taken: boolean } | null>(null);
-  React.useEffect(() => {
-    if (usernameLocked || unameNorm.length < 3) return;
-    let active = true;
-    const t = window.setTimeout(() => {
-      isUsernameTaken(unameNorm).then(
-        (yes) => active && setTaken({ handle: unameNorm, taken: yes }),
-        () => active && setTaken(null),
-      );
-    }, 300);
-    return () => {
-      active = false;
-      window.clearTimeout(t);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unameNorm, usernameLocked]);
   const unameError =
     usernameLocked
       ? ""
       : unameNorm.length > 0 && unameNorm.length < 3
         ? "At least 3 characters."
-        : unameNorm && taken?.handle === unameNorm && taken.taken
+        : unameNorm && !isUsernameAvailable(unameNorm, users, u.id)
           ? "That handle is taken."
           : "";
-  const unameChecking = !usernameLocked && unameNorm.length >= 3 && taken?.handle !== unameNorm;
 
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -112,7 +93,7 @@ function Account() {
 
   function save(e: React.FormEvent) {
     e.preventDefault();
-    if (unameError || unameChecking) return;
+    if (unameError) return;
     const patch: Partial<User> = {
       name: form.name.trim(),
       headline: form.headline.trim(),
@@ -250,7 +231,7 @@ function Account() {
                   </>
                 )}
               </span>
-              <button type="submit" disabled={!!unameError || unameChecking} className={v2Button("primary")}>
+              <button type="submit" disabled={!!unameError} className={v2Button("primary")}>
                 Save changes
               </button>
             </div>

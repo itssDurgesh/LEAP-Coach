@@ -17,13 +17,13 @@ import {
   Newspaper,
   Megaphone,
   HelpCircle,
+  Lightbulb,
   ShieldCheck,
   LogOut,
   ExternalLink,
   Menu,
   Loader2,
   Lock,
-  Lightbulb,
   LucideIcon,
 } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";

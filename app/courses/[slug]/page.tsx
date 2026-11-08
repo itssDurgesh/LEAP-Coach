@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Award, Check, CheckCircle2, ChevronDown, ClipboardCheck, Clock, Download, FileText, Lock, Play, Star } from "lucide-react";
+import { ArrowLeft, ArrowRight, Award, Check, CheckCircle2, ChevronDown, ClipboardCheck, Clock, Download, FileText, Loader2, Lock, Play, Star } from "lucide-react";
 import { AppShell } from "@/components/app/AppShell";
 import { CourseThumb } from "@/components/CourseThumb";
 import { CheckoutModal } from "@/components/CheckoutModal";
@@ -17,6 +17,7 @@ import { courseCategories, ownsTopic } from "@/lib/types";
 import { buildTopicReport } from "@/lib/report";
 import { topicCredit, TOPIC_CREDIT_MAX } from "@/lib/credits";
 import { downloadNotesPdf } from "@/lib/pdf";
+import { downloadUrl } from "@/lib/download";
 import { cn, formatINR, formatDuration, formatClock } from "@/lib/utils";
 
 const ROW = "flex items-center gap-3.5 rounded-[14px] px-3 py-2.5";
@@ -71,6 +72,32 @@ function TopicDescription({ text }: { text: string }) {
   );
 }
 
+/**
+ * The final workbook lives in Storage, another origin, where <a download> is
+ * ignored: the link used to open the file in this tab under its storage key.
+ * downloadUrl saves it under its own name and keeps the learner on the page.
+ */
+function WorkbookDownload({ url, name }: { url: string; name: string }) {
+  const [busy, setBusy] = React.useState(false);
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await downloadUrl(url, name);
+    } catch (e) {
+      console.error("[workbook] download failed", e);
+      window.alert("The workbook could not be downloaded. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button type="button" onClick={() => void save()} disabled={busy} aria-busy={busy} className={v2Button("outline", "sm")}>
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download
+    </button>
+  );
+}
+
 export default function CourseDetailPage() {
   return (
     <AppShell>
@@ -103,6 +130,7 @@ function CourseDetail() {
     notesForCourse,
     isCourseComplete,
     myRatingFor,
+    watchPosition,
   } = app;
 
   const [checkout, setCheckout] = React.useState(false);
@@ -268,7 +296,13 @@ function CourseDetail() {
                   // With every video watched, the button replays the topic from the start.
                   <Link href={resume.kind === "video" ? resume.href : `/learn/${course.id}/1`} className={v2Button("primary")}>
                     <Play className="h-4 w-4 fill-current" />
-                    {resume.kind !== "video" ? "Watch again" : prog.completed > 0 ? "Continue learning" : "Start topic"}
+                    {resume.kind !== "video"
+                      ? "Watch again"
+                      : (resume.seconds ?? 0) > 0
+                        ? `Resume at ${formatClock(resume.seconds ?? 0)}`
+                        : prog.completed > 0
+                          ? "Continue learning"
+                          : "Start topic"}
                   </Link>
                 )}
                 {topicComplete && (
@@ -379,6 +413,8 @@ function CourseDetail() {
                 const done = enrolled && isVideoCompleted(video.id);
                 const open = enrolled && isVideoUnlocked(course.id, video.order);
                 const next = video.order === upNextOrder;
+                // Where the learner stopped in a video they have not finished.
+                const stoppedAt = open && !done ? (watchPosition(video.id)?.seconds ?? 0) : 0;
                 const body = (
                   <>
                     <span
@@ -393,6 +429,7 @@ function CourseDetail() {
                       <p className="truncate text-sm font-semibold leading-5 text-heading">{video.title}</p>
                       <p className="text-xs font-medium text-muted">
                         Video {pad(video.order)} &nbsp;·&nbsp; {formatClock(video.durationSeconds)}
+                        {stoppedAt > 0 && <> &nbsp;·&nbsp; stopped at {formatClock(stoppedAt)}</>}
                       </p>
                     </div>
                     {done ? (
@@ -488,7 +525,8 @@ function CourseDetail() {
             </p>
           </V2Card>
 
-          {course.workbookUrl && (
+          {/* The workbook's name is public; its link reaches only learners who may open the topic. */}
+          {(course.workbookUrl || course.workbookName) && (
             <V2Card className="flex items-center gap-4 p-5">
               <span className="flex h-[72px] w-[60px] shrink-0 flex-col items-center justify-center gap-1 rounded-[14px] bg-lv-people-tint text-lv-people-dark">
                 <FileText className="h-[22px] w-[22px]" />
@@ -502,10 +540,8 @@ function CourseDetail() {
                   {access ? "Complete it once you finish the videos." : "Enroll to unlock the final workbook."}
                 </p>
               </div>
-              {access ? (
-                <a href={course.workbookUrl} download={course.workbookName ?? "workbook"} className={v2Button("outline", "sm")}>
-                  <Download className="h-3.5 w-3.5" /> Download
-                </a>
+              {access && course.workbookUrl ? (
+                <WorkbookDownload url={course.workbookUrl} name={course.workbookName?.trim() || `${course.slug}-workbook`} />
               ) : (
                 <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-muted">
                   <Lock className="h-3 w-3" /> Locked

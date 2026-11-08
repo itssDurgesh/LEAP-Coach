@@ -69,60 +69,47 @@ export function topicCredit(course: Course, userId: string, submissions: Submiss
   return { totalQuestions, weightedPercent, credit: creditForPercent(weightedPercent, hasQuestions) };
 }
 
+export interface CreditOutlook {
+  /** Checkpoints the learner has attempted / the topic has. */
+  checkpointsDone: number;
+  checkpoints: number;
+  /** What the topic would bank if the remaining checkpoints go as the attempted ones did; null before any. */
+  projected: number | null;
+}
+
 /**
- * The credit a learner holds for a topic RIGHT NOW, earned as they go rather than
- * all at once at the end. Mirrors public.topic_credit() in supabase/database.sql,
- * which is what actually writes the number; this copy only lets the screen show
- * it the moment something is done.
- *
- *   quality  = the ladder above, applied to the attempt-weighted score over the
- *              questions of the checkpoints attempted so far (latest attempt each)
- *   progress = (videos completed + checkpoints attempted) / (videos + checkpoints)
- *   credit   = round(quality × progress)
- *
- * When everything is done, progress is 1 and this equals topicCredit().credit.
- * A topic with no checkpoint questions earns nothing, as before.
+ * Where an unfinished topic's credit stands. Credits are banked only when a topic is
+ * finished (topicCredit, above), so a learner who has passed checkpoints still has
+ * 0 banked for it; this shows them what their answers so far are on track for. Same
+ * weighting and ladder as the real credit, counted over the attempted checkpoints
+ * only (the real one counts the rest as unanswered).
  */
-export function topicCreditNow(
-  course: Course,
-  userId: string,
-  submissions: Submission[],
-  progress: VideoProgress[],
-): number {
+export function creditOutlook(course: Course, userId: string, submissions: Submission[]): CreditOutlook {
   const latestByAssignment = new Map<string, Submission>();
   for (const s of submissions) {
     if (s.userId !== userId || s.courseId !== course.id) continue;
     const cur = latestByAssignment.get(s.assignmentId);
-    if (!cur || cur.attemptNumber < s.attemptNumber || (cur.attemptNumber === s.attemptNumber && cur.submittedAt < s.submittedAt))
-      latestByAssignment.set(s.assignmentId, s);
+    if (!cur || cur.attemptNumber < s.attemptNumber) latestByAssignment.set(s.assignmentId, s);
   }
-
-  let totalQuestions = 0;
-  let attemptedQuestions = 0;
+  let done = 0;
+  let questions = 0;
   let weightSum = 0;
   for (const a of course.assignments) {
-    totalQuestions += a.questions.length;
     const latest = latestByAssignment.get(a.id);
     if (!latest) continue;
-    attemptedQuestions += a.questions.length;
-    const byId = new Map((Array.isArray(latest.feedback) ? latest.feedback : []).map((f) => [f.questionId, f]));
+    done += 1;
+    const byId = new Map(latest.feedback.map((f) => [f.questionId, f]));
     for (const q of a.questions) {
+      questions += 1;
       const f = byId.get(q.id);
       if (f) weightSum += questionWeight(f);
     }
   }
-  if (totalQuestions === 0 || attemptedQuestions === 0) return 0;
-
-  const quality = creditForPercent((weightSum * 100) / attemptedQuestions, true);
-  const videoIds = new Set(course.videos.map((v) => v.id));
-  const doneVideos = new Set(
-    progress.filter((p) => p.userId === userId && p.completed && videoIds.has(p.videoId)).map((p) => p.videoId),
-  ).size;
-  const doneCheckpoints = course.assignments.filter((a) => latestByAssignment.has(a.id)).length;
-  const steps = course.videos.length + course.assignments.length;
-  const done = Math.min(doneVideos + doneCheckpoints, steps);
-  // Multiply before dividing, as the database does, so a result on .5 rounds the same way.
-  return Math.round((quality * done) / Math.max(1, steps));
+  return {
+    checkpointsDone: done,
+    checkpoints: course.assignments.length,
+    projected: questions ? creditForPercent((weightSum / questions) * 100, true) : null,
+  };
 }
 
 /**

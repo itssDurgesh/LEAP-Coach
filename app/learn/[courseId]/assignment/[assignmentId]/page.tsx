@@ -10,6 +10,7 @@ import { Bar, PageHead, V2Card, v2Button } from "@/components/v2/ui";
 import { useApp } from "@/lib/store/AppProvider";
 import { TOPIC_CREDIT_MAX } from "@/lib/credits";
 import { fetchHint } from "@/lib/hint";
+import { checkAnswer, checkpointState, type ServerQuestionState } from "@/lib/checkpoint";
 import { cn } from "@/lib/utils";
 import { Assignment, Course, Question, Submission, Video } from "@/lib/types";
 
@@ -77,7 +78,22 @@ interface QState {
   hint: string | null;
   hintLoading: boolean;
   wrong: string[]; // options tried and found wrong
+  // Server-graded checkpoints (the browser has no answers): the answer and
+  // explanation arrive once the question is solved or its tries are used up.
+  answer?: string;
+  explanation?: string;
+  checking?: boolean;
+  error?: string | null;
 }
+
+/** A question's state as the server reports it, in the page's terms. */
+const fromServer = (r: ServerQuestionState): Partial<QState> => ({
+  status: r.status,
+  attempts: r.tries,
+  wrong: r.wrong,
+  answer: r.answer,
+  explanation: r.explanation,
+});
 
 function initQState(a: Assignment): Record<string, QState> {
   const m: Record<string, QState> = {};
@@ -91,6 +107,27 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
 
   const [qstate, setQState] = React.useState<Record<string, QState>>(() => initQState(assignment));
   const [result, setResult] = React.useState<Submission | null>(null);
+  const [submitting, setSubmitting] = React.useState(false);
+  const [submitError, setSubmitError] = React.useState<string | null>(null);
+  // The questions came without answers: the server grades every try (and remembers
+  // them, so a reload in the middle of an attempt keeps the tries already made).
+  const serverGraded = assignment.questions.some((q) => q.hidden);
+
+  React.useEffect(() => {
+    if (!serverGraded) return;
+    let active = true;
+    void checkpointState(assignment.id).then((r) => {
+      if (!active || !r.ok) return;
+      setQState((s) => {
+        const next = { ...s };
+        for (const [qid, st] of Object.entries(r.value.questions)) if (next[qid]) next[qid] = { ...next[qid], ...fromServer(st) };
+        return next;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [serverGraded, assignment.id]);
 
   const gateVideo = course.videos.find((v) => v.order === assignment.afterVideoOrder);
   const nextVideo = course.videos.find((v) => v.order === assignment.afterVideoOrder + 1);
@@ -110,8 +147,30 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
 
   async function check(q: Question, gate?: Video) {
     const st = qstate[q.id];
-    if (st.status !== "open" || !st.picked) return;
+    if (st.status !== "open" || !st.picked || st.checking) return;
     const picked = st.picked;
+
+    if (serverGraded) {
+      setQ(q.id, { checking: true, error: null });
+      const r = await checkAnswer(q.id, picked);
+      if (!r.ok) {
+        // Not counted: the try did not reach the server.
+        setQ(q.id, { checking: false, error: r.error });
+        return;
+      }
+      setQ(q.id, { ...fromServer(r.value), picked: undefined, checking: false, hint: null, hintLoading: r.value.status === "open" });
+      if (r.value.status !== "open") return;
+      const hint = await fetchHint({
+        courseTitle: course.title,
+        video: { title: gate?.title ?? course.title, summary: gate?.summary ?? "" },
+        question: q,
+        wrongAnswer: picked,
+        attempt: r.value.tries,
+      });
+      setQ(q.id, { hint, hintLoading: false });
+      return;
+    }
+
     const correct = picked.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
     const attempts = st.attempts + 1;
 
@@ -137,23 +196,33 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
     setQ(q.id, { hint, hintLoading: false });
   }
 
-  function finish() {
+  async function finish() {
+    if (submitting) return;
     const answers: Record<string, string> = {};
     const attempts: Record<string, number> = {};
     for (const q of assignment.questions) {
       const st = qstate[q.id];
       attempts[q.id] = st.attempts;
       // Solved → record the correct answer; revealed (unsolved) → record their last wrong pick.
-      answers[q.id] = st.status === "solved" ? q.correctAnswer : st.wrong[st.wrong.length - 1] ?? "";
+      answers[q.id] = st.status === "solved" ? (st.answer ?? q.correctAnswer) : st.wrong[st.wrong.length - 1] ?? "";
     }
-    const sub = submitAssignment(assignment.id, answers, attempts);
-    setResult(sub);
+    setSubmitting(true);
+    setSubmitError(null);
+    const r = await submitAssignment(assignment.id, answers, attempts);
+    setSubmitting(false);
+    if (!r.ok) {
+      setSubmitError(r.error);
+      return;
+    }
+    setResult(r.submission);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function retry() {
+    // A server-graded retry starts afresh there too: it is the next attempt.
     setQState(initQState(assignment));
     setResult(null);
+    setSubmitError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -209,11 +278,12 @@ function AssignmentRunner({ course, assignment }: { course: Course; assignment: 
               ))}
 
               <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
-                <p className="text-[13px] font-medium text-muted">
-                  {allResolved ? "Every question is done." : "Finish every question to see your result."}
+                <p className={cn("text-[13px] font-medium", submitError ? "text-lv-people-dark" : "text-muted")} role={submitError ? "alert" : undefined}>
+                  {submitError ?? (allResolved ? "Every question is done." : "Finish every question to see your result.")}
                 </p>
-                <button type="button" onClick={finish} disabled={!allResolved} className={v2Button("strong")}>
-                  See my results <ArrowRight className="h-4 w-4" />
+                <button type="button" onClick={() => void finish()} disabled={!allResolved || submitting} className={v2Button("strong")}>
+                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  See my results {!submitting && <ArrowRight className="h-4 w-4" />}
                 </button>
               </div>
             </div>
@@ -274,8 +344,11 @@ function QuestionCard({
   onCheck: () => void;
 }) {
   const isOpen = st.status === "open";
-  const isCorrectOpt = (opt: string) => opt.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
-  const blankValue = st.status === "open" ? st.picked || "?" : q.correctAnswer;
+  // A server-graded question's answer is known here only once it is settled.
+  const answer = st.answer ?? q.correctAnswer;
+  const explanation = st.explanation ?? q.explanation;
+  const isCorrectOpt = (opt: string) => !!answer && opt.trim().toLowerCase() === answer.trim().toLowerCase();
+  const blankValue = st.status === "open" ? st.picked || "?" : answer;
   // Short choices sit two to a row; longer ones get a full row each.
   const twoColumns = q.options.every((o) => o.length <= 22);
   const triesLeft = MAX_Q_ATTEMPTS - st.attempts;
@@ -425,15 +498,20 @@ function QuestionCard({
             <button
               type="button"
               onClick={onCheck}
-              disabled={!st.picked || st.hintLoading}
+              disabled={!st.picked || st.hintLoading || st.checking}
               className={v2Button(st.picked ? "primary" : "outline")}
             >
-              Check answer
+              {st.checking && <Loader2 className="h-4 w-4 animate-spin" />} Check answer
             </button>
           </div>
+          {st.error && (
+            <p role="alert" className="text-xs font-medium text-lv-people-dark">
+              {st.error}
+            </p>
+          )}
         </>
       ) : (
-        q.explanation && <p className="rounded-[14px] bg-surface p-3.5 text-sm leading-5 text-v2-body">{q.explanation}</p>
+        explanation && <p className="rounded-[14px] bg-surface p-3.5 text-sm leading-5 text-v2-body">{explanation}</p>
       )}
     </V2Card>
   );
@@ -506,9 +584,11 @@ function ResultView({
               </div>
               <p className="text-sm leading-5">
                 <span className="text-muted">Correct answer: </span>
-                <span className="font-semibold text-lv-orgs-dark">{q.correctAnswer}</span>
+                <span className="font-semibold text-lv-orgs-dark">{fb?.answer ?? q.correctAnswer}</span>
               </p>
-              {q.explanation && <p className="rounded-[14px] bg-surface p-3.5 text-sm leading-5 text-v2-body">{q.explanation}</p>}
+              {(fb?.note ?? q.explanation) && (
+                <p className="rounded-[14px] bg-surface p-3.5 text-sm leading-5 text-v2-body">{fb?.note ?? q.explanation}</p>
+              )}
             </div>
           </V2Card>
         );

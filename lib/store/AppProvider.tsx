@@ -11,15 +11,12 @@ import {
   Coupon,
   Course,
   CourseRating,
-  CreditEvent,
   DailyIdea,
   DailyTip,
-  EarnedStamp,
   Enrollment,
   Faq,
   Gender,
-  IdeaResponse,
-  LeaderboardRow,
+  LeaderboardEntry,
   LeadershipTrack,
   LiveSession,
   Note,
@@ -28,7 +25,6 @@ import {
   Permission,
   PostComment,
   PricingTiers,
-  ProfileStats,
   Question,
   RecommendedResource,
   Role,
@@ -68,20 +64,40 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { isClerkConfigured } from "@/lib/clerk/config";
 import * as db from "@/lib/supabase/db";
 import { normalizeCode } from "@/lib/coupons";
-import { topicCreditNow, topicComplete } from "@/lib/credits";
-import { ideaForDay } from "@/lib/ideas";
-import { computeStamps, learningStreaks } from "@/lib/stamps";
-import { baseUsername, isUsernameAvailable, normalizeUsername, uniqueUsername } from "@/lib/username";
+import { topicCredit, topicComplete } from "@/lib/credits";
+import { baseUsername, uniqueUsername } from "@/lib/username";
+import { clearPaintCaches, paintCacheKey } from "@/lib/store/paint-cache";
+import { refreshCredits, submitCheckpoint, type Credits } from "@/lib/checkpoint";
 import type { AuthBridge } from "@/lib/auth/types";
+import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js";
 
 const STORAGE_KEY = "leap-coach-state-v1";
-// Per-user stale-while-revalidate cache for Supabase mode: paint instantly from the
-// last snapshot on reload, then refresh in the background. Keyed by user id so one
-// account never sees another's cached data.
-// v2: a learner's snapshot no longer holds every other user's profile (the v1
-// snapshot kept everyone's email and phone in each browser), so v1 is removed.
-const SB_CACHE_PREFIX = "leap-sb-cache-v2:";
-const OLD_CACHE_PREFIXES = ["leap-sb-cache-v1:"];
+// Per-user stale-while-revalidate cache for Supabase mode (paint-cache.ts): paint
+// instantly from the last snapshot on reload, then refresh in the background. Keyed
+// by user id so one account never sees another's cached data.
+
+/**
+ * Run `fn` once the browser is idle, at least `delayMs` from now (and at most ~2s
+ * after that, so it still happens on a busy page). Returns a cancel function.
+ */
+function afterIdle(delayMs: number, fn: () => void): () => void {
+  let idleId: number | undefined;
+  const timer = setTimeout(() => {
+    if (typeof window.requestIdleCallback === "function") idleId = window.requestIdleCallback(fn, { timeout: 2000 });
+    else fn();
+  }, delayMs);
+  return () => {
+    clearTimeout(timer);
+    if (idleId !== undefined) window.cancelIdleCallback?.(idleId);
+  };
+}
+
+/** Same notifications, same order, same read state: nothing for the bell to redraw. */
+function sameNotifications(a: AppNotification[], b: AppNotification[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i].id !== b[i].id || a[i].read !== b[i].read) return false;
+  return true;
+}
 
 // Real backend = Clerk for auth + Supabase for data. Active only when both are
 // configured; otherwise the whole app runs on the localStorage mock. Clerk owns
@@ -92,11 +108,10 @@ const realMode = isClerkConfigured && isSupabaseConfigured;
 const PASS_MARK = 60;
 const MAX_ATTEMPTS = 10;
 
-// Learning credits are earned per TOPIC (max 100 each) as the learner works through
-// it (topicCreditNow), keeping the best result. Total learningCredits = the sum of
-// every topic's credit. In real mode the database works the same number out itself
-// (sync_topic_credit) and is what counts; this copy shows it on screen at once and
-// keeps the local demo working. Pure so state and writes share one computation.
+// Learning credits are earned per TOPIC (max 100 each), finalized once the learner
+// completes the topic and keeping the best result. Total learningCredits = the sum
+// of every topic's best credit. Pure so the local state update and the Supabase
+// write both derive from the exact same computation.
 function applyTopicCredit(
   users: User[],
   courses: Course[],
@@ -104,64 +119,107 @@ function applyTopicCredit(
   userId: string,
   submissions: Submission[],
   progress: VideoProgress[],
-): { users: User[]; patch: { learning_credits: number; topic_credits: Record<string, number> } | null; gained: number; total: number } {
+): { users: User[]; patch: { learning_credits: number; topic_credits: Record<string, number> } | null } {
   const course = courses.find((c) => c.id === courseId);
+  if (!course || !topicComplete(course, userId, submissions, progress)) return { users, patch: null };
   const user = users.find((u) => u.id === userId);
-  if (!course || !user) return { users, patch: null, gained: 0, total: user?.learningCredits ?? 0 };
+  if (!user) return { users, patch: null };
   const prev = user.topicCredits?.[courseId] ?? 0;
-  const credit = topicCreditNow(course, userId, submissions, progress);
-  if (credit <= prev) return { users, patch: null, gained: 0, total: user.learningCredits }; // no improvement → nothing to record
+  const credit = topicCredit(course, userId, submissions).credit;
+  if (credit <= prev) return { users, patch: null }; // no improvement (or a question-less topic) → nothing to record
   const topicCredits = { ...(user.topicCredits ?? {}), [courseId]: credit };
   const learningCredits = Object.values(topicCredits).reduce((sum, v) => sum + v, 0);
   const nextUsers = users.map((u) =>
     u.id === userId ? { ...u, topicCredits, learningCredits, lastActiveAt: new Date().toISOString() } : u,
   );
-  return {
-    users: nextUsers,
-    patch: { learning_credits: learningCredits, topic_credits: topicCredits },
-    gained: credit - prev,
-    total: learningCredits,
-  };
+  return { users: nextUsers, patch: { learning_credits: learningCredits, topic_credits: topicCredits } };
 }
+
+// ── Lookup indexes ──
+// The store's lookup helpers run during render, often inside loops: the admin
+// overview calls courseProgress for every enrollment, and each call checked every
+// video against the WHOLE progress list. That cost grew as users × progress rows,
+// so at 3,000 learners one render of the admin overview took ~10 seconds, and a
+// learner's pages slowed down the same way as their history grew. The indexes are
+// built once per change of the array they cover. Each keeps the FIRST match, so a
+// lookup returns exactly what the Array.find / Array.some it replaced returned.
+
+/** Composite key for (user, thing) lookups. NUL cannot occur inside an id. */
+const pair = (a: string, b: string) => `${a}\u0000${b}`;
+
+function firstBy<T>(items: T[], key: (item: T) => string): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const item of items) {
+    const k = key(item);
+    if (!map.has(k)) map.set(k, item);
+  }
+  return map;
+}
+
+/** Group in original order, then sort each group: same result as filter-then-sort. */
+function groupSorted<T>(items: T[], key: (item: T) => string, compare: (a: T, b: T) => number): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const list = map.get(k);
+    if (list) list.push(item);
+    else map.set(k, [item]);
+  }
+  for (const list of map.values()) list.sort(compare);
+  return map;
+}
+
+interface CourseIndex {
+  byId: Map<string, Course>;
+  bySlug: Map<string, Course>;
+  /** First course (in store order) holding each video id, as the old loop over courses found it. */
+  video: Map<string, { course: Course; video: Video }>;
+  assignment: Map<string, { course: Course; assignment: Assignment }>;
+}
+
+function indexCourses(courses: Course[]): CourseIndex {
+  const idx: CourseIndex = { byId: new Map(), bySlug: new Map(), video: new Map(), assignment: new Map() };
+  for (const course of courses) {
+    if (!idx.byId.has(course.id)) idx.byId.set(course.id, course);
+    if (!idx.bySlug.has(course.slug)) idx.bySlug.set(course.slug, course);
+    // `?? []`: this runs for every page, inside the provider around the whole site.
+    // One malformed topic must break only the screens that show it (each caught by
+    // app/error.tsx), not every page at once.
+    for (const video of course.videos ?? []) if (!idx.video.has(video.id)) idx.video.set(video.id, { course, video });
+    for (const assignment of course.assignments ?? [])
+      if (!idx.assignment.has(assignment.id)) idx.assignment.set(assignment.id, { course, assignment });
+  }
+  return idx;
+}
+
+const NO_SUBMISSIONS: Submission[] = [];
+const NO_PROGRESS: VideoProgress[] = [];
+
+/** ISO time → ms since epoch; 0 for missing or unreadable values. */
+const ms = (iso?: string | null) => {
+  const n = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(n) ? n : 0;
+};
 
 /**
- * New progress / submissions for one learner, with the topic credit recalculated.
- * In the local demo it also writes the credit history and awards stamps (the
- * database does both in real mode).
+ * The leaderboard worked out from the profiles in the store: used in the local demo,
+ * and in real mode until the database's leaderboard() function exists. Same rules
+ * as that function: learners of the track, admins and suspended accounts left out,
+ * ranked by banked credits (equal credits share a rank), top `limit` plus `meId`.
  */
-function withProgressCredit(
-  s: AppState,
-  userId: string,
-  courseId: string,
-  progress: VideoProgress[],
-  submissions: Submission[],
-  ideaResponses: IdeaResponse[],
-): AppState {
-  const { users, gained, total } = applyTopicCredit(s.users, s.courses, courseId, userId, submissions, progress);
-  const next: AppState = { ...s, progress, submissions, users };
-  if (realMode) return next;
-  const creditEvents = gained > 0
-    ? [{ id: uid("ce"), userId, courseId, amount: gained, totalAfter: total, createdAt: new Date().toISOString() }, ...s.creditEvents]
-    : s.creditEvents;
-  const me = users.find((u) => u.id === userId);
-  const stamps = me ? [...s.stamps, ...newlyEarnedStamps(me, s.courses, submissions, progress, ideaResponses, s.stamps)] : s.stamps;
-  return { ...next, creditEvents, stamps };
-}
-
-/** Stamps the learner now holds by the rules that are not in `held` yet (local demo awards). */
-function newlyEarnedStamps(
-  user: User,
-  courses: Course[],
-  submissions: Submission[],
-  progress: VideoProgress[],
-  ideaResponses: IdeaResponse[],
-  held: EarnedStamp[],
-): EarnedStamp[] {
-  const have = new Set(held.filter((s) => s.userId === user.id).map((s) => s.stampId));
-  const at = new Date().toISOString();
-  return computeStamps(user, courses, submissions, progress, ideaResponses)
-    .filter((s) => s.earned && !have.has(s.id))
-    .map((s) => ({ userId: user.id, stampId: s.id, earnedAt: at }));
+function localLeaderboard(users: User[], role: Role, meId: string | null | undefined, limit: number): LeaderboardEntry[] {
+  const board = users
+    .filter((u) => u.role === role && !u.isAdmin && !u.banned)
+    .sort((a, b) => (b.learningCredits ?? 0) - (a.learningCredits ?? 0) || ms(a.createdAt) - ms(b.createdAt) || (a.id < b.id ? -1 : 1));
+  const entries: LeaderboardEntry[] = [];
+  let rank = 0;
+  board.forEach((u, i) => {
+    const credits = u.learningCredits ?? 0;
+    if (i === 0 || credits !== (board[i - 1].learningCredits ?? 0)) rank = i + 1;
+    if (i < limit || u.id === meId)
+      entries.push({ userId: u.id, name: u.name, username: u.username, avatarUrl: u.avatarUrl ?? null, credits, rank, total: board.length });
+  });
+  return entries;
 }
 
 interface AppState {
@@ -180,6 +238,7 @@ interface AppState {
   articles: Article[];
   announcements: Announcement[];
   faqs: Faq[];
+  ideas: DailyIdea[];
   privacyPolicy: string;
   siteContent: SiteContent;
   enrollments: Enrollment[];
@@ -190,16 +249,6 @@ interface AppState {
   coupons: Coupon[];
   payments: Payment[];
   pricing: PricingTiers;
-  /** Ideas of the day: every idea for an admin (and the local demo); learners fetch theirs per day. */
-  ideas: DailyIdea[];
-  /** The signed-in learner's own answers to ideas of the day. */
-  ideaResponses: IdeaResponse[];
-  /** The signed-in learner's recent credit gains, newest first. */
-  creditEvents: CreditEvent[];
-  /** Stamps the signed-in learner holds (database-awarded in real mode). */
-  stamps: EarnedStamp[];
-  /** Transcripts fetched on demand, by video id (not part of the bulk load). */
-  transcripts: Record<string, string>;
   currentUserId: string | null;
 }
 
@@ -220,6 +269,7 @@ function seedState(): AppState {
     articles: seedArticles,
     announcements: seedAnnouncements,
     faqs: seedFaqs,
+    ideas: [],
     privacyPolicy: DEFAULT_PRIVACY_POLICY,
     siteContent: DEFAULT_SITE_CONTENT,
     enrollments: seedEnrollments,
@@ -230,11 +280,6 @@ function seedState(): AppState {
     coupons: seedCoupons,
     payments: [],
     pricing: DEFAULT_PRICING,
-    ideas: [],
-    ideaResponses: [],
-    creditEvents: [],
-    stamps: [],
-    transcripts: {},
     currentUserId: null,
   };
 }
@@ -243,20 +288,21 @@ function emptyState(): AppState {
   return {
     users: [], courses: [], tracks: DEFAULT_TRACKS, tips: [], sessions: [], resources: [],
     community: [], comments: [], videoComments: [], notifications: [], teamMembers: [], books: [], articles: [],
-    announcements: [], faqs: [], privacyPolicy: DEFAULT_PRIVACY_POLICY,
+    announcements: [], faqs: [], ideas: [], privacyPolicy: DEFAULT_PRIVACY_POLICY,
     siteContent: DEFAULT_SITE_CONTENT, enrollments: [], progress: [], submissions: [], notes: [], courseRatings: [], coupons: [],
-    payments: [], pricing: DEFAULT_PRICING, ideas: [], ideaResponses: [], creditEvents: [], stamps: [], transcripts: {},
-    currentUserId: null,
+    payments: [], pricing: DEFAULT_PRICING, currentUserId: null,
   };
 }
 
-// A lighter copy of the state for the localStorage paint-cache: transcripts and
-// video comments are fetched on demand anyway, so they stay out (JSON.stringify
-// stays fast and the ~5MB localStorage quota is not hit). Supabase mode only.
-function cacheSnapshot(state: AppState): Partial<AppState> {
-  const { transcripts: _t, videoComments: _c, ...rest } = state;
+// A lighter copy of the state for the localStorage paint-cache, so JSON.stringify
+// stays fast and we don't blow the ~5MB localStorage quota. Used for the
+// Supabase-mode snapshot only. Leaves out what is fetched on demand anyway:
+// transcripts (a topic an admin just saved carries them; undefined = "not loaded")
+// and video discussions (each lesson page fetches its own).
+function cacheSnapshot(state: AppState): AppState {
   return {
-    ...rest,
+    ...state,
+    videoComments: [],
     courses: state.courses.map((c) =>
       c.videos.some((v) => v.transcript !== undefined)
         ? { ...c, videos: c.videos.map((v) => (v.transcript !== undefined ? { ...v, transcript: undefined } : v)) }
@@ -264,12 +310,6 @@ function cacheSnapshot(state: AppState): Partial<AppState> {
     ),
   };
 }
-
-/** A learner's private rows are not part of another account's state. */
-const NO_PRIVATE_ROWS = {
-  enrollments: [], progress: [], submissions: [], notes: [], courseRatings: [], payments: [], coupons: [],
-  creditEvents: [], stamps: [], ideaResponses: [], notifications: [],
-} satisfies Partial<AppState>;
 
 export interface SignUpData {
   name: string;
@@ -334,46 +374,22 @@ interface AppContextValue extends AppState {
   // progress
   isVideoCompleted(videoId: string, userId?: string): boolean;
   markVideoComplete(videoId: string): void;
+  /**
+   * Remember where the learner is in a video (players call this on pause, on leaving
+   * and every half minute of playback). Drives resume on any device and "continue
+   * where you stopped" across topics.
+   */
+  recordWatch(videoId: string, positionSeconds: number): void;
+  /** The saved place in a video and when it was saved; null when there is none. */
+  watchPosition(videoId: string, userId?: string): { seconds: number; at: number } | null;
+  /** The learner's latest activity in a topic (watching or finishing a video), ms since epoch; 0 = none. */
+  lastActivityAt(courseId: string, userId?: string): number;
+  /** The video of this topic the learner watched most recently, if any. */
+  lastWatchedVideo(courseId: string, userId?: string): { videoId: string; seconds: number; at: number } | null;
+  /** Top learners of a track plus the signed-in learner's own row (ranked by banked credits). */
+  fetchLeaderboard(role: Role): Promise<LeaderboardEntry[]>;
   isVideoUnlocked(courseId: string, order: number, userId?: string): boolean;
   courseProgress(courseId: string, userId?: string): { completed: number; total: number; pct: number };
-  /** The signed-in learner's progress row for a video (resume position, last watched). */
-  progressFor(videoId: string, userId?: string): VideoProgress | undefined;
-  /**
-   * Remembers where the learner is in a video. Saved to the database, so it follows
-   * them to another device and puts this video first on the dashboard.
-   */
-  savePlayback(videoId: string, positionSeconds: number): void;
-  // transcripts (fetched per video, not part of the bulk load)
-  /** The transcript when it is loaded; undefined while it is not. */
-  transcriptFor(videoId: string): string | undefined;
-  ensureTranscript(videoId: string): Promise<string>;
-  /** One topic with every transcript, for the editor (which saves them back). */
-  loadCourseForEdit(courseId: string): Promise<Course | null>;
-  // idea of the day
-  /** The idea for the signed-in learner's calendar day (YYYY-MM-DD); null = none; undefined = could not load. */
-  getIdeaOfTheDay(day: string): Promise<DailyIdea | null | undefined>;
-  ideaResponseFor(ideaId: string): IdeaResponse | undefined;
-  answerIdea(ideaId: string, optionIndex: number): void;
-  /** Votes per option. */
-  ideaStats(ideaId: string): Promise<number[] | null>;
-  /** Admin: every idea plus how many answered each option. */
-  loadIdeas(): Promise<{ ideas: DailyIdea[]; responses: Record<string, number[]> }>;
-  saveIdeas(ideas: DailyIdea[]): Promise<{ ok: boolean; error?: string }>;
-  deleteIdea(id: string): Promise<{ ok: boolean; error?: string }>;
-  // standing: leaderboard, stamps, profile stats
-  getLeaderboard(period: "all" | "month", role: Role | null, limit?: number): Promise<LeaderboardRow[] | null>;
-  getUserStamps(userId: string): Promise<EarnedStamp[]>;
-  getProfileStats(userId: string): Promise<ProfileStats | null>;
-  /** Days in a row with learning activity for the signed-in learner. */
-  learningStreak(): { current: number; best: number };
-  // other people's profiles, fetched as screens need them
-  ensureProfiles(ids: string[]): Promise<void>;
-  /** A profile by id or @handle; looks it up when it is not loaded. */
-  findProfile(idOrHandle: string): Promise<User | null>;
-  searchProfiles(query: string): Promise<User[]>;
-  isUsernameTaken(handle: string): Promise<boolean>;
-  // per-video discussion, fetched per video
-  loadVideoComments(videoId: string): Promise<void>;
   // assignments
   assignmentUnlocked(assignmentId: string, userId?: string): boolean;
   assignmentResult(
@@ -382,11 +398,18 @@ interface AppContextValue extends AppState {
   ): { attempts: number; passed: boolean; bestScore: number; last?: Submission };
   // attempts: tries-per-question from the interactive checkpoint (1 = first-try correct),
   // used for the topic performance rating. Optional for backward compatibility.
+  /**
+   * Record a finished checkpoint attempt. In real mode, when the questions came
+   * without their answers (the database no longer sends them), the server grades it
+   * from the tries it recorded and writes the submission; `answers` and `attempts`
+   * are then ignored. Otherwise (local demo, or a database without the 2026-11-05
+   * update) it is graded here as before.
+   */
   submitAssignment(
     assignmentId: string,
     answers: Record<string, string>,
     attempts?: Record<string, number>,
-  ): Submission;
+  ): Promise<{ ok: true; submission: Submission } | { ok: false; error: string }>;
   // notes
   notesFor(videoId: string, userId?: string): Note[];
   notesForCourse(courseId: string, userId?: string): Note[];
@@ -413,6 +436,13 @@ interface AppContextValue extends AppState {
   deleteComment(id: string): void;
   toggleCommentLike(id: string): void;
   // per-video discussion (YouTube-style comments under a topic video)
+  /**
+   * Fetch (or refresh) one video's discussion into the store. The bulk load leaves
+   * discussions out; the lesson page calls this for the video it shows.
+   */
+  loadVideoComments(videoId: string): Promise<void>;
+  /** How many discussion comments a person has written; null if it could not be counted. */
+  countVideoComments(userId: string): Promise<number | null>;
   videoCommentsFor(videoId: string): VideoComment[];
   addVideoComment(videoId: string, courseId: string, text: string, parentId?: string | null, mentionIds?: string[]): void;
   editVideoComment(id: string, text: string, mentionIds?: string[]): void;
@@ -469,6 +499,9 @@ interface AppContextValue extends AppState {
   markAnnouncementNotified(id: string, notifiedAt: string | null, notifiedUserIds: string[]): void;
   // admin — FAQ + privacy
   saveFaq(f: Faq): void;
+  // admin — Idea of the day (gated under "content", like the daily tips)
+  saveIdea(idea: DailyIdea): void;
+  deleteIdea(id: string): void;
   deleteFaq(id: string): void;
   savePrivacyPolicy(text: string): void;
   deleteBook(id: string): void;
@@ -495,6 +528,12 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
   // Sign-up extras (age/gender/phone/…) collected before the profile row exists;
   // applied by the hydration effect once Clerk has a session + the row is provisioned.
   const pendingSignup = React.useRef<SignUpData | null>(null);
+  // The latest auth bridge, read when a sign-in/out method actually runs. Clerk
+  // gives the bridge a new identity whenever its own state ticks (a session-token
+  // refresh, the tab regaining focus); with the bridge in the context value's
+  // dependencies, each tick re-rendered every screen of the app for nothing.
+  const authRef = React.useRef(auth);
+  authRef.current = auth;
 
   // Feed the Clerk session-token getter to the Supabase data client so every query
   // carries the user's JWT (for RLS). Set during render so it's in place before the
@@ -527,24 +566,13 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const userId = auth.userId;
     setFresh(false); // a different session: what is in the store is not this user's load yet
 
-    // Snapshots from older versions held every user's profile; remove them.
-    try {
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && OLD_CACHE_PREFIXES.some((p) => k.startsWith(p))) localStorage.removeItem(k);
-      }
-    } catch {
-      /* storage blocked */
-    }
-
     // Instant paint from this user's cached snapshot (stale-while-revalidate), so
     // pages don't sit on a spinner waiting for the full load on every reload.
-    let cached: Partial<AppState> | null = null;
     if (userId) {
       try {
-        const raw = localStorage.getItem(SB_CACHE_PREFIX + userId);
+        const raw = localStorage.getItem(paintCacheKey(userId));
         if (raw) {
-          cached = JSON.parse(raw) as Partial<AppState>;
+          const cached = JSON.parse(raw) as Partial<AppState>;
           setState((s) => ({ ...s, ...cached, currentUserId: userId }));
           setHydrated(true);
         }
@@ -555,57 +583,33 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
 
     let active = true;
     (async () => {
-      // Signed out: the public pages' content is all there is to load.
-      if (!userId) {
-        const pub = await db.loadPublic(sb);
-        if (!active) return;
-        setState((s) => ({
-          ...s,
-          ...NO_PRIVATE_ROWS,
-          ...pub,
-          users: [],
-          pricing: pub.pricing ?? s.pricing,
-          siteContent: pub.siteContent ? { ...DEFAULT_SITE_CONTENT, ...pub.siteContent } : s.siteContent,
-          privacyPolicy: pub.privacyPolicy ?? DEFAULT_PRIVACY_POLICY,
-          currentUserId: null,
-        }));
-        setHydrated(true);
-        setFresh(true);
-        return;
-      }
-
-      // What the last visit knew decides which half to start at once: a learner's
-      // own rows, or the admin screens' data. A wrong guess (a role changed) only
-      // costs one more round trip below.
-      const cachedMe = cached?.users?.find((u) => u.id === userId);
-      const guessAdmin = !!cachedMe?.isAdmin;
-      // First sign-in: provision the profile row keyed by the Clerk user id. A
-      // returning user (in the snapshot) already has one, so the write is skipped.
+      // First sign-in: provision the profile row keyed by the Clerk user id (the
+      // old auth.users → handle_new_user trigger is gone). No-op if it already exists.
+      // Run in parallel with loadAll — ensureProfile is an ignoreDuplicates upsert so
+      // it's safe to race; and loadAll's fetchUser fallback (below) covers the case
+      // where the new row isn't in the initial profiles result yet.
       const ensurePromise =
-        !cachedMe && auth.identity
+        userId && auth.identity
           ? db.ensureProfile(sb, userId, auth.identity.email, auth.identity.name).then(
               ({ error }) => { if (error) console.error("[supabase] ensureProfile", error); },
               (e: unknown) => { console.error("[supabase] ensureProfile", e); },
             )
           : Promise.resolve();
 
-      const ownStart = guessAdmin ? null : db.loadOwn(sb, userId);
-      const adminStart = guessAdmin ? db.loadAdmin(sb) : null;
-      const [pub, shared, firstMe] = await Promise.all([
-        db.loadPublic(sb),
-        db.loadShared(sb, userId),
-        db.fetchUser(sb, userId),
-      ]);
-      let me = firstMe;
-      if (!me) {
-        // A brand-new account: the profile row is being created right now.
-        await ensurePromise;
-        me = await db.fetchUser(sb, userId);
-      }
+      const [data] = await Promise.all([db.loadAll(sb, userId), ensurePromise]);
       if (!active) return;
 
+      // Guarantee the signed-in user is in `users` (loadAll can miss a just-created
+      // row due to RLS/replication lag) — else currentUser is null and guards bounce.
+      let users = data.users;
+      if (userId && !users.some((u) => u.id === userId)) {
+        const me = await db.fetchUser(sb, userId);
+        if (!active) return;
+        if (me) users = [...users, me];
+      }
+
       // Suspended account → sign out and stay logged out.
-      if (me?.banned) {
+      if (userId && users.find((u) => u.id === userId)?.banned) {
         pendingSignup.current = null;
         await auth.signOut();
         if (!active) return;
@@ -614,17 +618,12 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         return;
       }
 
-      const admin = me?.isAdmin ? await (adminStart ?? db.loadAdmin(sb)) : null;
-      const own = admin ? null : await (ownStart ?? db.loadOwn(sb, userId));
-      if (!active) return;
-
       // Apply any pending sign-up extras now that the row exists + token is active.
       const pending = pendingSignup.current;
-      if (me && pending) {
+      if (userId && pending) {
         pendingSignup.current = null;
-        const base = baseUsername(pending.name, pending.email);
-        const taken = await db.takenUsernames(sb, base).catch(() => new Set<string>());
-        const username = uniqueUsername(base, taken);
+        const taken = new Set(users.map((u) => u.username).filter(Boolean) as string[]);
+        const username = uniqueUsername(baseUsername(pending.name, pending.email), taken);
         const patch = {
           name: pending.name,
           username,
@@ -637,50 +636,31 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           region: pending.region ?? null,
         };
         Promise.resolve(db.updateProfile(sb, userId, patch)).catch((e) => console.error("[supabase]", e));
-        me = {
-          ...me,
-          name: pending.name,
-          username,
-          age: pending.age,
-          gender: pending.gender,
-          phone: pending.phone,
-          phoneVerified: pending.phoneVerified ?? false,
-          company: pending.company,
-          nationality: pending.nationality,
-          region: pending.region,
-        };
-        if (!active) return;
+        users = users.map((u) =>
+          u.id === userId
+            ? {
+                ...u,
+                name: pending.name,
+                username,
+                age: pending.age,
+                gender: pending.gender,
+                phone: pending.phone,
+                phoneVerified: pending.phoneVerified ?? false,
+                company: pending.company,
+                nationality: pending.nationality,
+                region: pending.region,
+              }
+            : u,
+        );
       }
-
-      // Admins get everyone (the admin screens list and count learners); a learner's
-      // store holds their own full profile, plus public profiles fetched as needed.
-      const users = admin
-        ? me
-          ? [...admin.users.filter((u) => u.id !== me!.id), me]
-          : admin.users
-        : me
-          ? [me]
-          : [];
 
       setState((s) => ({
         ...s,
-        ...NO_PRIVATE_ROWS,
-        ...pub,
-        ...shared,
-        ...(admin
-          ? {
-              enrollments: admin.enrollments,
-              progress: admin.progress,
-              submissions: admin.submissions,
-              payments: admin.payments,
-              coupons: admin.coupons,
-              ideas: admin.ideas,
-            }
-          : { ...own!, ideas: [] }),
+        ...data,
         users,
-        pricing: pub.pricing ?? s.pricing,
-        siteContent: pub.siteContent ? { ...DEFAULT_SITE_CONTENT, ...pub.siteContent } : s.siteContent,
-        privacyPolicy: pub.privacyPolicy ?? DEFAULT_PRIVACY_POLICY,
+        pricing: data.pricing ?? s.pricing,
+        siteContent: data.siteContent ? { ...DEFAULT_SITE_CONTENT, ...data.siteContent } : s.siteContent,
+        privacyPolicy: data.privacyPolicy ?? DEFAULT_PRIVACY_POLICY,
         currentUserId: userId,
       }));
       setHydrated(true);
@@ -695,60 +675,60 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
 
   // ── Persist to localStorage, DEBOUNCED (mock mode only) ──
   // Serializing the whole app state on every state change is wasteful; debounce so a
-  // burst of changes (or a background poll) writes at most once per ~500ms.
+  // burst of changes (or a background poll) writes at most once per ~500ms, and do
+  // it when the browser is idle so the serialization never lands mid-interaction.
   React.useEffect(() => {
     if (!hydrated || realMode) return;
-    const id = setTimeout(() => {
+    return afterIdle(500, () => {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       } catch {
         /* ignore quota errors */
       }
-    }, 500);
-    return () => clearTimeout(id);
+    });
   }, [state, hydrated]);
 
   // ── Cache the per-user snapshot (Supabase mode) for instant reloads — DEBOUNCED + slimmed ──
+  // Stringifying the store is synchronous and grows with the data; on a phone it
+  // could stall a tap or a keystroke, so it waits for an idle moment as well.
   React.useEffect(() => {
     if (!hydrated || !realMode || !state.currentUserId) return;
-    // Serialising the store blocks the page for a moment, so it waits for a quiet
-    // second (a burst of changes writes once) and then for the browser to be idle.
-    const id = setTimeout(() => {
-      const write = () => {
+    const key = paintCacheKey(state.currentUserId);
+    return afterIdle(500, () => {
+      try {
+        localStorage.setItem(key, JSON.stringify(cacheSnapshot(state)));
+      } catch {
+        // Over quota: drop stale snapshots (older versions, other accounts) and retry once.
+        clearPaintCaches(key);
         try {
-          localStorage.setItem(SB_CACHE_PREFIX + state.currentUserId, JSON.stringify(cacheSnapshot(state)));
+          localStorage.setItem(key, JSON.stringify(cacheSnapshot(state)));
         } catch {
-          /* ignore quota errors — falls back to a full load next time */
+          /* still too big — falls back to a full load next time */
         }
-      };
-      const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
-      if (idle) idle(write, { timeout: 3000 });
-      else write();
-    }, 1000);
-    return () => clearTimeout(id);
+      }
+    });
   }, [state, hydrated]);
 
-  // ── Ensure the signed-in user has a unique @username (tagging resolves by handle).
-  // Covers OAuth signups and profiles created before usernames existed. Which
-  // handles are taken is asked of the database (only the learner's own profile is
-  // loaded), once per account per page load.
-  const handleFor = React.useRef<string | null>(null);
+  // Older snapshot versions and other accounts' snapshots only take up quota.
   React.useEffect(() => {
-    if (!fresh) return;
+    if (realMode && hydrated && state.currentUserId) clearPaintCaches(paintCacheKey(state.currentUserId));
+  }, [hydrated, state.currentUserId]);
+
+  // ── Ensure the signed-in user has a unique @username (tagging resolves by handle).
+  // Covers OAuth signups and profiles created before usernames existed.
+  React.useEffect(() => {
+    if (!hydrated) return;
     const u = state.users.find((x) => x.id === state.currentUserId);
-    if (!u || u.username || handleFor.current === u.id) return;
-    handleFor.current = u.id;
-    const base = baseUsername(u.name, u.email);
-    const sb = realMode ? getSupabase() : null;
-    (async () => {
-      const taken = sb
-        ? await db.takenUsernames(sb, base).catch(() => new Set<string>())
-        : new Set(state.users.map((x) => (x.username ?? "").toLowerCase()).filter(Boolean));
-      const username = uniqueUsername(base, taken);
-      setState((s) => ({ ...s, users: s.users.map((x) => (x.id === u.id ? { ...x, username } : x)) }));
-      if (sb) Promise.resolve(db.updateProfile(sb, u.id, { username })).then(undefined, (e) => console.error("[supabase]", e));
-    })();
-  }, [fresh, state.currentUserId, state.users]);
+    if (!u || u.username) return;
+    const taken = new Set(state.users.map((x) => x.username).filter(Boolean) as string[]);
+    const username = uniqueUsername(baseUsername(u.name, u.email), taken);
+    setState((s) => ({
+      ...s,
+      users: s.users.map((x) => (x.id === u.id ? { ...x, username } : x)),
+    }));
+    const sb = getSupabase();
+    if (sb) Promise.resolve(db.updateProfile(sb, u.id, { username })).then(undefined, (e) => console.error("[supabase]", e));
+  }, [hydrated, state.currentUserId, state.users]);
 
   // ── Notification polling (real mode): replies/@mentions reach the bell
   // without a full reload — refresh every 60s and whenever the tab regains focus.
@@ -759,10 +739,20 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const uid = state.currentUserId;
     let active = true;
     const refresh = async () => {
+      // A tab in the background has no bell to show: skip it, and let the focus
+      // handler catch up on return. Every open tab of every learner used to query
+      // the database once a minute, all day.
+      if (document.hidden) return;
       try {
         const mine = await db.fetchNotifications(sb, uid);
-        if (!active) return;
-        setState((s) => (s.currentUserId === uid ? { ...s, notifications: mine } : s));
+        // null = the request failed: keep what the bell shows rather than empty it.
+        if (!active || !mine) return;
+        // Unchanged (the usual case) → keep the same state object, so React skips
+        // the re-render. Replacing it re-rendered every screen and re-saved the
+        // whole snapshot each minute and on each tab focus.
+        setState((s) =>
+          s.currentUserId !== uid || sameNotifications(s.notifications, mine) ? s : { ...s, notifications: mine },
+        );
       } catch {
         /* transient network error — next tick will retry */
       }
@@ -777,62 +767,143 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     };
   }, [hydrated, state.currentUserId]);
 
-  // ── Lookup indexes, rebuilt only when their source rows change ──
-  // Every check below used to scan whole arrays: isVideoCompleted searched all
-  // progress rows, and the admin overview calls courseProgress() for each
-  // enrollment, so it did (enrollments × videos × progress rows) comparisons —
-  // fine for a demo, minutes of frozen page with a real cohort. These maps make
-  // each check a constant-time lookup.
-  const courseIndex = React.useMemo(() => {
-    const byId = new Map<string, Course>();
-    const bySlug = new Map<string, Course>();
-    const video = new Map<string, { course: Course; video: Video }>();
-    const assignment = new Map<string, { course: Course; assignment: Assignment }>();
-    for (const c of state.courses) {
-      byId.set(c.id, c);
-      bySlug.set(c.slug, c);
-      for (const v of c.videos) video.set(v.id, { course: c, video: v });
-      for (const a of c.assignments) assignment.set(a.id, { course: c, assignment: a });
-    }
-    return { byId, bySlug, video, assignment };
-  }, [state.courses]);
-  const userIndex = React.useMemo(() => new Map(state.users.map((u) => [u.id, u])), [state.users]);
-  const enrolledIndex = React.useMemo(() => new Set(state.enrollments.map((e) => `${e.userId}|${e.courseId}`)), [state.enrollments]);
-  const progressIndex = React.useMemo(() => new Map(state.progress.map((p) => [`${p.userId}|${p.videoId}`, p])), [state.progress]);
-  const submissionIndex = React.useMemo(() => {
-    const m = new Map<string, Submission[]>();
-    for (const sub of state.submissions) {
-      const k = `${sub.userId}|${sub.assignmentId}`;
-      const list = m.get(k);
-      if (list) list.push(sub);
-      else m.set(k, [sub]);
-    }
-    for (const list of m.values()) list.sort((a, b) => a.attemptNumber - b.attemptNumber);
-    return m;
-  }, [state.submissions]);
+  // ── Live topic updates (real mode, signed in) ──
+  // Pages read topics from this store, which is loaded once per visit, so a topic
+  // the owner publishes did not reach a learner's open tab until they reloaded.
+  // `courses` is in the supabase_realtime publication. A change to a topic this tab
+  // has applies the row's live fields (published, approval, featured, price,
+  // ratings, counts) in place, with no read: the rating trigger updates a topic's
+  // row on every rating, and re-reading the catalogue each time would make every
+  // open tab download all of it whenever anyone rated anything. Only a topic this
+  // tab has never seen is read, on its own. Visitors are not subscribed: the public
+  // pages do not need it, and each subscription holds a Realtime connection.
+  const liveRef = React.useRef<{ courses: Course[]; admin: boolean }>({ courses: [], admin: false });
+  React.useEffect(() => {
+    if (!hydrated || !realMode || !state.currentUserId) return;
+    const sb = getSupabase();
+    if (!sb) return;
+    let active = true;
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    // A new topic is saved row by row (the topic, then its sessions and checkpoints),
+    // so read it once the writes have settled, and add it only if this tab still
+    // has not got it (an admin's own save adds it first). Admin tabs never take a
+    // tree from here: the topic editor saves the tree it holds, and a tree read
+    // halfway through someone's save would be missing questions.
+    const readNew = (id: string) => {
+      clearTimeout(timers.get(id));
+      timers.set(
+        id,
+        setTimeout(() => {
+          timers.delete(id);
+          db.fetchCourse(sb, id).then(
+            (course) => {
+              if (!active || !course) return;
+              setState((s) => (s.courses.some((c) => c.id === id) ? s : { ...s, courses: [course, ...s.courses] }));
+            },
+            (e) => console.error("[supabase] live topic", e),
+          );
+        }, 3000),
+      );
+    };
+
+    const onChange = (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => {
+      if (payload.eventType === "DELETE") {
+        const id = payload.old?.id;
+        if (typeof id !== "string") return;
+        clearTimeout(timers.get(id));
+        setState((s) => (s.courses.some((c) => c.id === id) ? { ...s, courses: s.courses.filter((c) => c.id !== id) } : s));
+        return;
+      }
+      const row = payload.new ?? {};
+      const id = row.id;
+      if (typeof id !== "string") return;
+      if (!liveRef.current.courses.some((c) => c.id === id)) {
+        if (!liveRef.current.admin) readNew(id);
+        return;
+      }
+      const live = db.liveCourseFields(row);
+      const keys = Object.keys(live) as (keyof typeof live)[];
+      setState((s) => {
+        let changed = false;
+        const courses = s.courses.map((c) => {
+          if (c.id !== id || keys.every((k) => c[k] === live[k])) return c;
+          changed = true;
+          return { ...c, ...live };
+        });
+        return changed ? { ...s, courses } : s;
+      });
+    };
+
+    const channel = sb
+      .channel("courses-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courses" }, onChange)
+      .subscribe();
+    return () => {
+      active = false;
+      timers.forEach(clearTimeout);
+      void sb.removeChannel(channel);
+    };
+  }, [hydrated, state.currentUserId]);
+
+  // Lookup indexes (see the note above `pair`). Separate memos, so a change to one
+  // list (a new notification, a like) does not rebuild the indexes of the others.
+  const courseIdx = React.useMemo(() => indexCourses(state.courses), [state.courses]);
+  const userById = React.useMemo(() => firstBy(state.users, (u) => u.id), [state.users]);
+  liveRef.current = {
+    courses: state.courses,
+    admin: !!(state.currentUserId && userById.get(state.currentUserId)?.isAdmin),
+  };
+  const completedVideos = React.useMemo(() => {
+    const done = new Set<string>();
+    for (const p of state.progress) if (p.completed) done.add(pair(p.userId, p.videoId));
+    return done;
+  }, [state.progress]);
+  const enrolledPairs = React.useMemo(
+    () => new Set(state.enrollments.map((e) => pair(e.userId, e.courseId))),
+    [state.enrollments],
+  );
+  const submissionsByPair = React.useMemo(
+    () => groupSorted(state.submissions, (s) => pair(s.userId, s.assignmentId), (a, b) => a.attemptNumber - b.attemptNumber),
+    [state.submissions],
+  );
+  const ratingByPair = React.useMemo(
+    () => firstBy(state.courseRatings, (r) => pair(r.userId, r.courseId)),
+    [state.courseRatings],
+  );
+  // A learner's progress rows by topic, and by video (one row per user + video).
+  const progressByCourse = React.useMemo(
+    () => groupSorted(state.progress, (p) => pair(p.userId, p.courseId), () => 0),
+    [state.progress],
+  );
+  const progressRow = React.useMemo(() => firstBy(state.progress, (p) => pair(p.userId, p.videoId)), [state.progress]);
+  const commentsByVideo = React.useMemo(
+    () => groupSorted(state.videoComments, (c) => c.videoId, (a, b) => (a.createdAt < b.createdAt ? -1 : 1)),
+    [state.videoComments],
+  );
 
   const value = React.useMemo<AppContextValue>(() => {
     // The local demo (no Clerk) keeps everything in localStorage. It has no session,
     // so the database would refuse every write anyway; sending them only made a local
     // run fire rejected requests at the real project.
     const sb = realMode ? getSupabase() : null;
-    const currentUser = (state.currentUserId && userIndex.get(state.currentUserId)) || null;
+    const currentUser = (state.currentUserId && userById.get(state.currentUserId)) || null;
     const who = (userId?: string) => userId ?? state.currentUserId ?? "";
-    const userOf = (userId?: string) => userIndex.get(who(userId));
+    const userFor = (userId?: string) => userById.get(who(userId));
 
     // ── helpers ──
-    const getCourse = (id: string) => courseIndex.byId.get(id);
-    const getCourseBySlug = (slug: string) => courseIndex.bySlug.get(slug);
-    const getVideoById = (id: string) => courseIndex.video.get(id);
+    const getCourse = (id: string) => courseIdx.byId.get(id);
+    const getCourseBySlug = (slug: string) => courseIdx.bySlug.get(slug);
+    const getVideoById = (id: string) => courseIdx.video.get(id);
 
-    const isEnrolled = (courseId: string, userId?: string) => enrolledIndex.has(`${who(userId)}|${courseId}`);
+    const isEnrolled = (courseId: string, userId?: string) => enrolledPairs.has(pair(who(userId), courseId));
 
     // Entitlement to a course, IGNORING time-expiry (owns it / all-access / category pass / free).
     const hasGrant = (courseId: string, userId?: string) => {
       const course = getCourse(courseId);
       if (!course) return false;
       if (course.price === 0) return true;
-      const u = userOf(userId);
+      const u = userFor(userId);
       if (!u) return false;
       if (u.subscriptionPlan === "all_access") return true;
       if (courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c))) return true; // category pass
@@ -845,7 +916,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       const course = getCourse(courseId);
       if (!course) return false;
       if (course.price === 0) return true;
-      const u = userOf(userId);
+      const u = userFor(userId);
       if (!u) return false;
       if (u.subscriptionPlan === "all_access") return true;
       return courseCategories(course).some((c) => (u.ownedCategories ?? []).includes(c));
@@ -854,18 +925,42 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     // When this user's access to the topic lapses = the LATEST one-year window
     // across every entitlement that grants it (à-la-carte purchase, catalog pass,
     // all-access). null = never expires (free topic / undated legacy entitlement).
-    const courseExpiresAt = (courseId: string, userId?: string) => courseAccessExpiry(userOf(userId), getCourse(courseId));
-    const courseExpired = (courseId: string, userId?: string) => isCourseAccessExpired(userOf(userId), getCourse(courseId));
+    const courseExpiresAt = (courseId: string, userId?: string) =>
+      courseAccessExpiry(userFor(userId), getCourse(courseId));
+    const courseExpired = (courseId: string, userId?: string) =>
+      isCourseAccessExpired(userFor(userId), getCourse(courseId));
 
     // Access = a valid entitlement AND the per-course timer hasn't lapsed (applies to everyone).
     const hasAccess = (courseId: string, userId?: string) =>
       hasGrant(courseId, userId) && !courseExpired(courseId, userId);
 
-    const progressFor = (videoId: string, userId?: string) => progressIndex.get(`${who(userId)}|${videoId}`);
-    const isVideoCompleted = (videoId: string, userId?: string) => !!progressFor(videoId, userId)?.completed;
+    const isVideoCompleted = (videoId: string, userId?: string) => completedVideos.has(pair(who(userId), videoId));
+
+    const watchPosition = (videoId: string, userId?: string) => {
+      const row = progressRow.get(pair(who(userId), videoId));
+      return row && row.positionSeconds != null ? { seconds: row.positionSeconds, at: ms(row.lastWatchedAt) } : null;
+    };
+    const lastActivityAt = (courseId: string, userId?: string) => {
+      let latest = 0;
+      for (const p of progressByCourse.get(pair(who(userId), courseId)) ?? NO_PROGRESS)
+        latest = Math.max(latest, ms(p.lastWatchedAt), ms(p.completedAt));
+      return latest;
+    };
+    const lastWatchedVideo = (courseId: string, userId?: string) => {
+      let best: { videoId: string; seconds: number; at: number } | null = null;
+      for (const p of progressByCourse.get(pair(who(userId), courseId)) ?? NO_PROGRESS) {
+        const at = ms(p.lastWatchedAt);
+        if (at && (!best || at > best.at)) best = { videoId: p.videoId, seconds: p.positionSeconds ?? 0, at };
+      }
+      return best;
+    };
+
+    /** This user's attempts at one checkpoint, oldest first. Shared: never mutate it. */
+    const submissionsFor = (assignmentId: string, userId?: string) =>
+      submissionsByPair.get(pair(who(userId), assignmentId)) ?? NO_SUBMISSIONS;
 
     const assignmentResult = (assignmentId: string, userId?: string) => {
-      const subs = submissionIndex.get(`${who(userId)}|${assignmentId}`) ?? [];
+      const subs = submissionsFor(assignmentId, userId);
       const passed = subs.some((s) => s.passed);
       const bestScore = subs.reduce((m, s) => Math.max(m, s.score), 0);
       return { attempts: subs.length, passed, bestScore, last: subs[subs.length - 1] };
@@ -888,13 +983,14 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
     const courseProgress = (courseId: string, userId?: string) => {
       const course = getCourse(courseId);
       const total = course?.videos.length ?? 0;
-      let completed = 0;
-      if (course) for (const v of course.videos) if (isVideoCompleted(v.id, userId)) completed++;
+      const completed = course
+        ? course.videos.filter((v) => isVideoCompleted(v.id, userId)).length
+        : 0;
       return { completed, total, pct: total ? Math.round((completed / total) * 100) : 0 };
     };
 
     const assignmentUnlocked = (assignmentId: string, userId?: string) => {
-      const found = courseIndex.assignment.get(assignmentId);
+      const found = courseIdx.assignment.get(assignmentId);
       if (!found) return false;
       const gateVideo = found.course.videos.find((v) => v.order === found.assignment.afterVideoOrder);
       return gateVideo ? isVideoCompleted(gateVideo.id, userId) : false;
@@ -922,59 +1018,6 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       }, failed);
     };
 
-    /** fire(), then `after` once the database has accepted the write. */
-    const fireThen = (p: PromiseLike<unknown>, after?: () => void) => {
-      Promise.resolve(p).then(
-        (r) => {
-          const error = (r as { error?: unknown } | null | undefined)?.error;
-          if (error) {
-            console.error("[supabase] write failed", error);
-            setSaveError(SAVE_ERROR);
-          } else after?.();
-        },
-        (e) => {
-          console.error("[supabase] write failed", e);
-          setSaveError(SAVE_ERROR);
-        },
-      );
-    };
-
-    /**
-     * Reads the credits, credit history and stamps the database worked out after a
-     * learner finished something, so the screen shows its numbers (and the date a
-     * stamp was earned) rather than only the local estimate.
-     */
-    const refreshStanding = () => {
-      const uidNow = state.currentUserId;
-      if (!sb || !uidNow) return;
-      db.fetchStanding(sb, uidNow).then(
-        ({ creditEvents, stamps, credits }) =>
-          setState((s) =>
-            s.currentUserId !== uidNow
-              ? s
-              : {
-                  ...s,
-                  creditEvents,
-                  stamps,
-                  users: credits
-                    ? s.users.map((u) =>
-                        u.id === uidNow
-                          ? {
-                              ...u,
-                              // The database's number can be behind only when its migration has
-                              // not run (then this browser's is the one that counts).
-                              learningCredits: Math.max(credits.learning, creditEvents.length ? 0 : u.learningCredits),
-                              topicCredits: creditEvents.length ? credits.topics : u.topicCredits,
-                            }
-                          : u,
-                      )
-                    : s.users,
-                },
-          ),
-        (e) => console.error("[supabase] standing", e),
-      );
-    };
-
     // Owner-only user mutations (grant/revoke/ban/delete) go through a service-role
     // route: profiles.is_admin/permissions/banned are pinned by the DB trigger for
     // browser writes, so a direct client update silently no-ops. See app/api/admin/users.
@@ -998,6 +1041,53 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       }
     };
 
+    // Credits are banked by the server (learners may no longer write them): apply what
+    // it reports to this user's row, so the dashboard shows it straight away.
+    const applyCredits = (userId: string, credits: Credits | null) => {
+      if (!credits) return;
+      patchUser(userId, (u) =>
+        u.learningCredits === credits.learningCredits && JSON.stringify(u.topicCredits ?? {}) === JSON.stringify(credits.topicCredits)
+          ? u
+          : { ...u, learningCredits: credits.learningCredits, topicCredits: credits.topicCredits },
+      );
+    };
+
+    // The owner's publish, approval and featuring switches go through a service-role
+    // route (app/api/admin/courses). A browser write that RLS filters out matches no
+    // rows and still reports success, so the switch flipped, nothing was saved, and
+    // learners kept the old state. Shown on screen first; if the server refuses, the
+    // topic is put back (unless it has been switched again since) and the reason shown.
+    type CourseFlags = Pick<Course, "published" | "pendingApproval" | "trending">;
+    const adminCourseAction = (
+      course: Course,
+      action: "approve" | "reject" | "publish" | "unpublish" | "feature" | "unfeature",
+      after: Partial<CourseFlags>,
+    ) => {
+      const before: CourseFlags = { published: course.published, pendingApproval: course.pendingApproval, trending: course.trending };
+      void (async () => {
+        let error = "The change couldn't be saved.";
+        try {
+          const res = await fetch("/api/admin/courses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action, courseId: course.id }),
+          });
+          if (res.ok) return;
+          const data = await res.json().catch(() => ({}));
+          if (typeof data.error === "string" && data.error) error = data.error;
+        } catch {
+          error = "Network error: the change couldn't be saved.";
+        }
+        console.error("[admin/courses]", action, error);
+        const still = (x: Course) => (Object.keys(after) as (keyof CourseFlags)[]).every((k) => x[k] === after[k]);
+        setState((s) => ({
+          ...s,
+          courses: s.courses.map((x) => (x.id === course.id && still(x) ? { ...x, ...before } : x)),
+        }));
+        setSaveError(`${error} “${course.title}” is back as it was.`);
+      })();
+    };
+
     return {
       ...state,
       hydrated,
@@ -1010,7 +1100,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       // ── auth (Clerk in real mode; in-state demo accounts in mock mode) ──
       async signIn(email, password) {
         if (realMode) {
-          const r = await auth.signInWithPassword(email, password ?? "");
+          const r = await authRef.current.signInWithPassword(email, password ?? "");
           if (!r.ok) return { ok: false, error: r.error };
           // Clerk's session is now active; the hydration effect loads this user's
           // data. Show the loader until then so guards don't see a null user.
@@ -1028,7 +1118,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           // Stash the profile extras; the hydration effect persists them once Clerk
           // has a session and the profile row is provisioned.
           pendingSignup.current = data;
-          const r = await auth.signUp(data.email, data.password ?? "", data.name);
+          const r = await authRef.current.signUp(data.email, data.password ?? "", data.name);
           if (!r.ok) {
             pendingSignup.current = null;
             return { ok: false, error: r.error };
@@ -1070,7 +1160,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
       async verifyEmailCode(code) {
         if (!realMode) return { ok: true };
-        const r = await auth.verifyEmailCode(code);
+        const r = await authRef.current.verifyEmailCode(code);
         if (!r.ok) return { ok: false, error: r.error };
         // Session is active now; show the loader until the hydration effect provisions
         // the profile, applies the stashed sign-up extras, and loads the user.
@@ -1079,14 +1169,14 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
       async resendEmailCode() {
         if (!realMode) return { ok: true };
-        return auth.resendEmailCode();
+        return authRef.current.resendEmailCode();
       },
       async adminSignIn(email, password) {
         if (realMode) {
           // No separate admin password in Clerk mode — admin is the profiles.is_admin
           // flag. Sign in via Clerk; AdminShell admits the user iff their loaded
           // profile is an admin, else bounces back to /admin/login.
-          const r = await auth.signInWithPassword(email, password);
+          const r = await authRef.current.signInWithPassword(email, password);
           if (!r.ok) return { ok: false, error: r.error };
           setHydrated(false);
           return { ok: true };
@@ -1098,10 +1188,10 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       async oauthSignIn(provider) {
         if (!realMode) return { ok: false, error: "Sign-in is not configured." };
         // Clerk redirects the browser to the provider; control returns via /sso-callback.
-        return auth.signInOAuth(provider);
+        return authRef.current.signInOAuth(provider);
       },
       async requestPasswordReset(email) {
-        if (realMode) return auth.requestPasswordReset(email);
+        if (realMode) return authRef.current.requestPasswordReset(email);
         // Mock mode: just confirm the account exists — no email is actually sent.
         const u = state.users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
         if (!u) return { ok: false, error: "No account found for that email." };
@@ -1109,7 +1199,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
       async resetPassword(code, newPassword) {
         if (realMode) {
-          const r = await auth.resetPassword(code, newPassword);
+          const r = await authRef.current.resetPassword(code, newPassword);
           if (!r.ok) return { ok: false, error: r.error };
           // Clerk activated the new session; show the loader until the profile loads.
           setHydrated(false);
@@ -1124,7 +1214,7 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           // Clerk clears the session and redirects to "/" (afterSignOutUrl). Don't
           // pre-null currentUserId in real mode — that makes AdminShell's "not an admin"
           // effect fire and bounce to /admin/login, racing the sign-out redirect.
-          await auth.signOut();
+          await authRef.current.signOut();
           return;
         }
         setState((s) => ({ ...s, currentUserId: null }));
@@ -1261,21 +1351,49 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       isVideoCompleted,
       isVideoUnlocked,
       courseProgress,
+      watchPosition,
+      lastActivityAt,
+      lastWatchedVideo,
+      recordWatch(videoId, positionSeconds) {
+        if (!currentUser) return;
+        const found = getVideoById(videoId);
+        if (!found) return;
+        const userId = currentUser.id;
+        const courseId = found.course.id;
+        const at = new Date().toISOString();
+        const seconds = Math.max(0, Math.floor(positionSeconds));
+        setState((s) => {
+          const i = s.progress.findIndex((p) => p.userId === userId && p.videoId === videoId);
+          const progress =
+            i >= 0
+              ? s.progress.map((p, j) => (j === i ? { ...p, positionSeconds: seconds, lastWatchedAt: at } : p))
+              : [...s.progress, { userId, videoId, courseId, completed: false, watchSeconds: 0, completedAt: null, positionSeconds: seconds, lastWatchedAt: at }];
+          return { ...s, progress };
+        });
+        if (sb) void db.saveWatchPosition(sb, { userId, videoId, courseId, positionSeconds: seconds, at });
+      },
+      async fetchLeaderboard(role) {
+        if (sb) {
+          const rows = await db.fetchLeaderboard(sb, role, 5);
+          if (rows) return rows;
+        }
+        return localLeaderboard(state.users, role, state.currentUserId, 5);
+      },
       markVideoComplete(videoId) {
         if (!currentUser) return;
         const user = currentUser;
         const found = getVideoById(videoId);
         const dur = found?.video.durationSeconds ?? 0;
         const courseId = found?.course.id ?? "";
-        // Mark this video complete on top of an arbitrary progress list. The resume
-        // point goes back to the start, as in the database (completeVideo).
+        const now = new Date().toISOString();
+        // Mark this video complete on top of an arbitrary progress list. A finished
+        // video's resume point goes back to the start, so opening it again replays it.
         const withVideoDone = (base: VideoProgress[]): VideoProgress[] => {
-          const now = new Date().toISOString();
           const existing = base.find((p) => p.userId === user.id && p.videoId === videoId);
           return existing
             ? base.map((p) =>
                 p === existing
-                  ? { ...p, completed: true, watchSeconds: dur, completedAt: p.completedAt ?? now, positionSeconds: 0, lastWatchedAt: now }
+                  ? { ...p, completed: true, watchSeconds: dur, completedAt: now, positionSeconds: 0, lastWatchedAt: now }
                   : p,
               )
             : [
@@ -1283,56 +1401,48 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
                 { userId: user.id, videoId, courseId, completed: true, watchSeconds: dur, completedAt: now, positionSeconds: 0, lastWatchedAt: now },
               ];
         };
-        const already = isVideoCompleted(videoId);
-        setState((s) => withProgressCredit(s, user.id, courseId, withVideoDone(s.progress), s.submissions, s.ideaResponses));
-        if (sb) {
-          // The database works the credit and stamps out itself (sync_topic_credit,
-          // award_stamps) as part of this write; read its numbers back afterwards.
-          fireThen(db.completeVideo(sb, { userId: user.id, videoId, courseId, watchSeconds: dur }), already ? undefined : refreshStanding);
-          const { patch } = applyTopicCredit(state.users, state.courses, courseId, user.id, state.submissions, withVideoDone(state.progress));
-          // Only for a database that has not run the 2026-11-08 migration; after it,
-          // credits are pinned and this write changes nothing.
-          if (patch) fire(db.updateProfile(sb, user.id, patch), true);
-        }
-      },
-      progressFor,
-      savePlayback(videoId, positionSeconds) {
-        if (!currentUser) return;
-        const user = currentUser;
-        const found = getVideoById(videoId);
-        if (!found) return;
-        const position = Math.max(0, Math.floor(positionSeconds));
-        const at = new Date().toISOString();
         setState((s) => {
-          const existing = s.progress.find((p) => p.userId === user.id && p.videoId === videoId);
-          const progress = existing
-            ? s.progress.map((p) => (p === existing ? { ...p, positionSeconds: position, lastWatchedAt: at } : p))
-            : [
-                ...s.progress,
-                { userId: user.id, videoId, courseId: found.course.id, completed: false, watchSeconds: 0, positionSeconds: position, lastWatchedAt: at },
-              ];
-          return { ...s, progress };
+          const progress = withVideoDone(s.progress);
+          // Completing the last video can finalize the topic → (re)compute its credit.
+          const { users } = applyTopicCredit(s.users, s.courses, courseId, user.id, s.submissions, progress);
+          return { ...s, progress, users };
         });
-        // Quiet: a missed position save is not worth a warning; the next one (or this
-        // browser's own copy) covers it.
-        if (sb) fire(db.savePlayback(sb, { userId: user.id, videoId, courseId: found.course.id, positionSeconds: position, at }), true);
+        if (sb) {
+          const done = db.completeVideo(sb, { userId: user.id, videoId, courseId, watchSeconds: dur });
+          fire(done);
+          // Separate and best-effort: before the resume columns exist this is refused,
+          // and that must never cost the completion itself.
+          void db.saveWatchPosition(sb, { userId: user.id, videoId, courseId, positionSeconds: 0, at: now });
+          // The last video can finish the topic. The server banks its credit from what
+          // is stored, so ask once the completion has landed (only if it could matter).
+          const { patch } = applyTopicCredit(state.users, state.courses, courseId, user.id, state.submissions, withVideoDone(state.progress));
+          if (patch)
+            void Promise.resolve(done).then((r) => {
+              if (!(r as { error?: unknown } | null)?.error) void refreshCredits(courseId).then((c) => applyCredits(user.id, c));
+            });
+        }
       },
 
       // ── assignments ──
       assignmentUnlocked,
       assignmentResult,
-      submitAssignment(assignmentId, answers, attempts) {
-        let assignment: Assignment | undefined;
-        let courseId = "";
-        for (const c of state.courses) {
-          const a = c.assignments.find((x) => x.id === assignmentId);
-          if (a) {
-            assignment = a;
-            courseId = c.id;
-            break;
-          }
-        }
+      async submitAssignment(assignmentId, answers, attempts) {
+        const found = courseIdx.assignment.get(assignmentId);
+        const assignment: Assignment | undefined = found?.assignment;
+        const courseId = found?.course.id ?? "";
         const userId = state.currentUserId ?? "";
+
+        // Graded on the server: this copy of the questions has no answers to grade with
+        // (only real mode hides them; the local demo always has its own answers).
+        if (assignment?.questions.some((q) => q.hidden)) {
+          const r = await submitCheckpoint(assignmentId);
+          if (!r.ok) return { ok: false, error: r.error };
+          const submission = r.value.submission;
+          setState((s) => ({ ...s, submissions: [...s.submissions.filter((x) => x.id !== submission.id), submission] }));
+          applyCredits(userId, r.value.credits);
+          return { ok: true, submission };
+        }
+
         const prior = assignmentResult(assignmentId);
         const feedback = (assignment?.questions ?? []).map((q) => {
           const given = (answers[q.id] ?? "").trim().toLowerCase();
@@ -1363,16 +1473,22 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
           attemptNumber: prior.attempts + 1,
           submittedAt: new Date().toISOString(),
         };
-        // Every checkpoint attempt can raise the topic's credit (best result kept).
-        setState((s) => withProgressCredit(s, userId, courseId, s.progress, [...s.submissions, submission], s.ideaResponses));
+        setState((s) => {
+          const newSubs = [...s.submissions, submission];
+          // Answering a checkpoint can finalize the topic → (re)compute its credit (best kept).
+          const { users } = applyTopicCredit(s.users, s.courses, courseId, userId, newSubs, s.progress);
+          return { ...s, submissions: newSubs, users };
+        });
         if (sb) {
-          // The database recalculates the credit and stamps in the same write.
-          fireThen(db.insertSubmission(sb, submission), refreshStanding);
-          const { patch } = applyTopicCredit(state.users, state.courses, courseId, userId, [...state.submissions, submission], state.progress);
-          // Only matters on a database without the 2026-11-08 migration (credits pinned after it).
-          if (patch) fire(db.updateProfile(sb, userId, patch), true);
+          // A database without the 2026-11-05 update still takes the learner's own
+          // submission; the server then banks the credit from it.
+          const inserted = db.insertSubmission(sb, submission);
+          fire(inserted);
+          void Promise.resolve(inserted).then((r) => {
+            if (!(r as { error?: unknown } | null)?.error) void refreshCredits(courseId).then((c) => applyCredits(userId, c));
+          });
         }
-        return submission;
+        return { ok: true, submission };
       },
 
       // ── notes ──
@@ -1392,21 +1508,17 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       myRatingFor(courseId, userId) {
         const uidNow = userId ?? currentUser?.id;
         if (!uidNow) return undefined;
-        return state.courseRatings.find((r) => r.courseId === courseId && r.userId === uidNow);
+        return ratingByPair.get(pair(uidNow, courseId));
       },
       isCourseComplete(courseId, userId) {
         const uidNow = userId ?? currentUser?.id;
         if (!uidNow) return false;
-        const course = state.courses.find((c) => c.id === courseId);
+        const course = getCourse(courseId);
         if (!course || !course.videos.length) return false;
-        const allVideos = course.videos.every((v) =>
-          state.progress.some((p) => p.userId === uidNow && p.videoId === v.id && p.completed),
-        );
+        const allVideos = course.videos.every((v) => completedVideos.has(pair(uidNow, v.id)));
         if (!allVideos) return false;
         // A topic is not finished while a checkpoint is still unpassed.
-        return course.assignments.every((a) =>
-          state.submissions.some((sub) => sub.userId === uidNow && sub.assignmentId === a.id && sub.passed),
-        );
+        return course.assignments.every((a) => submissionsFor(a.id, uidNow).some((sub) => sub.passed));
       },
       submitCourseRating(courseId, stars, review) {
         if (!currentUser) return;
@@ -1464,229 +1576,6 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         } catch (e) {
           console.error("[supabase]", e);
           return null;
-        }
-      },
-      // ── transcripts: fetched for the video being watched ──
-      transcriptFor(videoId) {
-        if (videoId in state.transcripts) return state.transcripts[videoId];
-        return getVideoById(videoId)?.video.transcript;
-      },
-      async ensureTranscript(videoId) {
-        const known = state.transcripts[videoId] ?? getVideoById(videoId)?.video.transcript;
-        if (known !== undefined) return known;
-        if (!sb) return "";
-        let text = await db.fetchTranscript(sb, videoId);
-        if (text === null) {
-          // One retry for a dropped request, then settle on "none", so the lesson
-          // page does not wait for it forever.
-          await new Promise((r) => setTimeout(r, 1500));
-          text = await db.fetchTranscript(sb, videoId);
-        }
-        const settled = text ?? "";
-        setState((s) => (videoId in s.transcripts ? s : { ...s, transcripts: { ...s.transcripts, [videoId]: settled } }));
-        return settled;
-      },
-      async loadCourseForEdit(courseId) {
-        if (!sb) return getCourse(courseId) ?? null;
-        const full = await db.fetchCourseFull(sb, courseId);
-        return full;
-      },
-
-      // ── idea of the day ──
-      async getIdeaOfTheDay(day) {
-        const role = currentUser?.role ?? null;
-        if (!sb) return ideaForDay(state.ideas, role, day);
-        return db.fetchIdeaForDay(sb, role, day);
-      },
-      ideaResponseFor(ideaId) {
-        const me = state.currentUserId;
-        return state.ideaResponses.find((r) => r.ideaId === ideaId && r.userId === me);
-      },
-      answerIdea(ideaId, optionIndex) {
-        if (!currentUser) return;
-        if (state.ideaResponses.some((r) => r.ideaId === ideaId && r.userId === currentUser.id)) return; // first answer counts
-        const response: IdeaResponse = { userId: currentUser.id, ideaId, optionIndex, createdAt: new Date().toISOString() };
-        setState((s) => {
-          const ideaResponses = [response, ...s.ideaResponses];
-          if (realMode) return { ...s, ideaResponses };
-          const me = s.users.find((u) => u.id === response.userId);
-          const stamps = me ? [...s.stamps, ...newlyEarnedStamps(me, s.courses, s.submissions, s.progress, ideaResponses, s.stamps)] : s.stamps;
-          return { ...s, ideaResponses, stamps };
-        });
-        if (sb) fireThen(db.answerIdea(sb, response), refreshStanding);
-      },
-      async ideaStats(ideaId) {
-        if (!sb) {
-          const counts: number[] = [];
-          for (const r of state.ideaResponses) if (r.ideaId === ideaId) counts[r.optionIndex] = (counts[r.optionIndex] ?? 0) + 1;
-          return counts;
-        }
-        return db.fetchIdeaStats(sb, ideaId);
-      },
-      async loadIdeas() {
-        if (!sb) {
-          const responses: Record<string, number[]> = {};
-          for (const r of state.ideaResponses) {
-            const c = (responses[r.ideaId] ??= []);
-            c[r.optionIndex] = (c[r.optionIndex] ?? 0) + 1;
-          }
-          return { ideas: state.ideas, responses };
-        }
-        const [ideas, responses] = await Promise.all([db.fetchIdeas(sb), db.fetchIdeaResponseCounts(sb)]);
-        setState((s) => ({ ...s, ideas }));
-        return { ideas, responses };
-      },
-      async saveIdeas(ideas) {
-        if (!hasPermission(currentUser, "content")) return { ok: false, error: "You don't have permission to plan ideas." };
-        if (sb) {
-          const { error } = await db.saveIdeas(sb, ideas);
-          if (error) {
-            console.error("[supabase] saveIdeas", error);
-            return {
-              ok: false,
-              error: /daily_ideas/.test(error.message)
-                ? "The database has no ideas table yet. Run supabase/migrations/2026-11-08-ideas-standing-resume.sql in Supabase, then try again."
-                : error.message,
-            };
-          }
-        }
-        const byId = new Map(ideas.map((i) => [i.id, i]));
-        setState((s) => ({
-          ...s,
-          ideas: [...s.ideas.filter((i) => !byId.has(i.id)), ...ideas],
-        }));
-        return { ok: true };
-      },
-      async deleteIdea(id) {
-        if (!hasPermission(currentUser, "content")) return { ok: false, error: "You don't have permission to plan ideas." };
-        if (sb) {
-          const { error } = await db.deleteIdea(sb, id);
-          if (error) return { ok: false, error: error.message };
-        }
-        setState((s) => ({ ...s, ideas: s.ideas.filter((i) => i.id !== id), ideaResponses: s.ideaResponses.filter((r) => r.ideaId !== id) }));
-        return { ok: true };
-      },
-
-      // ── standing: leaderboard, stamps, profile stats ──
-      async getLeaderboard(period, role, limit = 10) {
-        if (sb) return db.fetchLeaderboard(sb, period, role, limit);
-        // Local demo: rank the accounts in this browser the same way.
-        const monthStart = new Date();
-        monthStart.setDate(1);
-        monthStart.setHours(0, 0, 0, 0);
-        const monthly = new Map<string, number>();
-        for (const e of state.creditEvents)
-          if (Date.parse(e.createdAt) >= monthStart.getTime()) monthly.set(e.userId, (monthly.get(e.userId) ?? 0) + e.amount);
-        const pool = state.users
-          .filter((u) => !u.isAdmin && !u.banned && (!role || u.role === role))
-          .map((u) => ({ u, credits: period === "month" ? monthly.get(u.id) ?? 0 : u.learningCredits }))
-          .sort((a, b) => b.credits - a.credits || a.u.name.localeCompare(b.u.name));
-        return pool
-          .map((x, i) => ({
-            rank: pool.findIndex((y) => y.credits === x.credits) + 1,
-            userId: x.u.id,
-            name: x.u.name,
-            username: x.u.username,
-            avatarUrl: x.u.avatarUrl ?? null,
-            role: x.u.role,
-            credits: x.credits,
-            isMe: x.u.id === state.currentUserId,
-            i,
-          }))
-          .filter((r) => (r.i < limit && r.credits > 0) || r.isMe)
-          .map(({ i: _i, ...r }) => r);
-      },
-      async getUserStamps(userId) {
-        if (userId === state.currentUserId && !sb) return state.stamps;
-        if (!sb) {
-          const u = userIndex.get(userId);
-          if (!u) return [];
-          return computeStamps(u, state.courses, state.submissions, state.progress, state.ideaResponses)
-            .filter((x) => x.earned)
-            .map((x) => ({ userId, stampId: x.id, earnedAt: x.earnedAt ?? u.lastActiveAt }));
-        }
-        return db.fetchStamps(sb, userId);
-      },
-      async getProfileStats(userId) {
-        if (sb) return db.fetchProfileStats(sb, userId);
-        const completedVideos = state.progress.filter((p) => p.userId === userId && p.completed).length;
-        return {
-          comments: state.videoComments.filter((c) => c.userId === userId).length,
-          videosCompleted: completedVideos,
-          topicsCompleted: state.courses.filter((c) => topicComplete(c, userId, state.submissions, state.progress)).length,
-          currentStreak: learningStreaks(userId, state.progress, state.submissions, state.ideaResponses).current,
-        };
-      },
-      learningStreak() {
-        if (!state.currentUserId) return { current: 0, best: 0 };
-        return learningStreaks(state.currentUserId, state.progress, state.submissions, state.ideaResponses);
-      },
-
-      // ── other people's profiles (a learner's store holds only their own) ──
-      async ensureProfiles(ids) {
-        if (!sb) return;
-        const missing = [...new Set(ids.filter((id) => id && !userIndex.has(id)))];
-        if (!missing.length) return;
-        const found = await db.fetchProfiles(sb, missing);
-        if (!found.length) return;
-        setState((s) => {
-          const have = new Set(s.users.map((u) => u.id));
-          return { ...s, users: [...s.users, ...found.filter((u) => !have.has(u.id))] };
-        });
-      },
-      async findProfile(idOrHandle) {
-        const key = idOrHandle.toLowerCase();
-        const local = state.users.find((u) => u.id === idOrHandle || (u.username ?? "").toLowerCase() === key);
-        if (local || !sb) return local ?? null;
-        const found = await db.fetchProfileByHandle(sb, idOrHandle);
-        if (found)
-          setState((s) => (s.users.some((u) => u.id === found.id) ? s : { ...s, users: [...s.users, found] }));
-        return found;
-      },
-      async searchProfiles(query) {
-        const q = query.trim().toLowerCase();
-        if (!sb)
-          return state.users
-            .filter((u) => !u.banned && u.username && (u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q)))
-            .slice(0, 8);
-        const found = await db.searchProfiles(sb, query, 8);
-        if (found.length)
-          setState((s) => {
-            const have = new Set(s.users.map((u) => u.id));
-            const add = found.filter((u) => !have.has(u.id));
-            return add.length ? { ...s, users: [...s.users, ...add] } : s;
-          });
-        return found;
-      },
-      async isUsernameTaken(handle) {
-        const h = normalizeUsername(handle);
-        if (!currentUser || !h) return false;
-        if (!sb) return !isUsernameAvailable(h, state.users, currentUser.id);
-        return db.isUsernameTaken(sb, h, currentUser.id);
-      },
-
-      // ── per-video discussion, fetched for the video on screen ──
-      async loadVideoComments(videoId) {
-        if (!sb) return;
-        const comments = await db.fetchVideoComments(sb, videoId);
-        setState((s) => ({
-          ...s,
-          videoComments: [...s.videoComments.filter((c) => c.videoId !== videoId), ...comments],
-        }));
-        // Authors' avatars and the people tagged.
-        const ids = new Set<string>();
-        for (const c of comments) {
-          ids.add(c.userId);
-          for (const m of c.mentions) ids.add(m);
-        }
-        const missing = [...ids].filter((id) => !userIndex.has(id));
-        if (missing.length) {
-          const found = await db.fetchProfiles(sb, missing);
-          if (found.length)
-            setState((s) => {
-              const have = new Set(s.users.map((u) => u.id));
-              return { ...s, users: [...s.users, ...found.filter((u) => !have.has(u.id))] };
-            });
         }
       },
       addNote(videoId, text) {
@@ -1848,10 +1737,31 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
 
       // ── per-video discussion (YouTube-style comments under a topic video) ──
+      async loadVideoComments(videoId) {
+        if (!sb) return; // the local demo already holds every comment
+        const started = Date.now();
+        const list = await db.fetchVideoComments(sb, videoId);
+        if (!list) return; // the read failed: keep what is on screen
+        const fetched = new Set(list.map((c) => c.id));
+        setState((s) => ({
+          ...s,
+          videoComments: [
+            // Other videos' threads stay as they are. Of this one's, keep only a
+            // comment posted while the read was in flight: it may not be in it yet.
+            ...s.videoComments.filter(
+              (c) => c.videoId !== videoId || (!fetched.has(c.id) && Date.parse(c.createdAt) >= started - 5_000),
+            ),
+            ...list,
+          ],
+        }));
+      },
+      async countVideoComments(userId) {
+        if (!sb) return state.videoComments.filter((c) => c.userId === userId).length;
+        return db.countVideoComments(sb, userId);
+      },
       videoCommentsFor(videoId) {
-        return state.videoComments
-          .filter((c) => c.videoId === videoId)
-          .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+        // A copy, so a caller can never reorder the shared index.
+        return (commentsByVideo.get(videoId) ?? []).slice();
       },
       addVideoComment(videoId, courseId, text, parentId, mentionIds) {
         if (!currentUser || !text.trim()) return;
@@ -2061,36 +1971,32 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       togglePublish(courseId) {
         if (!isOwner(currentUser)) return; // publishing is owner-only (sub-admins go via approval)
         const c = getCourse(courseId);
-        setState((s) => ({
-          ...s,
-          courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: !x.published } : x)),
-        }));
-        if (sb && c) fire(db.updateCourse(sb, courseId, { published: !c.published }));
+        if (!c) return;
+        const after = { published: !c.published };
+        setState((s) => ({ ...s, courses: s.courses.map((x) => (x.id === courseId ? { ...x, ...after } : x)) }));
+        if (sb) adminCourseAction(c, c.published ? "unpublish" : "publish", after);
       },
       toggleTrending(courseId) {
         if (!isOwner(currentUser)) return;
         const c = getCourse(courseId);
-        setState((s) => ({
-          ...s,
-          courses: s.courses.map((x) => (x.id === courseId ? { ...x, trending: !x.trending } : x)),
-        }));
-        if (sb && c) fire(db.updateCourse(sb, courseId, { trending: !c.trending }));
+        if (!c) return;
+        const after = { trending: !c.trending };
+        setState((s) => ({ ...s, courses: s.courses.map((x) => (x.id === courseId ? { ...x, ...after } : x)) }));
+        if (sb) adminCourseAction(c, c.trending ? "unfeature" : "feature", after);
       },
       approveCourse(courseId) {
-        if (!isOwner(currentUser) || !getCourse(courseId)) return;
-        setState((s) => ({
-          ...s,
-          courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: true, pendingApproval: false } : x)),
-        }));
-        if (sb) fire(db.updateCourse(sb, courseId, { published: true, pending_approval: false }));
+        const c = getCourse(courseId);
+        if (!isOwner(currentUser) || !c) return;
+        const after = { published: true, pendingApproval: false };
+        setState((s) => ({ ...s, courses: s.courses.map((x) => (x.id === courseId ? { ...x, ...after } : x)) }));
+        if (sb) adminCourseAction(c, "approve", after);
       },
       rejectCourse(courseId) {
-        if (!isOwner(currentUser) || !getCourse(courseId)) return;
-        setState((s) => ({
-          ...s,
-          courses: s.courses.map((x) => (x.id === courseId ? { ...x, published: false, pendingApproval: false } : x)),
-        }));
-        if (sb) fire(db.updateCourse(sb, courseId, { published: false, pending_approval: false }));
+        const c = getCourse(courseId);
+        if (!isOwner(currentUser) || !c) return;
+        const after = { published: false, pendingApproval: false };
+        setState((s) => ({ ...s, courses: s.courses.map((x) => (x.id === courseId ? { ...x, ...after } : x)) }));
+        if (sb) adminCourseAction(c, "reject", after);
       },
       saveQuestion(courseId, assignmentId, question) {
         if (!hasPermission(currentUser, "content")) return;
@@ -2399,6 +2305,19 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
       },
 
       // ── admin: FAQ + privacy (gated under the "homepage" site-content permission) ──
+      saveIdea(idea) {
+        if (!hasPermission(currentUser, "content")) return;
+        setState((s) => ({
+          ...s,
+          ideas: s.ideas.some((x) => x.id === idea.id) ? s.ideas.map((x) => (x.id === idea.id ? idea : x)) : [...s.ideas, idea],
+        }));
+        if (sb) fire(db.saveIdea(sb, idea));
+      },
+      deleteIdea(id) {
+        if (!hasPermission(currentUser, "content")) return;
+        setState((s) => ({ ...s, ideas: s.ideas.filter((x) => x.id !== id) }));
+        if (sb) fire(db.deleteIdea(sb, id));
+      },
       saveFaq(f) {
         if (!hasPermission(currentUser, "homepage")) return;
         setState((s) => ({
@@ -2435,7 +2354,21 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         setState(seedState());
       },
     };
-  }, [state, hydrated, fresh, saveError, auth, courseIndex, userIndex, enrolledIndex, progressIndex, submissionIndex]);
+  }, [
+    state,
+    hydrated,
+    fresh,
+    saveError,
+    courseIdx,
+    userById,
+    completedVideos,
+    enrolledPairs,
+    submissionsByPair,
+    ratingByPair,
+    commentsByVideo,
+    progressByCourse,
+    progressRow,
+  ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

@@ -1,14 +1,11 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { Play, Pause, Volume2, Maximize, Settings, Check, RotateCcw, ArrowRight } from "lucide-react";
 import { ProfessorPhoto } from "@/components/ProfessorPhoto";
 import { CourseThumb } from "@/components/CourseThumb";
 import { buttonClasses } from "@/components/ui/button-variants";
-import { usePlaybackResume } from "@/components/learn/usePlaybackResume";
-import { canOptimize } from "@/lib/images";
 import { Course, Video } from "@/lib/types";
 import { cn, formatClock } from "@/lib/utils";
 
@@ -17,54 +14,46 @@ interface MockVideoPlayerProps {
   video: Video;
   isVishal?: boolean;
   alreadyCompleted?: boolean;
-  /** Whose place to remember, so two learners on one browser do not share it. */
-  learnerId?: string;
   onEnded?: () => void;
   nextHref?: string | null;
 }
 
-export function MockVideoPlayer({
+export const MockVideoPlayer = React.memo(function MockVideoPlayer({
   course,
   video,
   isVishal,
   alreadyCompleted,
-  learnerId,
   onEnded,
   nextHref,
 }: MockVideoPlayerProps) {
   const dur = video.durationSeconds;
-  // Stand-in for a real player, but it keeps the learner's place the same way.
-  const resume = usePlaybackResume(video.id, learnerId);
-  const [t, setT] = React.useState(() => (resume.startAt > 0 && resume.startAt < dur ? resume.startAt : 0));
+  const [t, setT] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
   const [ended, setEnded] = React.useState(false);
-  const resumeRef = React.useRef(resume);
-  resumeRef.current = resume;
 
-  // The page mounts one player per video (`key`), so a new video starts fresh on its own.
+  // reset when switching videos
+  React.useEffect(() => {
+    setT(0);
+    setPlaying(false);
+    setEnded(false);
+  }, [video.id]);
 
   React.useEffect(() => {
-    if (!playing) {
-      resumeRef.current.flush();
-      return;
-    }
-    const id = window.setInterval(() => {
-      setT((prev) => {
-        const next = prev + dur / 60; // ~12s to finish at 200ms ticks
-        if (next >= dur) {
-          window.clearInterval(id);
-          setPlaying(false);
-          setEnded(true);
-          resumeRef.current.ended();
-          onEnded?.();
-          return dur;
-        }
-        resumeRef.current.report(next, dur);
-        return next;
-      });
-    }, 200);
+    if (!playing) return;
+    // ~12s to finish at 200ms ticks
+    const id = window.setInterval(() => setT((prev) => Math.min(dur, prev + dur / 60)), 200);
     return () => window.clearInterval(id);
-  }, [playing, dur, onEnded]);
+  }, [playing, dur]);
+
+  // Reaching the end is handled here, not inside the state updater above: an updater
+  // runs while React renders, and this one used to update the store (onEnded) from
+  // there — React's "cannot update a component while rendering another" case.
+  React.useEffect(() => {
+    if (!playing || t < dur) return;
+    setPlaying(false);
+    setEnded(true);
+    onEnded?.();
+  }, [playing, t, dur, onEnded]);
 
   const pct = Math.min(100, (t / dur) * 100);
 
@@ -72,7 +61,6 @@ export function MockVideoPlayer({
     const rect = e.currentTarget.getBoundingClientRect();
     const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     setT(p * dur);
-    resumeRef.current.report(p * dur, dur);
     if (p >= 0.99) {
       setEnded(true);
       onEnded?.();
@@ -82,14 +70,15 @@ export function MockVideoPlayer({
   return (
     <div className="overflow-hidden rounded-3xl bg-navy-950 shadow-lift ring-1 ring-white/10">
       <div className="group/stage relative aspect-video">
+        {/* The topic's video thumbnail (Sessions step of the topic editor) when set. */}
         {course.videoThumbnailUrl ? (
-          <Image
+          <CourseThumb
+            accent={course.accent}
+            category={course.category}
+            title={video.title}
             src={course.videoThumbnailUrl}
-            alt=""
-            fill
-            sizes="(max-width: 1024px) 100vw, 60vw"
-            unoptimized={!canOptimize(course.videoThumbnailUrl)}
-            className="object-cover"
+            rounded="rounded-none"
+            className="absolute inset-0 h-full w-full"
           />
         ) : isVishal ? (
           <ProfessorPhoto
@@ -204,4 +193,4 @@ export function MockVideoPlayer({
       </div>
     </div>
   );
-}
+});
