@@ -24,6 +24,23 @@ no demo content; the only inserted rows are two structural singletons
 > the **section 9** banner inside `database.sql` for the exact commands. This resets
 > demo purchases/progress.
 
+### Upgrading a database that is already live
+Re-running `database.sql` is always safe and brings an existing database up to date.
+If you prefer to apply only what changed, run the newest file in `migrations/`:
+
+- **`migrations/2026-11-08-ideas-standing-resume.sql`** — Idea of the day
+  (`daily_ideas`, `idea_responses`, `idea_for_day()`), credits worked out by the
+  database (triggers on video completions and checkpoint submissions; learners can no
+  longer write their own credits), the credit history behind the monthly leaderboard
+  (`credit_events`, `leaderboard()`), database-awarded stamps (`user_stamps`), the
+  resume position (`video_progress.position_seconds` / `last_watched_at`) and the
+  topic-wide video thumbnail (`courses.video_thumbnail_url`). On its first run it
+  recalculates every learner's credits from what they have actually done and awards
+  the stamps they have already earned.
+
+The site keeps working before it is run (those features stay empty), but admins
+cannot schedule ideas or save a video thumbnail until it is.
+
 ## 3. Create a Clerk application
 Create an app at [dashboard.clerk.com](https://dashboard.clerk.com).
 - **User & Authentication → Email, Phone, Username**: enable **Email** + password.
@@ -99,10 +116,18 @@ via Razorpay). Receipts are private — RLS lets each learner see only their own
   + upserts) and the coupon counter is atomic (`increment_coupon_redemption` RPC), so
   simultaneous users / webhook retries can't double-grant, double-charge, or lose counts.
 
+- **What each visitor loads** (`lib/supabase/db.ts`). A signed-out visitor loads only
+  the public content (topics, FAQs, team, books, prices). A learner adds their own rows
+  (filtered by their id) and the shared content; other people's profiles, a video's
+  comments and transcripts are fetched when a screen shows them. Admins additionally
+  load what the admin screens count across learners, without the heavy columns
+  (answers, per-question feedback). Leaderboard, idea of the day and profile numbers
+  are worked out in the database (RPC functions), not by downloading rows.
+
 **Recommended before go-live (documented, not yet done):**
-- **Per-page data loading.** The app currently loads all shared data on sign-in. As
-  content grows, move to on-demand fetching + pagination for the unbounded tables
-  (discussion posts/comments, profiles). This is the main latency lever at large scale.
+- **Pagination** for the tables that grow with every learner on the admin side
+  (profiles, progress, submissions, payments): the admin screens still load them whole,
+  just with fewer columns. Server-side aggregates are the next step at large scale.
 - **Durable background writes.** Non-payment writes (notes, posts, progress, likes) are
   optimistic + fire-and-forget; a transient failure self-heals on the next load but isn't
   retried/surfaced. Add retry + a "couldn't save" indicator. (Payments are already

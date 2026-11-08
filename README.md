@@ -61,6 +61,10 @@ Run **one file** against your Supabase project (SQL editor):
   add real content in the app (Admin → Content Studio).
 
 Re-run it after pulling changes to pick up new columns — it's always safe to re-run.
+Each change is also kept as a single file in `supabase/migrations/` (newest:
+`2026-11-08-ideas-standing-resume.sql`, for idea of the day, database-computed credits,
+leaderboard, stamps, resume position and the topic video thumbnail) if you would rather
+apply only what changed.
 
 ## Deploying to Vercel
 

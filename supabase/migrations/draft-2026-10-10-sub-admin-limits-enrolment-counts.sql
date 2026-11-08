@@ -103,7 +103,8 @@ $$;
 
 -- ── 2. Sub-admin limits ──────────────────────────────────────────────────────
 
--- 2a. Privileged profile columns (admin flag, permissions, subscription, ban).
+-- 2a. Privileged profile columns (admin flag, permissions, subscription, ban,
+-- learning credits).
 -- Same function as in database.sql section 11 with ONE change: the exemption was
 -- "any admin", which let a sub-admin edit their own row and clear their own
 -- permission list. It is now the owner only. (The app already makes these
@@ -120,12 +121,19 @@ begin
     new.subscription_plan        := 'none';
     new.subscription_valid_until := null;
     new.banned                   := false;
+    new.learning_credits         := 0;
+    new.topic_credits            := '{}'::jsonb;
   else
     new.is_admin                 := old.is_admin;
     new.permissions              := old.permissions;
     new.subscription_plan        := old.subscription_plan;
     new.subscription_valid_until := old.subscription_valid_until;
     new.banned                   := old.banned;
+    -- Credits are worked out by the database (database.sql section 11b).
+    if coalesce(current_setting('leap.credit_sync', true), '') <> 'on' then
+      new.learning_credits := old.learning_credits;
+      new.topic_credits    := old.topic_credits;
+    end if;
   end if;
   return new;
 end;
@@ -152,6 +160,7 @@ begin
       ('assignments',       'content'),
       ('questions',         'content'),
       ('daily_tips',        'content'),
+      ('daily_ideas',       'content'),
       ('live_sessions',     'sessions'),
       ('team_members',      'team'),
       ('site_content',      'homepage'),
