@@ -329,6 +329,12 @@ export function liveCourseFields(row: Row): Partial<Course> {
 export async function loadAll(sb: SupabaseClient, userId: string | null): Promise<LoadedData> {
   const signedIn = Boolean(userId);
   const forUser = (q: () => PromiseLike<unknown>) => (signedIn ? rows(q()) : SKIP);
+  // The caller's own rows, asked for by owner. The row rules already limit a learner
+  // to these, but each rule reads "mine, or I am an admin", which Postgres cannot
+  // answer from the user_id index: it reads the whole table and filters it, on every
+  // page load of every learner. Naming the owner lets it use the index. Admins get
+  // everyone's rows in the second step below.
+  const mine = (table: string) => forUser(() => sb.from(table).select("*").eq("user_id", userId!));
 
   const [
     profiles, me, purchases, tracks, courses,
@@ -339,7 +345,7 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     signedIn ? publicProfiles(sb) : SKIP,
     // The signed-in user's own full row (the public read above leaves out e.g. email).
     signedIn ? ownProfile(sb, userId!) : SKIP,
-    forUser(() => sb.from("course_purchases").select("*")),
+    mine("course_purchases"),
     rows(sb.from("leadership_tracks").select("*")),
     // Whole course tree in ONE query via PostgREST embedding (was 4 separate fetches:
     // courses + videos + assignments + questions). videos(...) is enumerated rather
@@ -353,8 +359,8 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     forUser(() => sb.from("recommended_resources").select("*")),
     forUser(() => sb.from("live_sessions").select("*")),
     forUser(() => sb.from("session_attendees").select("*")),
-    forUser(() => sb.from("enrollments").select("*")),
-    forUser(() => sb.from("video_progress").select("*")),
+    mine("enrollments"),
+    mine("video_progress"),
     // Own attempts in full (answers + feedback drive the credit and the topic report).
     // Admins can read everyone's; theirs come below as summaries.
     forUser(() => sb.from("submissions").select("*").eq("user_id", userId!)),
@@ -364,7 +370,7 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     // Global Discussion board was removed: community_posts, post_likes, post_comments
     // and comment_likes are no longer read.
     forUser(() => sb.from("coupons").select("*")),
-    forUser(() => sb.from("category_passes").select("*")),
+    mine("category_passes"),
     rows(sb.from("pricing_tiers").select("*")),
     // Only the bell's own list, exactly what its polling fetches. Admins can read
     // every user's notifications, and used to download all of them on each load.
@@ -382,7 +388,7 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     rows(sb.from("books").select("*")),
     rows(sb.from("site_content").select("*")),
     forUser(() => sb.from("articles").select("*")),
-    forUser(() => sb.from("payments").select("*")),
+    mine("payments"),
     // video_comments + video_comment_likes: fetched per video (fetchVideoComments).
     forUser(() => sb.from("announcements").select("*")),
     rows(sb.from("faqs").select("*")),
@@ -399,17 +405,27 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
   // admin's screens list people's contact details, so admins read full rows.
   let profileRows = profiles;
   let submissions = mySubmissions;
+  // Own rows so far (see `mine` above); an admin's are replaced with everyone's.
+  const owned = { course_purchases: purchases, enrollments, video_progress: progress, category_passes: categoryPasses, payments: paymentRows };
   const own = me[0];
   if (own?.is_admin) {
-    // Admin screens: everyone's full profile, and everyone's attempts as summaries.
-    const [full, others] = await Promise.all([
+    // Admin screens: everyone's full profile, everyone's attempts as summaries, and
+    // everyone's purchases, passes, enrolments, progress and receipts.
+    const tables = Object.keys(owned) as (keyof typeof owned)[];
+    const [full, others, ...everyone] = await Promise.all([
       allProfiles(sb),
       sb.from("submissions").select(SUBMISSION_SUMMARY_COLS).neq("user_id", userId!),
+      ...tables.map((t) => sb.from(t).select("*")),
     ]);
     if (!full.error) profileRows = (full.data ?? []) as Row[];
     else console.error("[supabase] profiles (admin, full rows)", full.error.message);
     if (!others.error) submissions = [...mySubmissions, ...((others.data ?? []) as Row[])];
     else console.error("[supabase] submissions (admin summaries)", others.error.message);
+    tables.forEach((t, i) => {
+      // A failed read leaves the admin's own rows in place rather than none.
+      if (!everyone[i].error) owned[t] = (everyone[i].data ?? []) as Row[];
+      else console.error(`[supabase] ${t} (admin, all rows)`, everyone[i].error!.message);
+    });
   }
   if (own) {
     // In place, so the list keeps the order the database returned.
@@ -418,8 +434,8 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
       : [...profileRows, own];
   }
 
-  const purchasesByUser = group(purchases, (p) => p.user_id);
-  const passesByUser = group(categoryPasses, (p) => p.user_id);
+  const purchasesByUser = group(owned.course_purchases, (p) => p.user_id);
+  const passesByUser = group(owned.category_passes, (p) => p.user_id);
   const attendeesBySession = group(attendees, (a) => a.session_id);
 
   const assembledCourses: Course[] = courses.map(mapCourse);
@@ -447,13 +463,13 @@ export async function loadAll(sb: SupabaseClient, userId: string | null): Promis
     faqs: faqRows.map(mapFaq).sort((a, b) => (a.order !== b.order ? a.order - b.order : a.createdAt < b.createdAt ? -1 : 1)),
     ideas: ideaRows.map(mapIdea),
     privacyPolicy: (sitePageRows[0]?.privacy_policy as string) ?? null,
-    enrollments: enrollments.map(mapEnrollment),
-    progress: progress.map(mapProgress),
+    enrollments: owned.enrollments.map(mapEnrollment),
+    progress: owned.video_progress.map(mapProgress),
     submissions: submissions.map(mapSubmission),
     notes: notes.map(mapNote),
     courseRatings: courseRatingRows.map(mapCourseRating),
     coupons: coupons.map(mapCoupon),
-    payments: paymentRows.map(mapPayment).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+    payments: owned.payments.map(mapPayment).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
     pricing: pricingRows[0]
       ? {
           cat1: pricingRows[0].cat1,

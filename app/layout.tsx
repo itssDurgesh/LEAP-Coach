@@ -8,16 +8,23 @@ import { ClerkAuthBridge } from "@/lib/auth/ClerkAuthBridge";
 import { MockAuthBridge } from "@/lib/auth/MockAuthBridge";
 import { SaveErrorBanner } from "@/components/app/SaveErrorBanner";
 import { isClerkConfigured } from "@/lib/clerk/config";
+import { SUPABASE_URL } from "@/lib/supabase/config";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
 // Self-hosted rather than next/font/google: Google Fonts sometimes answers with
 // `/l/font?kit=…&skey=…` URLs, which Turbopack cannot parse, and the build fails
 // (vercel/next.js#99114). These are the latin variable files Google serves for the
 // same requests, so each weight range below matches the weights we asked for before.
+// The base pair. Every page now sits inside the `.app-v2` scope (globals.css), which
+// swaps these for Bricolage + Figtree, so only the few things outside that scope use
+// them (the save-error bar, the sign-in callback spinner, the global error screen).
+// `preload: false`: they were preloaded on every page and used on none, 78KB at the
+// highest priority ahead of the fonts the page actually draws with.
 const outfit = localFont({
   src: "./fonts/outfit-latin.woff2",
   weight: "300 800",
   display: "swap",
+  preload: false,
   variable: "--font-outfit",
 });
 
@@ -25,18 +32,16 @@ const inter = localFont({
   src: "./fonts/inter-latin.woff2",
   weight: "400 700",
   display: "swap",
+  preload: false,
   variable: "--font-inter",
 });
 
-// Signed-in learner pages (the `.app-v2` scope in globals.css) swap the two
-// families above for these; public and admin pages keep Outfit + Inter.
-// `preload: false` because this layout also serves the public pages, which do not
-// use them: they are fetched only when a learner page asks for them.
+// The fonts the public site, the learner area and the admin panel draw with, so
+// these are the two worth preloading (the next/font default).
 const bricolage = localFont({
   src: "./fonts/bricolage-grotesque-latin.woff2",
   weight: "600 700",
   display: "swap",
-  preload: false,
   variable: "--font-bricolage",
 });
 
@@ -44,7 +49,6 @@ const figtree = localFont({
   src: "./fonts/figtree-latin.woff2",
   weight: "400 700",
   display: "swap",
-  preload: false,
   variable: "--font-figtree",
 });
 
@@ -184,6 +188,11 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        {/* The store's first reads go to Supabase, a host the page has no connection
+            to yet. Opening it while the scripts load takes the DNS + TLS setup (about
+            half a second from India on a first visit) off those reads. `anonymous`
+            because that is the connection fetch() uses for them. */}
+        {SUPABASE_URL && <link rel="preconnect" href={SUPABASE_URL} crossOrigin="anonymous" />}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <script dangerouslySetInnerHTML={{ __html: topOnRefreshScript }} />
         <script

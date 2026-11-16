@@ -19,17 +19,21 @@ const groupLabel = (g: string) => TEAM_GROUPS.find((x) => x.id === g)?.label ?? 
 export function HomeMentors() {
   const { teamMembers, siteContent , ensureTeamPhotos } = useApp();
 
-  // Portraits are excluded from the bulk store load (2.4MB of base64 on this
-  // project); pull them in only on the surfaces that actually render them.
-  React.useEffect(() => {
-    void ensureTeamPhotos();
-  }, [ensureTeamPhotos]);
   const c = siteContent;
   // The founder gets a dedicated spotlight section below, so the strip shows the
   // rest of the featured team. It stays hidden until mentors are added.
   const list = teamMembers
     .filter((m) => m.active && m.featured && m.group !== "founder")
     .sort((a, b) => a.order - b.order);
+
+  // Portraits are excluded from the bulk store load (2.4MB of base64 on this
+  // project); pull them in only on the surfaces that actually render them. That
+  // means only when this strip has someone to show: with no featured mentor it
+  // renders nothing, and every home page visit still downloaded all 2.4MB.
+  const shown = list.length > 0;
+  React.useEffect(() => {
+    if (shown) void ensureTeamPhotos();
+  }, [shown, ensureTeamPhotos]);
 
   if (!list.length) return null;
 
