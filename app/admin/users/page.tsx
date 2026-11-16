@@ -77,8 +77,10 @@ function UsersAdmin() {
     if (status === "banned" && !u.banned) return false;
     return true;
   });
-  // Ranked search by name / username / email relevance (see lib/search.ts).
-  const searched = searchRanked(preFiltered, q);
+  // Ranked search by name / username / email relevance (see lib/search.ts). The
+  // deferred copy lets the box show each keystroke at once; the table (and the
+  // charts on this page) catch up when the browser has a moment.
+  const searched = searchRanked(preFiltered, React.useDeferredValue(q));
   const filtered =
     sort === "courses"
       ? [...searched].sort((a, b) => enrollCount(b.id) - enrollCount(a.id))

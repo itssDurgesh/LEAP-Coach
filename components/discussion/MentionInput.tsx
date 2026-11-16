@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Textarea } from "@/components/ui/Field";
+import { searchRanked } from "@/lib/search";
 import { cn } from "@/lib/utils";
 
 export interface MentionUser {
@@ -45,13 +46,14 @@ export function MentionInput({ value, onChange, users, placeholder, autoFocus, c
     }
   });
 
-  const suggestions = React.useMemo(() => {
-    if (!open) return [];
-    const q = query.toLowerCase();
-    return users
-      .filter((u) => u.username && (u.username.toLowerCase().includes(q) || u.name.toLowerCase().includes(q)))
-      .slice(0, 6);
-  }, [open, query, users]);
+  // Only people with a handle can be tagged.
+  const taggable = React.useMemo(() => users.filter((u) => u.username), [users]);
+  // Ranked, so a handle or name that starts with what was typed comes before one
+  // that merely contains it (see lib/search.ts).
+  const suggestions = React.useMemo(
+    () => (open ? searchRanked(taggable, query).slice(0, 6) : []),
+    [open, query, taggable],
+  );
 
   function recompute(text: string, caret: number) {
     const slice = text.slice(0, caret);

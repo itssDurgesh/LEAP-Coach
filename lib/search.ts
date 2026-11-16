@@ -4,7 +4,12 @@
 // HOW WELL the query matches its username / name / email, so the closest matches
 // float to the top:
 //   exact match > whole-field prefix > word prefix > substring > multi-word coverage,
-// with username and name weighted above email. Fast (linear scan, no index needed).
+// with username and name weighted above email.
+//
+// Each record is prepared once (lower-cased fields, split into words) and the
+// result is remembered for as long as the record object lives. A keystroke then
+// only compares strings: it used to lower-case three fields and run a regex split
+// on each of them, per record, per keystroke.
 // ─────────────────────────────────────────────────────────────
 
 export interface Searchable {
@@ -13,39 +18,57 @@ export interface Searchable {
   email?: string;
 }
 
-/** Relevance score of one record for `query` (0 = no match). */
-function scoreMatch(item: Searchable, query: string): number {
-  const q = query.trim().toLowerCase();
-  if (!q) return 1;
-  const words = q.split(/\s+/).filter(Boolean);
+/** One searchable field, prepared: its lower-cased text, its words, and its weight. */
+type Field = { text: string; words: string[]; weight: number };
 
-  // [value, weight] — username/name matter more than email.
-  const fields: [string, number][] = [
-    [(item.username ?? "").toLowerCase(), 3],
-    [(item.name ?? "").toLowerCase(), 2.5],
-    [(item.email ?? "").toLowerCase(), 1.2],
-  ];
+const WORD_BREAK = /[\s._@-]+/;
 
+function field(value: string | undefined, weight: number): Field | null {
+  const text = (value ?? "").toLowerCase();
+  return text ? { text, words: text.split(WORD_BREAK), weight } : null;
+}
+
+// Keyed by the record object and by the values it was prepared from, so an edited
+// record (the store replaces the object, but check anyway) is prepared again.
+const prepared = new WeakMap<object, { name?: string; username?: string; email?: string; fields: Field[] }>();
+
+/** [value, weight] — username/name matter more than email. */
+function fieldsOf(item: Searchable): Field[] {
+  const hit = prepared.get(item);
+  if (hit && hit.name === item.name && hit.username === item.username && hit.email === item.email) return hit.fields;
+  const fields = [field(item.username, 3), field(item.name, 2.5), field(item.email, 1.2)].filter((f): f is Field => f !== null);
+  prepared.set(item, { name: item.name, username: item.username, email: item.email, fields });
+  return fields;
+}
+
+/** Relevance score of one record for the prepared query (0 = no match). */
+function scoreMatch(fields: Field[], q: string, words: string[]): number {
   let best = 0;
-  for (const [val, weight] of fields) {
-    if (!val) continue;
+  for (const { text, words: own, weight } of fields) {
     let s = 0;
-    if (val === q) s = 100;
-    else if (val.startsWith(q)) s = 70;
-    else if (val.split(/[\s._@-]+/).some((w) => w.startsWith(q))) s = 50;
-    else if (val.includes(q)) s = 30;
-    else if (words.length > 1 && words.every((w) => val.includes(w))) s = 25;
-    best = Math.max(best, s * weight);
+    if (text === q) s = 100;
+    else if (text.startsWith(q)) s = 70;
+    else if (own.some((w) => w.startsWith(q))) s = 50;
+    else if (text.includes(q)) s = 30;
+    else if (words.length > 1 && words.every((w) => text.includes(w))) s = 25;
+    if (s * weight > best) best = s * weight;
   }
   return best;
 }
 
-/** Filter + rank `items` by relevance to `query`. Empty query returns items unchanged. */
+/**
+ * Filter + rank `items` by relevance to `query`; ties keep their original order
+ * (the sort is stable). Empty query returns items unchanged.
+ */
 export function searchRanked<T extends Searchable>(items: T[], query: string): T[] {
-  if (!query.trim()) return items;
-  return items
-    .map((item) => ({ item, score: scoreMatch(item, query) }))
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map((x) => x.item);
+  const q = query.trim().toLowerCase();
+  if (!q) return items;
+  const words = q.split(/\s+/);
+
+  const hits: { item: T; score: number }[] = [];
+  for (const item of items) {
+    const score = scoreMatch(fieldsOf(item), q, words);
+    if (score > 0) hits.push({ item, score });
+  }
+  return hits.sort((a, b) => b.score - a.score).map((h) => h.item);
 }

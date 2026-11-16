@@ -528,6 +528,8 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
   // Sign-up extras (age/gender/phone/…) collected before the profile row exists;
   // applied by the hydration effect once Clerk has a session + the row is provisioned.
   const pendingSignup = React.useRef<SignUpData | null>(null);
+  // The team-photo read in flight, if any (see ensureTeamPhotos).
+  const teamPhotosLoad = React.useRef<Promise<void> | null>(null);
   // The latest auth bridge, read when a sign-in/out method actually runs. Clerk
   // gives the bridge a new identity whenever its own state ticks (a session-token
   // refresh, the tab regaining focus); with the bridge in the context value's
@@ -1556,15 +1558,25 @@ export function AppProvider({ auth, children }: { auth: AuthBridge; children: Re
         if (!sb) return;
         if (state.teamMembers.length === 0) return;
         if (state.teamMembers.every((m) => m.photoUrl !== undefined)) return;
-        try {
-          const photos = await db.fetchTeamPhotos(sb);
-          setState((s2) => ({
-            ...s2,
-            teamMembers: s2.teamMembers.map((m) => ({ ...m, photoUrl: photos[m.id] ?? null })),
-          }));
-        } catch (e) {
-          console.error("[supabase]", e);
-        }
+        // One download at a time. This function is rebuilt on every store change, so
+        // the effects that call it run again while the first read (megabytes on this
+        // project) is still on its way, and each run started another one.
+        if (teamPhotosLoad.current) return teamPhotosLoad.current;
+        const load = (async () => {
+          try {
+            const photos = await db.fetchTeamPhotos(sb);
+            setState((s2) => ({
+              ...s2,
+              teamMembers: s2.teamMembers.map((m) => ({ ...m, photoUrl: photos[m.id] ?? null })),
+            }));
+          } catch (e) {
+            console.error("[supabase]", e);
+          } finally {
+            teamPhotosLoad.current = null;
+          }
+        })();
+        teamPhotosLoad.current = load;
+        return load;
       },
       async videoNotesUrl(videoId) {
         // Already present (mock mode, or an admin who just uploaded in-session).
